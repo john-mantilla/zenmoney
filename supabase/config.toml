@@ -1,0 +1,6 @@
+project_id = "ebvwkprgmbzthrquqkpf"
+
+[functions.parse-dian-invoice]
+# Endpoint público consumido por el webhook de Resend (autenticado con su propia
+# firma Svix, no con el JWT de Supabase) — Resend no puede mandar ese header.
+verify_jwt = false

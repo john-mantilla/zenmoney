@@ -1,0 +1,99 @@
+{
+  "expo": {
+    "name": "ZenMoney",
+    "slug": "zenmoney",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "zenmoney",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.zenmoney.app",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "ZenMoney necesita reconocer tu voz para convertirla en un movimiento registrado.",
+        "NSMicrophoneUsageDescription": "ZenMoney necesita acceso al micrófono para registrar tus gastos por voz."
+      }
+    },
+    "android": {
+      "package": "com.zenmoney.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#1A1A2E",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png",
+      "name": "ZenMoney - Finanzas Personales",
+      "description": "Controla tus finanzas personales y familiares con inteligencia artificial. Registro por voz, presupuestos inteligentes y alertas predictivas."
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#1A1A2E"
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/SpaceMono-Regular.ttf"
+          ]
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "ZenMoney necesita acceso al micrófono para registrar tus gastos por voz.",
+          "speechRecognitionPermission": "ZenMoney necesita reconocer tu voz para convertirla en un movimiento registrado.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
+        "expo-quick-actions",
+        {
+          "androidIcons": {
+            "add_expense": {
+              "foregroundImage": "./assets/images/android-icon-foreground.png",
+              "backgroundColor": "#1A1A2E"
+            }
+          },
+          "iosIcons": {
+            "add_expense": "symbol:plus.circle.fill"
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ZenMoney necesita acceso a tus fotos para adjuntar la imagen de un recibo.",
+          "cameraPermission": "ZenMoney necesita acceso a la cámara para fotografiar tus recibos de compra."
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "9f009e75-b690-4bbc-bd54-20d0271fc43e"
+      },
+      "router": {}
+    }
+  }
+}

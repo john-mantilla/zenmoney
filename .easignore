@@ -1,0 +1,12 @@
+# EAS Build's remote image runs an older npm (bundled with Node 22) that resolves an
+# optional peer-dependency differently than local npm 11, tripping `npm ci`'s strict
+# lockfile-sync check even on a byte-for-byte valid lockfile. Excluding it here makes
+# EAS fall back to `npm install`, which resolves fresh instead of validating a lockfile
+# produced by a different npm major version.
+package-lock.json
+
+# Locally generated native projects (from `expo run:android` / `expo run:ios`).
+# Without this, EAS detects the folder and treats the project as bare workflow,
+# skipping `expo prebuild` and using the stale local native config instead of app.json.
+/android
+/ios
