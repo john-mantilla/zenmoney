@@ -4,6 +4,7 @@ import { SupabaseAccountRepository } from '../../data/repositories/SupabaseAccou
 import { SupabaseCategoryRepository } from '../../data/repositories/SupabaseCategoryRepository';
 import { SupabaseBudgetRepository } from '../../data/repositories/SupabaseBudgetRepository';
 import NetInfo from '@react-native-community/netinfo';
+import { Platform } from 'react-native';
 
 export class SyncService {
   private static isSyncing = false;
@@ -13,6 +14,7 @@ export class SyncService {
   private static remoteBudgetRepo = new SupabaseBudgetRepository();
 
   static async syncPendingActions(): Promise<void> {
+    if (Platform.OS === 'web') return;
     if (this.isSyncing) return;
     
     // Verificar si hay conexión a internet
