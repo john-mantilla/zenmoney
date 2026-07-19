@@ -44,6 +44,7 @@ export interface Transaction {
 }
 
 export interface CreateTransactionInput {
+  id?: string;
   accountId: string;
   categoryId: string | null;
   type: TransactionType;

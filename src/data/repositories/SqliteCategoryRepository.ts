@@ -135,7 +135,15 @@ export class SqliteCategoryRepository implements CategoryRepository {
     }
   }
 
-  private toDomain(row: any): Category {
+  async getUnsynced(): Promise<Category[]> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<any>(
+      `SELECT * FROM categories WHERE id IN (SELECT record_id FROM sync_actions_queue WHERE table_name = 'categories' AND action_type = 'INSERT');`
+    );
+    return rows.map(row => this.toDomain(row));
+  }
+
+  public toDomain(row: any): Category {
     return {
       id: row.id,
       familyGroupId: row.family_group_id,

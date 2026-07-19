@@ -108,7 +108,15 @@ export class SqliteAccountRepository implements AccountRepository {
     }
   }
 
-  private toDomain(row: any): Account {
+  async getUnsynced(): Promise<Account[]> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<any>(
+      `SELECT * FROM accounts WHERE id IN (SELECT record_id FROM sync_actions_queue WHERE table_name = 'accounts' AND action_type = 'INSERT');`
+    );
+    return rows.map(row => this.toDomain(row));
+  }
+
+  public toDomain(row: any): Account {
     return {
       id: row.id,
       familyGroupId: row.family_group_id,

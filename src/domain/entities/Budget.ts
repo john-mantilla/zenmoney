@@ -25,6 +25,7 @@ export interface BudgetProgress {
 }
 
 export interface CreateBudgetInput {
+  id?: string;
   categoryId: string;
   amountLimit: number;
   year: number;

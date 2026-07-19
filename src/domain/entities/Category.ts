@@ -15,6 +15,7 @@ export interface Category {
 }
 
 export interface CreateCategoryInput {
+  id?: string;
   name: string;
   icon: string;
   color: string;

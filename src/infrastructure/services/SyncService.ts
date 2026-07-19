@@ -47,7 +47,7 @@ export class SyncService {
 
           if (table === 'transactions') {
             if (type === 'INSERT') {
-              const { synced, id, createdByUserId, familyGroupId, createdAt, updatedAt, ...cleanPayload } = payload;
+              const { synced, createdByUserId, familyGroupId, createdAt, updatedAt, ...cleanPayload } = payload;
               await this.remoteTransactionRepo.create(cleanPayload);
             } else if (type === 'UPDATE') {
               const { synced, id, createdByUserId, familyGroupId, createdAt, updatedAt, ...cleanPayload } = payload;
@@ -57,7 +57,7 @@ export class SyncService {
             }
           } else if (table === 'accounts') {
             if (type === 'INSERT') {
-              const { id, ownerUserId, familyGroupId, createdAt, ...cleanPayload } = payload;
+              const { ownerUserId, familyGroupId, createdAt, ...cleanPayload } = payload;
               await this.remoteAccountRepo.create(cleanPayload);
             } else if (type === 'UPDATE') {
               const { id, ownerUserId, familyGroupId, createdAt, ...cleanPayload } = payload;
@@ -67,7 +67,7 @@ export class SyncService {
             }
           } else if (table === 'categories') {
             if (type === 'INSERT') {
-              const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
+              const { familyGroupId, createdAt, ...cleanPayload } = payload;
               await this.remoteCategoryRepo.create(cleanPayload);
             } else if (type === 'UPDATE') {
               const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
@@ -77,7 +77,7 @@ export class SyncService {
             }
           } else if (table === 'budgets') {
             if (type === 'INSERT') {
-              const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
+              const { familyGroupId, createdAt, ...cleanPayload } = payload;
               await this.remoteBudgetRepo.create(cleanPayload);
             } else if (type === 'UPDATE') {
               const { id, familyGroupId, createdAt, ...cleanPayload } = payload;

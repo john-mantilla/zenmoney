@@ -108,7 +108,15 @@ export class SqliteBudgetRepository implements BudgetRepository {
     }
   }
 
-  private toDomain(row: any): Budget {
+  async getUnsynced(): Promise<Budget[]> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<any>(
+      `SELECT * FROM budgets WHERE id IN (SELECT record_id FROM sync_actions_queue WHERE table_name = 'budgets' AND action_type = 'INSERT');`
+    );
+    return rows.map(row => this.toDomain(row));
+  }
+
+  public toDomain(row: any): Budget {
     return {
       id: row.id,
       familyGroupId: row.family_group_id,

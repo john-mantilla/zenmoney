@@ -20,6 +20,7 @@ export interface Account {
 }
 
 export interface CreateAccountInput {
+  id?: string;
   name: string;
   type: AccountType;
   initialBalance: number;

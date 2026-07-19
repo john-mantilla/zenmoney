@@ -59,6 +59,7 @@ export class SupabaseAccountRepository implements AccountRepository {
 
     // 2. Preparar el registro para la DB
     const dbAccount = {
+      ...(input.id && { id: input.id }),
       family_group_id: profile.family_group_id,
       owner_user_id: profile.id,
       name: input.name,

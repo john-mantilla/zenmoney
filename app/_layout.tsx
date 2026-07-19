@@ -68,11 +68,13 @@ function RootLayoutNav() {
   // 1. Inicializar Base de Datos Local y Auth al arrancar
   useEffect(() => {
     const initApp = async () => {
-      try {
-        await LocalDatabase.init();
-        console.log('[SQLite] Local database initialized successfully.');
-      } catch (err) {
-        console.error('[SQLite] Error initializing database:', err);
+      if (Platform.OS !== 'web') {
+        try {
+          await LocalDatabase.init();
+          console.log('[SQLite] Local database initialized successfully.');
+        } catch (err) {
+          console.error('[SQLite] Error initializing database:', err);
+        }
       }
       await initialize();
     };

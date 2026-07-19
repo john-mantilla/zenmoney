@@ -73,6 +73,7 @@ export class SupabaseCategoryRepository implements CategoryRepository {
     }
 
     const dbCategory = {
+      ...(input.id && { id: input.id }),
       family_group_id: profile.family_group_id,
       name: input.name,
       icon: input.icon,

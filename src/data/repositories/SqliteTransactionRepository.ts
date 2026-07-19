@@ -279,7 +279,13 @@ export class SqliteTransactionRepository implements TransactionRepository {
     }
   }
 
-  private toDomain(row: any): Transaction {
+  async getUnsynced(): Promise<Transaction[]> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<any>('SELECT * FROM transactions WHERE synced = 0;');
+    return rows.map(row => this.toDomain(row));
+  }
+
+  public toDomain(row: any): Transaction {
     let parsedMetadata = null;
     if (row.ai_metadata) {
       try {
