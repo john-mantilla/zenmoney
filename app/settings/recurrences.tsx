@@ -17,6 +17,7 @@ import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurr
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const webStyles = {
   dateInput: {
@@ -114,6 +115,7 @@ function DateField({
 export default function SettingsRecurrencesScreen() {
   const theme = useAppTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // Estados de datos
   const [recurringRules, setRecurringRules] = useState<RecurringRule[]>([]);
@@ -302,12 +304,12 @@ export default function SettingsRecurrencesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Appbar.Header style={{ backgroundColor: theme.colors.surface }}>
+      <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Ingresos y Gastos Recurrentes" />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
         <Button
           mode="contained"
           icon="plus"

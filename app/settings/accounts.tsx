@@ -14,10 +14,12 @@ import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurr
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SettingsAccountsScreen() {
   const theme = useAppTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // Estados de datos
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -286,12 +288,12 @@ export default function SettingsAccountsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Appbar.Header style={{ backgroundColor: theme.colors.surface }}>
+      <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Gestionar Cuentas" />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
         <Button
           mode="contained"
           icon="plus"

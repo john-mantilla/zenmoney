@@ -25,6 +25,7 @@ import { Account } from '@/src/domain/entities/Account';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { BudgetProgress } from '@/src/domain/entities/Budget';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const HISTORY_WINDOW = 20; // turnos recientes que se mandan a Gemini como memoria
 
@@ -51,8 +52,9 @@ interface Message {
 }
 
 export default function AssistantScreen() {
-  const theme = useAppTheme();
   const router = useRouter();
+  const theme = useAppTheme();
+  const insets = useSafeAreaInsets();
   const { userProfile } = useAuthStore();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -318,7 +320,14 @@ export default function AssistantScreen() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
       {/* Cabecera Modal */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline }]}>
+      <View style={[
+        styles.header, 
+        { 
+          backgroundColor: theme.colors.surface, 
+          borderBottomColor: theme.colors.outline,
+          paddingTop: Math.max(insets.top, Platform.OS === 'ios' ? 44 : 10)
+        }
+      ]}>
         <IconButton icon="chevron-down" size={28} onPress={() => router.back()} />
         <Text style={[styles.headerTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
           Asistente Financiero IA
@@ -349,7 +358,14 @@ export default function AssistantScreen() {
       />
 
       {/* Caja de entrada inferior */}
-      <View style={[styles.inputBar, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>
+      <View style={[
+        styles.inputBar, 
+        { 
+          backgroundColor: theme.colors.surface, 
+          borderTopColor: theme.colors.outline,
+          paddingBottom: Math.max(insets.bottom, 10)
+        }
+      ]}>
         <TextInput
           placeholder="Pregúntale a ZenMoney..."
           value={inputText}
@@ -380,7 +396,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 44 : 10,
     paddingBottom: 10,
     paddingHorizontal: 8,
     borderBottomWidth: 1,

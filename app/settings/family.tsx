@@ -9,6 +9,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { supabase } from '@/src/infrastructure/supabase/client';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface FamilyMember {
   id: string;
@@ -29,6 +30,7 @@ export default function SettingsFamilyScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const { userProfile, familyGroup, setFamilyGroup } = useAuthStore();
+  const insets = useSafeAreaInsets();
 
   // Estados de datos
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
@@ -180,12 +182,12 @@ export default function SettingsFamilyScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Appbar.Header style={{ backgroundColor: theme.colors.surface }}>
+      <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Mi Grupo Familiar" />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
         <Card style={styles.card}>
           <Card.Content>
             {isEditingGroupName ? (

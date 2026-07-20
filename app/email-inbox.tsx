@@ -18,10 +18,12 @@ import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseT
 import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function EmailInboxScreen() {
   const theme = useAppTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [invoices, setInvoices] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -95,7 +97,7 @@ export default function EmailInboxScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Appbar.Header style={{ backgroundColor: theme.colors.surface }}>
+      <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Gastos por Confirmar" subtitle="Facturas electrónicas recibidas por correo" />
       </Appbar.Header>
@@ -103,7 +105,7 @@ export default function EmailInboxScreen() {
       {loading ? (
         <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 24 }} />
       ) : (
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
           {invoices.length === 0 ? (
             <EmptyState
               icon="email-check-outline"

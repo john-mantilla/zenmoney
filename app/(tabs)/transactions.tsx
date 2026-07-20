@@ -8,7 +8,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl, Pressable, ScrollView, Platform } from 'react-native';
-import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip } from 'react-native-paper';
+import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -272,6 +272,15 @@ export default function TransactionsScreen() {
           </View>
         </Surface>
       )}
+
+      {/* Botón Flotante FAB para crear transacciones */}
+      <FAB
+        icon="plus"
+        label="Gasto / Voz"
+        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        color="#FFFFFF"
+        onPress={() => router.push('/transaction/new')}
+      />
     </View>
   );
 }
@@ -325,5 +334,12 @@ const styles = StyleSheet.create({
     width: 1,
     height: 24,
     backgroundColor: 'rgba(0,0,0,0.08)',
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 80,
+    borderRadius: 16,
   },
 });

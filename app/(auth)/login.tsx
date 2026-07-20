@@ -8,11 +8,13 @@ import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Link, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function LoginScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const { signIn, isLoading, error, clearError } = useAuthStore();
+  const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -33,7 +35,10 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView 
+        contentContainerStyle={[styles.scrollContainer, { paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 24, 24) }]} 
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           {/* Título prominente del branding ZenMoney */}
           <Text style={[styles.title, theme.typography.h1, { color: theme.colors.primary }]}>

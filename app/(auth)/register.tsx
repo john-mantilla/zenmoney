@@ -8,11 +8,13 @@ import { TextInput, Button, Text, HelperText } from 'react-native-paper';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Link, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RegisterScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const { signUp, isLoading, error, clearError } = useAuthStore();
+  const insets = useSafeAreaInsets();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -38,7 +40,10 @@ export default function RegisterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView 
+        contentContainerStyle={[styles.scrollContainer, { paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 24, 24) }]} 
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           <Text style={[styles.title, theme.typography.h1, { color: theme.colors.primary }]}>
             Crea tu cuenta

@@ -37,6 +37,7 @@ import { GeminiFlashProvider } from '@/src/infrastructure/ai/GeminiFlashProvider
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const WebSpeechRecognition =
   typeof window !== 'undefined'
@@ -47,6 +48,7 @@ export default function NewTransactionScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const { userProfile } = useAuthStore();
+  const insets = useSafeAreaInsets();
 
   // Parámetros de edición
   // Parámetros de edición / pre-rellenado
@@ -749,7 +751,14 @@ export default function NewTransactionScreen() {
       style={styles.container}
     >
       <NetworkStatusBar />
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline }]}>
+      <View style={[
+        styles.header, 
+        { 
+          backgroundColor: theme.colors.surface, 
+          borderBottomColor: theme.colors.outline,
+          paddingTop: Math.max(insets.top, Platform.OS === 'ios' ? 44 : 10)
+        }
+      ]}>
         <IconButton icon="chevron-left" size={24} onPress={() => router.back()} />
         <Text style={[styles.headerTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
           {isEditing ? 'Editar Movimiento' : 'Registrar Movimiento'}
@@ -761,7 +770,10 @@ export default function NewTransactionScreen() {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <ScrollView 
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 24, 24) }]} 
+        keyboardShouldPersistTaps="handled"
+      >
         {!isEditing && suggestions?.lastTransaction && (
           <Pressable onPress={handleRepeatLast} disabled={isLoading}>
             <Surface style={[styles.repeatCard, theme.shadows.sm, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline }]}>
@@ -1324,7 +1336,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 44 : 10,
     paddingBottom: 10,
     paddingHorizontal: 8,
     borderBottomWidth: 1,

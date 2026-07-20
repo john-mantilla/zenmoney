@@ -12,6 +12,7 @@ import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
 import { SupabaseAccountRepository } from '@/src/data/repositories/SupabaseAccountRepository';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type AccountTypeOption = 'cash' | 'bank' | 'credit_card';
 
@@ -19,6 +20,7 @@ export default function OnboardingScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const { userProfile, signOut, setHasAccounts } = useAuthStore();
+  const insets = useSafeAreaInsets();
   
   const [accountName, setAccountName] = useState('');
   const [accountType, setAccountType] = useState<AccountTypeOption>('bank');
@@ -62,7 +64,10 @@ export default function OnboardingScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView 
+        contentContainerStyle={[styles.scrollContainer, { paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom + 24, 24) }]} 
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.header}>
           <Text style={[styles.title, theme.typography.h1, { color: theme.colors.primary }]}>
             ¡Bienvenido, {userProfile?.displayName || 'hola'}!

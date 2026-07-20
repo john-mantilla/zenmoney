@@ -10,10 +10,12 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
 import { Category } from '@/src/domain/entities/Category';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SettingsCategoriesScreen() {
   const theme = useAppTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // Estados de datos
   const [categories, setCategories] = useState<Category[]>([]);
@@ -98,12 +100,12 @@ export default function SettingsCategoriesScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Appbar.Header style={{ backgroundColor: theme.colors.surface }}>
+      <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="Gestionar Categorías" />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
         <Button
           mode="contained"
           icon="plus"
