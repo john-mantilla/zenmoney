@@ -7,12 +7,14 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform } from 'react-native';
-import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card } from 'react-native-paper';
+import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, SegmentedButtons } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
+import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
+import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
 import { GetFinancialSummary } from '@/src/domain/usecases/GetFinancialSummary';
 import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountBalance';
 import { DetectRegistrationGap } from '@/src/domain/usecases/DetectRegistrationGap';
@@ -23,6 +25,8 @@ import { Account } from '@/src/domain/entities/Account';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
+import { AnomalyDetectorService } from '@/src/infrastructure/services/AnomalyDetectorService';
+import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -30,6 +34,7 @@ export default function DashboardScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const { userProfile } = useAuthStore();
+  const { selectedYear, selectedMonth } = useDateStore();
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,6 +46,8 @@ export default function DashboardScreen() {
   const [allAccounts, setAllAccounts] = useState<Account[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [familyMembers, setFamilyMembers] = useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // Saldos consolidados
   const [totalBalance, setTotalBalance] = useState(0);
@@ -49,6 +56,9 @@ export default function DashboardScreen() {
   const [pendingEmailInvoices, setPendingEmailInvoices] = useState(0);
   const [registrationStreak, setRegistrationStreak] = useState(0);
   const [registrationGapDays, setRegistrationGapDays] = useState<number | null>(null);
+  
+  // Alertas Inteligentes
+  const [smartAlerts, setSmartAlerts] = useState<string[]>([]);
 
   // Estados de control de colapsables (Acordeones)
   const [liquidExpanded, setLiquidExpanded] = useState(true);
@@ -64,12 +74,18 @@ export default function DashboardScreen() {
   const streakUseCase = new CalculateRegistrationStreak();
 
   const lastLoadRef = useRef<number>(0);
+  const lastLoadedMonthRef = useRef<number | null>(null);
+  const lastLoadedYearRef = useRef<number | null>(null);
 
   const loadData = async (force = false) => {
-    if (!force && Date.now() - lastLoadRef.current < 5000) {
+    const isNewTimeframe = selectedMonth !== lastLoadedMonthRef.current || selectedYear !== lastLoadedYearRef.current;
+    
+    if (!force && !isNewTimeframe && Date.now() - lastLoadRef.current < 5000) {
       return;
     }
     lastLoadRef.current = Date.now();
+    lastLoadedMonthRef.current = selectedMonth;
+    lastLoadedYearRef.current = selectedYear;
     try {
       const loadedAccounts = await accountRepo.getAll();
       
@@ -86,6 +102,30 @@ export default function DashboardScreen() {
 
       const activeAccounts = accountsWithRealBalances.filter(acc => acc.isActive);
       setAllAccounts(activeAccounts);
+
+      const userProfile = useAuthStore.getState().userProfile;
+      const familyGroup = useAuthStore.getState().familyGroup;
+      
+      if (userProfile && familyGroup) {
+        setCurrentUserId(userProfile.id);
+        try {
+          const userRepo = new SupabaseUserProfileRepository();
+          const profiles = await userRepo.getByFamilyGroup(familyGroup.id);
+          const membersMap: Record<string, string> = {};
+          profiles.forEach(p => {
+            const name = p.displayName || p.email || '?';
+            const parts = name.trim().split(' ');
+            let initials = name.substring(0, 2).toUpperCase();
+            if (parts.length >= 2) {
+              initials = (parts[0][0] + parts[1][0]).toUpperCase();
+            }
+            membersMap[p.id] = initials;
+          });
+          setFamilyMembers(membersMap);
+        } catch (e) {
+          console.warn('[Dashboard] Error loading family members', e);
+        }
+      }
 
       // 1. Clasificación en 3 pilares financieros
       // Cuentas líquidas disponibles
@@ -110,8 +150,19 @@ export default function DashboardScreen() {
       const loadedCategories = await categoryRepo.getAll(true);
       setCategories(loadedCategories);
 
-      // 3. Cargar movimientos recientes (limitado a 10 y luego filtrado para evitar huecos en el dashboard)
-      const loadedTransactions = await transactionRepo.getAll({ limit: 10, status: 'confirmed' });
+      // Calcular resumen financiero mensual y rango de fechas
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      const monthStr = String(selectedMonth).padStart(2, '0');
+      const startDate = `${selectedYear}-${monthStr}-01`;
+      const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+
+      // 3. Cargar movimientos recientes limitados al mes seleccionado
+      const loadedTransactions = await transactionRepo.getAll({ 
+        limit: 10, 
+        status: 'confirmed',
+        startDate,
+        endDate
+      });
       let filteredTxs = loadedTransactions;
       if (userProfile) {
         filteredTxs = loadedTransactions.filter(tx => !tx.isPrivate || tx.createdByUserId === userProfile.id);
@@ -143,16 +194,14 @@ export default function DashboardScreen() {
       }
 
       // 4. Calcular resumen financiero mensual
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
-      const startDate = `${year}-${month}-01`;
-      const endDate = `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
-
       const summary = await summaryUseCase.execute(startDate, endDate);
       setMonthlyIncome(summary.totalIncome);
       setMonthlyExpenses(summary.totalExpenses);
+
+      // 5. Escanear Anomalías Financieras
+      const anomalyService = new AnomalyDetectorService();
+      const alerts = await anomalyService.scanForAnomalies();
+      setSmartAlerts(alerts);
 
       // Programar o actualizar las alertas de facturas por vencer
       BillAlertService.scheduleBillAlerts().catch(() => {});
@@ -169,7 +218,7 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [])
+    }, [selectedYear, selectedMonth])
   );
 
   const onRefresh = () => {
@@ -218,12 +267,20 @@ export default function DashboardScreen() {
             </View>
           )}
         </View>
-        <IconButton
-          icon="robot-happy-outline"
-          iconColor={theme.colors.primary}
-          size={24}
-          onPress={() => router.push('/assistant')}
-        />
+        <View style={{ flexDirection: 'row' }}>
+          <IconButton
+            icon="chart-pie"
+            iconColor={theme.colors.primary}
+            size={24}
+            onPress={() => router.push('/analytics')}
+          />
+          <IconButton
+            icon="robot-happy-outline"
+            iconColor={theme.colors.primary}
+            size={24}
+            onPress={() => router.push('/assistant')}
+          />
+        </View>
       </View>
 
       <ScrollView
@@ -232,6 +289,42 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
+        {/* Alertas Inteligentes */}
+        {smartAlerts.length > 0 && (
+          <View style={{ marginBottom: 16 }}>
+            {smartAlerts.map((alert, index) => (
+              <Surface key={index} style={[styles.alertCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={1}>
+                <View style={styles.alertHeader}>
+                  <MaterialCommunityIcons name="alert-decagram" size={20} color={theme.colors.primary} />
+                  <Text style={[theme.typography.caption, { fontWeight: 'bold', color: theme.colors.primary, marginLeft: 8, flex: 1 }]}>
+                    Alerta Inteligente
+                  </Text>
+                  <IconButton
+                    icon="close"
+                    size={18}
+                    iconColor={theme.customColors.textSecondary}
+                    onPress={() => {
+                      // Descartar localmente
+                      setSmartAlerts(prev => prev.filter((_, i) => i !== index));
+                    }}
+                    style={{ margin: 0 }}
+                  />
+                </View>
+                {/* Parse Markdown-like bold text **bold** for the alert string */}
+                <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface, marginTop: 4, lineHeight: 20 }]}>
+                  {alert.split(/\*\*(.*?)\*\*/g).map((part, i) => 
+                    i % 2 === 1 ? (
+                      <Text key={i} style={{ fontWeight: 'bold' }}>{part}</Text>
+                    ) : (
+                      <Text key={i}>{part}</Text>
+                    )
+                  )}
+                </Text>
+              </Surface>
+            ))}
+          </View>
+        )}
+
         {/* Métrica principal: Disponible Real (Disponible - Tarjetas de crédito) */}
         <BalanceCard
           balance={totalBalance}
@@ -399,6 +492,7 @@ export default function DashboardScreen() {
                   categoryIcon={cat.icon}
                   categoryColor={cat.color}
                   accountName={accName}
+                  authorInitials={tx.createdByUserId !== currentUserId ? familyMembers[tx.createdByUserId] : null}
                   onPress={() => {}}
                 />
               );
@@ -436,6 +530,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 2,
+  },
+  alertCard: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  alertHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   loadingContainer: {
     flex: 1,

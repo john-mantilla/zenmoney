@@ -116,6 +116,7 @@ export default function NewTransactionScreen() {
   const quickAddUseCase = new GetQuickAddSuggestions(transactionRepo);
   const matchRuleUseCase = new MatchCategorizationRule();
   const learnCategorizationUseCase = new LearnCategorizationFromCorrection(categorizationRuleRepo);
+  const historicTxsRef = React.useRef<Transaction[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -161,6 +162,13 @@ export default function NewTransactionScreen() {
           setCategorizationRules(await categorizationRuleRepo.getAll());
         } catch {
           // Reglas de categorización son un extra; si fallan, el formulario sigue funcionando normal.
+        }
+        
+        // Cargar historial en background para categorización predictiva
+        try {
+          historicTxsRef.current = await transactionRepo.getAll({});
+        } catch (err) {
+          console.warn('Failed to load historic transactions for predictive typing:', err);
         }
 
         if (isEditing && id) {
@@ -266,7 +274,34 @@ export default function NewTransactionScreen() {
     if (!canBePrivate && isPrivate) setIsPrivate(false);
   }, [canBePrivate]);
 
-  // ─── Reconocimiento de voz (Web) ──────────────────────────────────────
+  const handlePredictiveCategorization = (text: string) => {
+    if (!text || text.length < 3 || selectedParentCategoryId) return;
+    
+    // Buscar en el historial gastos recientes que coincidan con el texto
+    const textLower = text.toLowerCase();
+    const match = historicTxsRef.current.find(tx => 
+      tx.type === 'expense' &&
+      ((tx.description && tx.description.toLowerCase().includes(textLower)) ||
+       (tx.merchantName && tx.merchantName.toLowerCase().includes(textLower)))
+    );
+
+    if (match && match.categoryId) {
+      const cat = categories.find(c => c.id === match.categoryId);
+      if (cat) {
+        if (cat.parentCategoryId) {
+          setSelectedParentCategoryId(cat.parentCategoryId);
+          setSelectedSubCategoryId(cat.id);
+        } else {
+          setSelectedParentCategoryId(cat.id);
+          setSelectedSubCategoryId('');
+        }
+        // Indicador de que fue sugerido por IA predictiva
+        setSuggestedCategoryId(cat.id);
+      }
+    }
+  };
+
+  // ─── Funciones para Categorías ─────────────────────────────────────────
   const handleStartSpeech = () => {
     if (!WebSpeechRecognition) {
       setErrorMsg('Micrófono soportado solo en Web. Escribe la frase del gasto.');
@@ -1226,7 +1261,10 @@ export default function NewTransactionScreen() {
               <TextInput
                 label="Comercio / Establecimiento"
                 value={merchantName}
-                onChangeText={setMerchantName}
+                onChangeText={(text) => {
+                  setMerchantName(text);
+                  handlePredictiveCategorization(text);
+                }}
                 mode="outlined"
                 style={styles.input}
                 disabled={isLoading}
@@ -1236,7 +1274,10 @@ export default function NewTransactionScreen() {
             <TextInput
               label="Descripción / Notas"
               value={description}
-              onChangeText={setDescription}
+              onChangeText={(text) => {
+                setDescription(text);
+                handlePredictiveCategorization(text);
+              }}
               mode="outlined"
               style={styles.input}
               disabled={isLoading}

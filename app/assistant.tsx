@@ -24,6 +24,7 @@ import { FinancialContext, ConversationTurn } from '@/src/infrastructure/ai/AIPr
 import { Account } from '@/src/domain/entities/Account';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { BudgetProgress } from '@/src/domain/entities/Budget';
+import { AnomalyDetectorService } from '@/src/infrastructure/services/AnomalyDetectorService';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -82,16 +83,50 @@ export default function AssistantScreen() {
   const loadConversation = async () => {
     try {
       const history = await assistantMessageRepo.getRecent(HISTORY_WINDOW * 2);
+      
+      // 1. Escanear Anomalías
+      const anomalyService = new AnomalyDetectorService();
+      const alerts = await anomalyService.scanForAnomalies();
+      const newAlerts: Message[] = [];
+      
+      for (const alertText of alerts) {
+        // Verificar si la IA ya ha enviado esta alerta exacta recientemente
+        const alreadySent = history.some(h => h.content === alertText);
+        if (!alreadySent) {
+          const newAlert: Message = {
+            id: (Date.now() + Math.random()).toString(),
+            sender: 'ai',
+            text: alertText,
+            createdAt: new Date(),
+          };
+          newAlerts.push(newAlert);
+          
+          // Persistir la alerta generada
+          await assistantMessageRepo.create({
+            sender: 'ai',
+            content: alertText
+          });
+        }
+      }
+
+      let loadedMessages: Message[] = [];
       if (history.length > 0) {
-        setMessages(history.map(h => ({
+        loadedMessages = history.map(h => ({
           id: h.id,
           sender: h.sender,
           text: h.content,
           suggestedActions: h.suggestedActions,
           createdAt: new Date(h.createdAt),
-        })));
+        }));
       } else {
-        setMessages([makeWelcomeMessage(userProfile?.displayName)]);
+        loadedMessages = [makeWelcomeMessage(userProfile?.displayName)];
+      }
+
+      // Añadir las nuevas alertas al final
+      setMessages([...loadedMessages, ...newAlerts]);
+      
+      if (newAlerts.length > 0) {
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 300);
       }
     } catch (err) {
       console.warn('[Assistant History Load Error]:', err);
@@ -255,6 +290,27 @@ export default function AssistantScreen() {
     }
   };
 
+  const renderRichText = (text: string, baseStyle: any) => {
+    // Expresión regular que captura texto entre doble asterisco
+    const parts = text.split(/\*\*(.*?)\*\*/g);
+    
+    return (
+      <Text style={baseStyle}>
+        {parts.map((part, i) => {
+          // Las partes en índices impares (1, 3, 5...) son las capturadas dentro de **
+          if (i % 2 === 1) {
+            return (
+              <Text key={i} style={[baseStyle, { fontWeight: 'bold' }]}>
+                {part}
+              </Text>
+            );
+          }
+          return <Text key={i}>{part}</Text>;
+        })}
+      </Text>
+    );
+  };
+
   const renderMessageItem = ({ item }: { item: Message }) => {
     const isAi = item.sender === 'ai';
     return (
@@ -279,15 +335,23 @@ export default function AssistantScreen() {
             ]}
           >
             <Card.Content style={styles.bubbleContent}>
-              <Text
-                style={[
+              {isAi ? (
+                renderRichText(item.text, [
                   styles.messageText,
                   theme.typography.body,
-                  { color: isAi ? theme.colors.onSurface : '#FFFFFF' },
-                ]}
-              >
-                {item.text}
-              </Text>
+                  { color: theme.colors.onSurface },
+                ])
+              ) : (
+                <Text
+                  style={[
+                    styles.messageText,
+                    theme.typography.body,
+                    { color: '#FFFFFF' },
+                  ]}
+                >
+                  {item.text}
+                </Text>
+              )}
             </Card.Content>
           </Card>
 

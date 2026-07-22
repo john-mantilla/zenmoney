@@ -19,6 +19,7 @@ interface TransactionCardProps {
   categoryIcon: string;
   categoryColor: string;
   accountName: string;
+  authorInitials?: string | null;
   onPress?: () => void;
 }
 
@@ -28,6 +29,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   categoryIcon,
   categoryColor,
   accountName,
+  authorInitials,
   onPress,
 }) => {
   const theme = useAppTheme();
@@ -108,8 +110,15 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
                 </View>
               )}
               {transaction.isPrivate && (
-                <View style={[styles.badge, { backgroundColor: theme.customColors.textSecondary + '20' }]}>
+                <View style={[styles.badge, { backgroundColor: theme.customColors.textSecondary + '20', marginRight: 4 }]}>
                   <MaterialCommunityIcons name="eye-off-outline" size={12} color={theme.customColors.textSecondary} />
+                </View>
+              )}
+              {authorInitials && (
+                <View style={[styles.avatarBadge, { backgroundColor: theme.customColors.expense + '20' }]}>
+                  <Text style={{ fontSize: 9, fontWeight: 'bold', color: theme.customColors.expense }}>
+                    {authorInitials}
+                  </Text>
                 </View>
               )}
             </View>
@@ -164,6 +173,14 @@ const styles = StyleSheet.create({
   badge: {
     padding: 2,
     borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 4,
+  },
+  avatarBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },

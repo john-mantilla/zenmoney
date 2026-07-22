@@ -227,7 +227,7 @@ export default function SettingsCategoriesScreen() {
               style={styles.dialogInput}
               disabled={savingCategory}
             />
-            {parentCategoryIdForNew && !editingCategory && (
+            {!!parentCategoryIdForNew && !editingCategory && (
               <Text style={{ fontStyle: 'italic', opacity: 0.7, fontSize: 12 }}>
                 Se creará dentro de: {categories.find(c => c.id === parentCategoryIdForNew)?.name}
               </Text>
@@ -246,8 +246,7 @@ export default function SettingsCategoriesScreen() {
               onPress={handleSaveCategory}
               loading={savingCategory}
               disabled={savingCategory || !newCategoryName.trim()}
-              style={{ marginLeft: 8 }}
-            >
+              style={{ marginLeft: 8 }}>
               Guardar
             </Button>
           </Dialog.Actions>

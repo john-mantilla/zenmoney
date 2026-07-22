@@ -10,7 +10,7 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { PaperProvider } from 'react-native-paper';
-import { useColorScheme, ActivityIndicator, View, StyleSheet, Platform } from 'react-native';
+import { useColorScheme, ActivityIndicator, View, StyleSheet, Platform, LogBox } from 'react-native';
 import * as QuickActions from 'expo-quick-actions';
 import { useQuickActionRouting } from 'expo-quick-actions/router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
@@ -22,7 +22,12 @@ import { SyncService } from '@/src/infrastructure/services/SyncService';
 
 export { ErrorBoundary } from 'expo-router';
 
-// Prevenir el cierre automático de la splash screen hasta que todo cargue
+// Ocultar advertencia de web para librerías nativas de gráficos
+if (Platform.OS === 'web') {
+  LogBox.ignoreLogs(['Unknown event handler property']);
+}
+
+// Mantener el splash screen visible mientras se cargan los recursos
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {

@@ -68,7 +68,11 @@ export const AmountDisplay: React.FC<AmountDisplayProps> = ({
   const symbol = currency === 'COP' ? '$' : `${currency} `;
 
   return (
-    <Text style={[styles.text, fontStyle, { color }, style]}>
+    <Text 
+      style={[styles.text, fontStyle, { color }, style]}
+      adjustsFontSizeToFit={true}
+      numberOfLines={1}
+    >
       {prefix}
       {symbol}
       {formattedAmount}

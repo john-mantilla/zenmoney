@@ -25,6 +25,18 @@ export class SupabaseBudgetRepository implements BudgetRepository {
     return Mapper.toDomainBudget(data);
   }
 
+  async getAll(): Promise<Budget[]> {
+    const { data, error } = await supabase
+      .from('budgets')
+      .select('*');
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data.map(Mapper.toDomainBudget);
+  }
+
   async getByMonth(year: number, month: number): Promise<Budget[]> {
     const { data, error } = await supabase
       .from('budgets')

@@ -8,15 +8,15 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText } from 'react-native-paper';
+import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
-import { CalculateBudgetProgress } from '@/src/domain/usecases/CalculateBudgetProgress';
 import { Budget, BudgetProgress } from '@/src/domain/entities/Budget';
 import { Category } from '@/src/domain/entities/Category';
+import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useFocusEffect } from 'expo-router';
 
 interface BudgetTreeChild {
@@ -57,6 +57,7 @@ const CustomProgressBar = ({ progress, color }: { progress: number; color: strin
 
 export default function BudgetsScreen() {
   const theme = useAppTheme();
+  const { selectedYear, selectedMonth } = useDateStore();
 
   // Estados de datos
   const [budgetsProgress, setBudgetsProgress] = useState<BudgetTreeItem[]>([]);
@@ -80,17 +81,15 @@ export default function BudgetsScreen() {
   const [limitAmount, setLimitAmount] = useState('');
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [budgetStartMode, setBudgetStartMode] = useState<'current' | 'future'>('current');
+  const [futureMonthOffset, setFutureMonthOffset] = useState<number>(1); // 1 to 12 months ahead
 
   // Repositorios
   const budgetRepo = new HybridBudgetRepository();
   const transactionRepo = new HybridTransactionRepository();
   const categoryRepo = new HybridCategoryRepository();
 
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // 1-12
-
-  const loadData = async () => {
+  const loadData = async (force = false) => {
     try {
       // 1. Cargar todas las categorías
       const loadedCats = await categoryRepo.getAll(true);
@@ -99,13 +98,31 @@ export default function BudgetsScreen() {
         setSelectedCategoryId(loadedCats[0].id);
       }
 
-      // 2. Cargar presupuestos del mes actual
-      const monthlyBudgets = await budgetRepo.getByMonth(currentYear, currentMonth);
+      // 2. Cargar presupuestos y propagar si es necesario
+      const allBudgets = await budgetRepo.getAll();
+      const monthlyBudgets: Budget[] = [];
+      const targetValue = selectedYear * 12 + selectedMonth;
+      const pastBudgets = allBudgets.filter(b => (b.year * 12 + b.month) <= targetValue);
+      
+      const latestByCategory: Record<string, { budget: Budget, value: number }> = {};
+      for (const b of pastBudgets) {
+        const bValue = b.year * 12 + b.month;
+        if (!latestByCategory[b.categoryId] || latestByCategory[b.categoryId].value < bValue) {
+          latestByCategory[b.categoryId] = { budget: b, value: bValue };
+        }
+      }
 
-      // 3. Cargar todos los egresos del mes actual en una única consulta para optimizar rendimiento
-      const lastDay = new Date(currentYear, currentMonth, 0).getDate();
-      const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
-      const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      for (const catId in latestByCategory) {
+        // Clonación en memoria: simplemente agregamos el presupuesto histórico al mes actual
+        // visualmente. Si el usuario lo edita, se guardará como un registro explícito.
+        monthlyBudgets.push(latestByCategory[catId].budget);
+      }
+
+      // 3. Cargar transacciones del mes
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      const monthStr = String(selectedMonth).padStart(2, '0');
+      const startDate = `${selectedYear}-${monthStr}-01`;
+      const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
       
       const monthlyExpenses = await transactionRepo.getAll({
         startDate,
@@ -258,7 +275,7 @@ export default function BudgetsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [])
+    }, [selectedYear, selectedMonth])
   );
 
   const onRefresh = () => {
@@ -269,18 +286,24 @@ export default function BudgetsScreen() {
   // ─── CRUD Presupuestos ────────────────────────────────────────────────
 
   const openCreateDialog = () => {
-    setEditingBudget(null);
+    if (categories.length > 0) {
+      setSelectedCategoryId(categories[0].id);
+    }
     setLimitAmount('');
-    if (categories.length > 0) setSelectedCategoryId(categories[0].id);
+    setEditingBudget(null);
     setErrorMsg(null);
+    setBudgetStartMode('current');
+    setFutureMonthOffset(1);
     setIsDialogVisible(true);
   };
 
   const openEditDialog = (budget: Budget) => {
-    setEditingBudget(budget);
-    setLimitAmount(String(budget.amountLimit));
     setSelectedCategoryId(budget.categoryId);
+    setLimitAmount(budget.amountLimit.toString());
+    setEditingBudget(budget);
     setErrorMsg(null);
+    setBudgetStartMode('current');
+    setFutureMonthOffset(1);
     setIsDialogVisible(true);
   };
 
@@ -293,30 +316,56 @@ export default function BudgetsScreen() {
     setIsLoading(true);
     try {
       const limitNum = parseFloat(limitAmount);
-
-      if (editingBudget) {
-        // Actualizar
-        await budgetRepo.update(editingBudget.id, {
-          amountLimit: limitNum,
-        });
-      } else {
-        // Verificar si la categoría ya tiene presupuesto este mes (directo o subcategoría)
-        const exists = budgetsProgress.some(
-          b => b.categoryId === selectedCategoryId || b.children.some(c => c.categoryId === selectedCategoryId)
-        );
-        if (exists) {
-          setErrorMsg('Ya configuraste un presupuesto para esta categoría este mes. Edita el existente.');
-          setIsLoading(false);
-          return;
+      
+      let targetYear = selectedYear;
+      let targetMonth = selectedMonth;
+      
+      if (budgetStartMode === 'future') {
+        let rawMonth = selectedMonth + futureMonthOffset;
+        let rawYear = selectedYear;
+        while (rawMonth > 12) {
+          rawMonth -= 12;
+          rawYear++;
         }
+        targetMonth = rawMonth;
+        targetYear = rawYear;
+      }
 
-        // Crear
-        await budgetRepo.create({
-          categoryId: selectedCategoryId,
-          amountLimit: limitNum,
-          year: currentYear,
-          month: currentMonth,
-        });
+      if (editingBudget && budgetStartMode === 'current') {
+        // Verificar si es un presupuesto clonado en memoria (de un mes anterior)
+        if (editingBudget.year === targetYear && editingBudget.month === targetMonth) {
+          // Actualizar el presupuesto actual explícito
+          await budgetRepo.update(editingBudget.id, {
+            amountLimit: limitNum,
+          });
+        } else {
+          // Es un clon en memoria, lo creamos explícitamente para este mes
+          await budgetRepo.create({
+            categoryId: selectedCategoryId,
+            amountLimit: limitNum,
+            year: targetYear,
+            month: targetMonth,
+          });
+        }
+      } else {
+        // Verificar si la categoría ya tiene presupuesto en ese mes destino
+        const existingTargetBudgets = await budgetRepo.getByMonth(targetYear, targetMonth);
+        const exists = existingTargetBudgets.find(b => b.categoryId === selectedCategoryId);
+        
+        if (exists) {
+          // Si existe explícitamente en el mes futuro, lo actualizamos
+          await budgetRepo.update(exists.id, {
+             amountLimit: limitNum
+          });
+        } else {
+          // Crear como nuevo límite desde el mes destino
+          await budgetRepo.create({
+            categoryId: selectedCategoryId,
+            amountLimit: limitNum,
+            year: targetYear,
+            month: targetMonth,
+          });
+        }
       }
 
       setIsDialogVisible(false);
@@ -327,12 +376,21 @@ export default function BudgetsScreen() {
     }
   };
 
-  const handleDeleteBudget = async (id: string) => {
+  const handleDeleteBudget = async (budget: Budget) => {
     setIsLoading(true);
     try {
-      await budgetRepo.delete(id);
+      // Solo borrar si es un presupuesto explícito de este mes, no un clon
+      if (budget.year === selectedYear && budget.month === selectedMonth) {
+        await budgetRepo.delete(budget.id);
+      } else {
+        // Si es un clon, borrarlo significa crear un límite de $0 o algo similar, pero 
+        // para simplificar en ZenMoney: indicamos que no se puede borrar la historia pasada desde aquí.
+        setErrorMsg('Este límite proviene de un mes anterior. Para eliminarlo en este mes, crea un límite nuevo de $0, o bórralo en el mes donde fue creado originalmente.');
+        setIsLoading(false);
+        return;
+      }
       setIsDialogVisible(false);
-      loadData();
+      loadData(true);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el presupuesto.');
       setIsLoading(false);
@@ -608,13 +666,43 @@ export default function BudgetsScreen() {
               style={styles.dialogInput}
             />
 
+            <View style={{ marginTop: 24 }}>
+              <Text style={[styles.dialogLabel, theme.typography.caption]}>Inicia a partir de:</Text>
+              <RadioButton.Group onValueChange={val => setBudgetStartMode(val as 'current' | 'future')} value={budgetStartMode}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <RadioButton value="current" color={theme.colors.primary} />
+                  <Text style={theme.typography.body}>Este mes ({selectedYear}-{String(selectedMonth).padStart(2, '0')})</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                  <RadioButton value="future" color={theme.colors.primary} />
+                  <Text style={theme.typography.body}>Mes futuro:</Text>
+                </View>
+              </RadioButton.Group>
+              
+              {budgetStartMode === 'future' && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginLeft: 36 }}>
+                  <IconButton icon="minus" size={20} onPress={() => setFutureMonthOffset(Math.max(1, futureMonthOffset - 1))} />
+                  <Text style={{ fontWeight: 'bold', marginHorizontal: 8 }}>
+                    +{futureMonthOffset} mes{futureMonthOffset > 1 ? 'es' : ''} 
+                    {(() => {
+                        let m = selectedMonth + futureMonthOffset;
+                        let y = selectedYear;
+                        while(m > 12) { m -= 12; y++; }
+                        return ` (${y}-${String(m).padStart(2, '0')})`;
+                    })()}
+                  </Text>
+                  <IconButton icon="plus" size={20} onPress={() => setFutureMonthOffset(Math.min(24, futureMonthOffset + 1))} />
+                </View>
+              )}
+            </View>
+
           </Dialog.Content>
           <Dialog.Actions style={styles.dialogActions}>
             {editingBudget && (
               <IconButton
                 icon="delete"
                 iconColor={theme.colors.error}
-                onPress={() => handleDeleteBudget(editingBudget.id)}
+                onPress={() => handleDeleteBudget(editingBudget)}
                 style={styles.deleteBtn}
               />
             )}

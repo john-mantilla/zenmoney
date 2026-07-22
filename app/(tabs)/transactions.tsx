@@ -7,33 +7,42 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, Pressable, ScrollView, Platform } from 'react-native';
-import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB } from 'react-native-paper';
+import { View, StyleSheet, FlatList, SectionList, RefreshControl, Pressable, ScrollView, Platform } from 'react-native';
+import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons } from 'react-native-paper';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
 import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
+import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
+import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { useRouter, useFocusEffect } from 'expo-router';
 
 export default function TransactionsScreen() {
   const theme = useAppTheme();
   const router = useRouter();
+  const { selectedYear, selectedMonth } = useDateStore();
 
   // Estados de datos
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [familyMembers, setFamilyMembers] = useState<Record<string, string>>({});
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Estados de control
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'date' | 'category'>('date');
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());
 
   // Repositorios
   const transactionRepo = new HybridTransactionRepository();
@@ -41,12 +50,18 @@ export default function TransactionsScreen() {
   const categoryRepo = new HybridCategoryRepository();
 
   const lastLoadRef = useRef<number>(0);
+  const lastLoadedMonthRef = useRef<number | null>(null);
+  const lastLoadedYearRef = useRef<number | null>(null);
 
   const loadData = async (force = false) => {
-    if (!force && Date.now() - lastLoadRef.current < 5000) {
+    const isNewTimeframe = selectedMonth !== lastLoadedMonthRef.current || selectedYear !== lastLoadedYearRef.current;
+    
+    if (!force && !isNewTimeframe && Date.now() - lastLoadRef.current < 5000) {
       return;
     }
     lastLoadRef.current = Date.now();
+    lastLoadedMonthRef.current = selectedMonth;
+    lastLoadedYearRef.current = selectedYear;
     try {
       const loadedAccs = await accountRepo.getAll();
       setAccounts(loadedAccs);
@@ -54,7 +69,40 @@ export default function TransactionsScreen() {
       const loadedCats = await categoryRepo.getAll(true);
       setCategories(loadedCats);
 
-      const loadedTxs = await transactionRepo.getAll({ status: 'confirmed' });
+      // Cargar familiares
+      const store = require('@/src/infrastructure/auth/authStore');
+      const { userProfile, familyGroup } = store.useAuthStore.getState();
+      if (userProfile && familyGroup) {
+        setCurrentUserId(userProfile.id);
+        try {
+          const userRepo = new SupabaseUserProfileRepository();
+          const profiles = await userRepo.getByFamilyGroup(familyGroup.id);
+          const membersMap: Record<string, string> = {};
+          profiles.forEach(p => {
+            const name = p.displayName || p.email || '?';
+            const parts = name.trim().split(' ');
+            let initials = name.substring(0, 2).toUpperCase();
+            if (parts.length >= 2) {
+              initials = (parts[0][0] + parts[1][0]).toUpperCase();
+            }
+            membersMap[p.id] = initials;
+          });
+          setFamilyMembers(membersMap);
+        } catch (e) {
+          console.warn('[Transactions] Error loading family members', e);
+        }
+      }
+
+      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
+      const monthStr = String(selectedMonth).padStart(2, '0');
+      const startDate = `${selectedYear}-${monthStr}-01`;
+      const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+
+      const loadedTxs = await transactionRepo.getAll({ 
+        status: 'confirmed',
+        startDate,
+        endDate
+      });
       setTransactions(loadedTxs);
       setFilteredTransactions(loadedTxs);
     } catch (err) {
@@ -68,7 +116,7 @@ export default function TransactionsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [])
+    }, [selectedYear, selectedMonth])
   );
 
   // Filtrado reactivo en memoria
@@ -137,6 +185,104 @@ export default function TransactionsScreen() {
   const onRefresh = () => {
     setRefreshing(true);
     loadData(true);
+  };
+
+  const toggleDateCollapse = (dateId: string) => {
+    setCollapsedDates(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(dateId)) newSet.delete(dateId);
+      else newSet.add(dateId);
+      return newSet;
+    });
+  };
+
+  const formatDateTitle = (dateString: string) => {
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return dateString;
+    const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    return date.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+  };
+
+  const getGroupedTransactionsByDate = () => {
+    const grouped = new Map<string, { id: string; title: string; data: Transaction[]; total: number }>();
+    
+    for (const tx of filteredTransactions) {
+      const dateId = tx.transactionDate;
+      
+      if (!grouped.has(dateId)) {
+        const title = formatDateTitle(dateId);
+        grouped.set(dateId, { id: dateId, title, data: [], total: 0 });
+      }
+
+      const group = grouped.get(dateId)!;
+      
+      if (!collapsedDates.has(dateId)) {
+        group.data.push(tx);
+      }
+      
+      const amount = Number(tx.amount);
+      if (tx.type === 'income') group.total += amount;
+      else if (tx.type === 'expense') group.total -= amount;
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => b.id.localeCompare(a.id));
+  };
+
+  const getGroupedTransactions = () => {
+    const grouped = new Map<string, { id: string; title: string; data: Transaction[]; total: number }>();
+    
+    for (const tx of filteredTransactions) {
+      let catId = tx.categoryId;
+      let parentCatId = catId;
+      
+      if (tx.type === 'transfer' && !catId) {
+        parentCatId = 'transfer_system_cat';
+      } else if (!catId) {
+        parentCatId = 'unclassified_system_cat';
+      } else {
+        const cat = categories.find(c => c.id === catId);
+        if (cat?.parentCategoryId) {
+          parentCatId = cat.parentCategoryId;
+        }
+      }
+
+      if (!grouped.has(parentCatId!)) {
+        let catName = 'Sin clasificar';
+        if (parentCatId === 'transfer_system_cat') {
+          catName = 'Transferencias';
+        } else if (parentCatId === 'unclassified_system_cat') {
+          catName = 'Sin clasificar';
+        } else {
+          const parentCat = categories.find(c => c.id === parentCatId);
+          catName = parentCat ? parentCat.name : 'Desconocida';
+        }
+        grouped.set(parentCatId!, { id: parentCatId!, title: catName, data: [], total: 0 });
+      }
+
+      const group = grouped.get(parentCatId!)!;
+      
+      if (!collapsedCategories.has(parentCatId!)) {
+        group.data.push(tx);
+      }
+      
+      const amount = Number(tx.amount);
+      if (tx.type === 'income') group.total += amount;
+      else if (tx.type === 'expense') group.total -= amount;
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => a.title.localeCompare(b.title));
+  };
+
+  const toggleCategoryCollapse = (categoryId: string) => {
+    setCollapsedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(categoryId)) {
+        newSet.delete(categoryId);
+      } else {
+        newSet.add(categoryId);
+      }
+      return newSet;
+    });
   };
 
   // ─── HELPER DE CATEGORÍAS DE 2 NIVELES ────────────────────────────────
@@ -210,44 +356,128 @@ export default function TransactionsScreen() {
             </Chip>
           ))}
         </ScrollView>
+        {/* Toggle Vista */}
+        <View style={styles.viewToggleContainer}>
+          <SegmentedButtons
+            value={viewMode}
+            onValueChange={(value) => setViewMode(value as 'date' | 'category')}
+            buttons={[
+              { value: 'date', label: 'Por Fecha', icon: 'calendar-clock' },
+              { value: 'category', label: 'Por Categoría', icon: 'shape-outline' },
+            ]}
+            density="small"
+          />
+        </View>
       </Surface>
 
       {/* Listado de movimientos */}
-      <FlatList
-        data={filteredTransactions}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => {
-          const catInfo = getCategoryDisplayInfo(item.categoryId);
-          const accName = getAccountName(item.accountId);
-          
-          return (
-            <TransactionCard
-              transaction={item}
-              categoryName={catInfo.name}
-              categoryIcon={catInfo.icon}
-              categoryColor={catInfo.color}
-              accountName={accName}
-              onPress={() => router.push(`/transaction/new?id=${item.id}`)}
+      {viewMode === 'date' ? (
+        <SectionList
+          sections={getGroupedTransactionsByDate()}
+          keyExtractor={item => item.id}
+          renderSectionHeader={({ section: { id, title, total } }) => (
+            <Pressable onPress={() => toggleDateCollapse(id)}>
+              <View style={[styles.sectionHeader, { backgroundColor: theme.colors.surfaceVariant }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons 
+                    name={collapsedDates.has(id) ? 'chevron-down' : 'chevron-up'} 
+                    size={20} 
+                    color={theme.colors.onSurfaceVariant} 
+                    style={{ marginRight: 8 }} 
+                  />
+                  <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurfaceVariant, textTransform: 'capitalize' }]}>{title}</Text>
+                </View>
+                <AmountDisplay amount={total} size="sm" type={total >= 0 ? 'income' : 'expense'} />
+              </View>
+            </Pressable>
+          )}
+          renderItem={({ item }) => {
+            const catInfo = getCategoryDisplayInfo(item.categoryId);
+            const accName = getAccountName(item.accountId);
+            
+            return (
+              <TransactionCard
+                transaction={item}
+                categoryName={catInfo.name}
+                categoryIcon={catInfo.icon}
+                categoryColor={catInfo.color}
+                accountName={accName}
+                authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
+                onPress={() => router.push(`/transaction/new?id=${item.id}`)}
+              />
+            );
+          }}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon="cash-register"
+              title="Sin resultados"
+              description="No encontramos ningún movimiento que coincida con tus filtros."
+              actionLabel="Limpiar Filtros"
+              onAction={() => {
+                setSearchQuery('');
+                setSelectedAccountId(null);
+              }}
             />
-          );
-        }}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
-        }
-        ListEmptyComponent={
-          <EmptyState
-            icon="cash-register"
-            title="Sin resultados"
-            description="No encontramos ningún movimiento que coincida con tus filtros."
-            actionLabel="Limpiar Filtros"
-            onAction={() => {
-              setSearchQuery('');
-              setSelectedAccountId(null);
-            }}
-          />
-        }
-      />
+          }
+        />
+      ) : (
+        <SectionList
+          sections={getGroupedTransactions()}
+          keyExtractor={item => item.id}
+          renderSectionHeader={({ section: { id, title, total } }) => (
+            <Pressable onPress={() => toggleCategoryCollapse(id)}>
+              <View style={[styles.sectionHeader, { backgroundColor: theme.colors.surfaceVariant }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons 
+                    name={collapsedCategories.has(id) ? 'chevron-down' : 'chevron-up'} 
+                    size={20} 
+                    color={theme.colors.onSurfaceVariant} 
+                    style={{ marginRight: 8 }} 
+                  />
+                  <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurfaceVariant }]}>{title}</Text>
+                </View>
+                <AmountDisplay amount={total} size="sm" type={total >= 0 ? 'income' : 'expense'} />
+              </View>
+            </Pressable>
+          )}
+          renderItem={({ item }) => {
+            const catInfo = getCategoryDisplayInfo(item.categoryId);
+            const accName = getAccountName(item.accountId);
+            
+            return (
+              <TransactionCard
+                transaction={item}
+                categoryName={catInfo.name}
+                categoryIcon={catInfo.icon}
+                categoryColor={catInfo.color}
+                accountName={accName}
+                authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
+                onPress={() => router.push(`/transaction/new?id=${item.id}`)}
+              />
+            );
+          }}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
+          }
+          ListEmptyComponent={
+            <EmptyState
+              icon="cash-register"
+              title="Sin resultados"
+              description="No encontramos ningún movimiento que coincida con tus filtros."
+              actionLabel="Limpiar Filtros"
+              onAction={() => {
+                setSearchQuery('');
+                setSelectedAccountId(null);
+              }}
+            />
+          }
+        />
+      )}
 
       {/* Barra de totales al final de la pantalla */}
       {filteredTransactions.length > 0 && (
@@ -316,6 +546,23 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingBottom: 100, // Margen extra para que el último item no quede tapado por la barra de totales
+  },
+  viewToggleContainer: {
+    marginTop: 12,
+    paddingHorizontal: 4,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 16,
+    marginBottom: 8,
+    borderRadius: 8,
+  },
+  sectionTitle: {
+    fontWeight: 'bold',
   },
   summaryFooter: {
     flexDirection: 'row',

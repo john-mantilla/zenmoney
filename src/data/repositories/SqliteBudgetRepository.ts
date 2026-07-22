@@ -14,6 +14,12 @@ export class SqliteBudgetRepository implements BudgetRepository {
     return this.toDomain(row);
   }
 
+  async getAll(): Promise<Budget[]> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<any>('SELECT * FROM budgets;');
+    return rows.map(this.toDomain);
+  }
+
   async getByMonth(year: number, month: number): Promise<Budget[]> {
     const db = this.getDb();
     const rows = await db.getAllAsync<any>('SELECT * FROM budgets WHERE year = ? AND month = ?;', [year, month]);

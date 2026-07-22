@@ -9,6 +9,7 @@ import { Tabs } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GlobalMonthSelector } from '@/src/presentation/components';
 
 export default function TabLayout() {
   const theme = useAppTheme();
@@ -21,6 +22,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: true,
+        headerRight: () => <GlobalMonthSelector />,
         headerStyle: {
           backgroundColor: theme.colors.surface,
           shadowColor: 'transparent',

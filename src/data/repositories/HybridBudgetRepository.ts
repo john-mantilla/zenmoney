@@ -34,6 +34,27 @@ export class HybridBudgetRepository implements BudgetRepository {
     return this.localRepo!.getById(id);
   }
 
+  async getAll(): Promise<Budget[]> {
+    if (Platform.OS === 'web') return this.remoteRepo.getAll();
+
+    if (await this.isOnline()) {
+      try {
+        const remote = await this.remoteRepo.getAll();
+        await this.localRepo!.bulkSave(remote);
+
+        const unsynced = await this.localRepo!.getUnsynced();
+        const combinedMap = new Map<string, Budget>();
+        remote.forEach(b => combinedMap.set(b.id, b));
+        unsynced.forEach(b => combinedMap.set(b.id, b));
+
+        return Array.from(combinedMap.values());
+      } catch (err) {
+        // Fallback
+      }
+    }
+    return this.localRepo!.getAll();
+  }
+
   async getByMonth(year: number, month: number): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getByMonth(year, month);
 

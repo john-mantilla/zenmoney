@@ -22,6 +22,7 @@ import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 const parseLocalDate = (dateStr: string): Date => {
@@ -52,8 +53,7 @@ export default function BillsScreen() {
   const [selectedDate, setSelectedDate] = useState<string>(''); // YYYY-MM-DD del día seleccionado (vacío = ver resumen mensual)
 
   // Estados del calendario mensual
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(7); // Julio = 7 (1-12)
+  const { selectedYear: currentYear, selectedMonth: currentMonth } = useDateStore();
 
   // Estados del Diálogo para registrar una nueva factura
   const [isDialogVisible, setIsDialogVisible] = useState(false);
@@ -264,7 +264,7 @@ export default function BillsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [currentMonth, currentYear])
+    }, [currentYear, currentMonth])
   );
 
   const onRefresh = () => {
@@ -488,26 +488,6 @@ export default function BillsScreen() {
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ];
 
-  const handlePrevMonth = () => {
-    setSelectedDate('');
-    if (currentMonth === 1) {
-      setCurrentMonth(12);
-      setCurrentYear(currentYear - 1);
-    } else {
-      setCurrentMonth(currentMonth - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    setSelectedDate('');
-    if (currentMonth === 12) {
-      setCurrentMonth(1);
-      setCurrentYear(currentYear + 1);
-    } else {
-      setCurrentMonth(currentMonth + 1);
-    }
-  };
-
   // ─── GENERADOR DE CALENDARIO EN PURE REACT NATIVE ──────────────────────
 
   const renderCalendar = () => {
@@ -661,37 +641,12 @@ export default function BillsScreen() {
       <View style={{ width: '100%', backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.outline, zIndex: 10 }}>
         <Surface style={[styles.header, { backgroundColor: theme.colors.surface }]} elevation={0}>
           <View style={styles.headerControlRow}>
-            <IconButton icon="chevron-left" onPress={handlePrevMonth} />
-            <View style={styles.headerTitleContainer}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={theme.typography.h3}>
-                  {monthNames[currentMonth - 1]} {currentYear}
-                </Text>
-                {(() => {
-                  const today = new Date();
-                  const isCurrentMonth = currentMonth === today.getMonth() + 1 && currentYear === today.getFullYear();
-                  if (isCurrentMonth) return null;
-                  return (
-                    <IconButton
-                      icon="calendar-today"
-                      size={16}
-                      iconColor={theme.colors.primary}
-                      style={{ margin: 0, marginLeft: 8, padding: 0 }}
-                      onPress={() => {
-                        const now = new Date();
-                        setCurrentMonth(now.getMonth() + 1);
-                        setCurrentYear(now.getFullYear());
-                        setSelectedDate('');
-                      }}
-                    />
-                  );
-                })()}
-              </View>
+            <View style={[styles.headerTitleContainer, { alignItems: 'flex-start' }]}>
               <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                Presupuesto agendado: <AmountDisplay amount={totalBillsAmountInMonth} size="sm" style={{ color: theme.colors.onSurface }} />
+                Presupuesto agendado para el mes
               </Text>
+              <AmountDisplay amount={totalBillsAmountInMonth} size="md" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }} />
             </View>
-            <IconButton icon="chevron-right" onPress={handleNextMonth} />
           </View>
 
           <IconButton
