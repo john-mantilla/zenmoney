@@ -9,19 +9,29 @@ import { BudgetProgress } from '@domain/entities/Budget';
 import { Transaction } from '@domain/entities/Transaction';
 import { AtypicalDetectionResult } from '@domain/usecases/DetectAtypicalExpense';
 import { RunwayProjection } from '@domain/usecases/ProjectMonthlyRunway';
-import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
-// Configuración de notificaciones nativas de Expo
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+let Notifications: typeof import('expo-notifications') | null = null;
+
+if (!isExpoGo && Platform.OS !== 'web') {
+  try {
+    Notifications = require('expo-notifications');
+    Notifications?.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  } catch (err) {
+    console.warn('[BudgetAlertService] Notificaciones nativas no disponibles:', err);
+  }
+}
 
 export class BudgetAlertService {
   
@@ -29,17 +39,21 @@ export class BudgetAlertService {
    * Inicializa los permisos para notificaciones nativas en dispositivos móviles.
    */
   static async requestPermissions(): Promise<boolean> {
-    if (Platform.OS === 'web') return true;
+    if (Platform.OS === 'web' || isExpoGo || !Notifications) return true;
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      return finalStatus === 'granted';
+    } catch {
+      return false;
     }
-    
-    return finalStatus === 'granted';
   }
 
   /**
@@ -125,26 +139,19 @@ export class BudgetAlertService {
   }
 
   /**
-   * Envía una notificación física en el dispositivo o un alert fallback en web.
+   * Envía una notificación física en el dispositivo o un alert fallback en web/Expo Go.
    */
   private static async sendNotification(title: string, body: string): Promise<void> {
     try {
-      if (Platform.OS === 'web') {
-        // Fallback para Web: Notificación nativa del navegador o alerta visual
-        if ('Notification' in window && Notification.permission === 'granted') {
+      if (Platform.OS === 'web' || isExpoGo || !Notifications) {
+        // Fallback para Web / Expo Go: Notificación del navegador o log limpio
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
           new Notification(title, { body });
-        } else if ('Notification' in window && Notification.permission !== 'denied') {
-          const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            new Notification(title, { body });
-          } else {
-            console.warn(`[ZenMoney Alert Web Fallback] ${title}: ${body}`);
-          }
         } else {
-          console.warn(`[ZenMoney Alert Web Fallback] ${title}: ${body}`);
+          console.log(`[ZenMoney Alert] ${title}: ${body}`);
         }
       } else {
-        // Notificación Push del Sistema en iOS / Android
+        // Notificación Push del Sistema en Builds Nativas (Development Build / Standalone)
         await Notifications.scheduleNotificationAsync({
           content: {
             title,
@@ -152,7 +159,7 @@ export class BudgetAlertService {
             sound: true,
             data: { screen: 'budgets' },
           },
-          trigger: null, // Envío inmediato
+          trigger: null,
         });
       }
     } catch (err) {

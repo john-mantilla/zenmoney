@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform } from 'react-native';
-import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, SegmentedButtons } from 'react-native-paper';
+import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, Portal, Dialog } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
@@ -60,10 +60,65 @@ export default function DashboardScreen() {
   // Alertas Inteligentes
   const [smartAlerts, setSmartAlerts] = useState<string[]>([]);
 
-  // Estados de control de colapsables (Acordeones)
-  const [liquidExpanded, setLiquidExpanded] = useState(true);
-  const [creditExpanded, setCreditExpanded] = useState(true);
-  const [loansExpanded, setLoansExpanded] = useState(false); // Colapsado por defecto
+  // Estados de control de colapsables (Acordeones - Colapsados por defecto para una vista compacta)
+  const [liquidExpanded, setLiquidExpanded] = useState(false);
+  const [creditExpanded, setCreditExpanded] = useState(false);
+  const [loansExpanded, setLoansExpanded] = useState(false);
+  const [selectedAccountForAction, setSelectedAccountForAction] = useState<Account | null>(null);
+
+  // Estadísticas históricas de la cuenta seleccionada en el modal
+  const [accountStats, setAccountStats] = useState<{
+    totalIncome: number;
+    totalExpenses: number;
+    startDateStr: string | null;
+    isLoading: boolean;
+  }>({ totalIncome: 0, totalExpenses: 0, startDateStr: null, isLoading: false });
+
+  useEffect(() => {
+    if (!selectedAccountForAction) return;
+
+    const calculateStats = async () => {
+      setAccountStats(prev => ({ ...prev, isLoading: true }));
+      try {
+        const allTx = await transactionRepo.getAll({
+          accountId: selectedAccountForAction.id,
+          status: 'confirmed',
+        });
+
+        let income = 0;
+        let expenses = 0;
+        let earliestDate: string | null = selectedAccountForAction.createdAt ? selectedAccountForAction.createdAt.split('T')[0] : null;
+
+        for (const tx of allTx) {
+          const amt = Number(tx.amount) || 0;
+          if (tx.type === 'income') {
+            income += amt;
+          } else if (tx.type === 'expense') {
+            expenses += amt;
+          }
+
+          if (tx.transactionDate) {
+            const txDate = tx.transactionDate.split('T')[0];
+            if (!earliestDate || txDate < earliestDate) {
+              earliestDate = txDate;
+            }
+          }
+        }
+
+        setAccountStats({
+          totalIncome: income,
+          totalExpenses: expenses,
+          startDateStr: earliestDate,
+          isLoading: false,
+        });
+      } catch (e) {
+        console.error('[Account Stats Load Error]', e);
+        setAccountStats(prev => ({ ...prev, isLoading: false }));
+      }
+    };
+
+    calculateStats();
+  }, [selectedAccountForAction?.id]);
 
   const accountRepo = new HybridAccountRepository();
   const transactionRepo = new HybridTransactionRepository();
@@ -397,7 +452,11 @@ export default function DashboardScreen() {
               <List.Item
                 key={account.id}
                 title={account.name}
-                description={account.type === 'cash' ? 'Efectivo' : 'Cuenta de ahorro/banco'}
+                description={
+                  (account.type === 'cash' ? 'Efectivo' : 'Cuenta bancaria') +
+                  (account.isPrivate ? ' • 🙈 Privada' : '')
+                }
+                onPress={() => setSelectedAccountForAction(account)}
                 right={() => (
                   <AmountDisplay amount={account.initialBalance} size="sm" type="neutral" style={styles.itemAmount} />
                 )}
@@ -423,7 +482,12 @@ export default function DashboardScreen() {
                 <List.Item
                   key={account.id}
                   title={account.name}
-                  description="Deuda a corto plazo"
+                  description={
+                    account.closingDay
+                      ? `Día de corte: ${account.closingDay}` + (account.isPrivate ? ' • 🙈 Privada' : '')
+                      : account.isPrivate ? '🙈 Cuenta privada' : 'Tarjeta de crédito'
+                  }
+                  onPress={() => setSelectedAccountForAction(account)}
                   right={() => (
                     <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
                   )}
@@ -450,7 +514,11 @@ export default function DashboardScreen() {
                 <List.Item
                   key={account.id}
                   title={account.name}
-                  description={account.type === 'mortgage' ? 'Hipotecario' : 'Vehículo / Consumo'}
+                  description={
+                    (account.type === 'mortgage' ? 'Crédito Hipotecario' : 'Préstamo / Vehículo') +
+                    (account.isPrivate ? ' • 🙈 Privado' : '')
+                  }
+                  onPress={() => setSelectedAccountForAction(account)}
                   right={() => (
                     <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
                   )}
@@ -509,6 +577,117 @@ export default function DashboardScreen() {
         color="#FFFFFF"
         onPress={() => router.push('/transaction/new')}
       />
+
+      {/* ─── MODAL ACCIONES RÁPIDAS DE CUENTA ────────────────────────────── */}
+      <Portal>
+        <Dialog
+          visible={!!selectedAccountForAction}
+          onDismiss={() => setSelectedAccountForAction(null)}
+          style={{ borderRadius: 20 }}
+        >
+          <Dialog.Title style={{ fontWeight: 'bold' }}>
+            {selectedAccountForAction?.name}
+          </Dialog.Title>
+          <Dialog.Content>
+            {selectedAccountForAction && (
+              <View style={{ gap: 12 }}>
+                {accountStats.startDateStr && (
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                    📅 Activa desde: {accountStats.startDateStr}
+                  </Text>
+                )}
+
+                <View>
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 2 }]}>
+                    Saldo actual registrado:
+                  </Text>
+                  <AmountDisplay
+                    amount={selectedAccountForAction.initialBalance}
+                    size="md"
+                    type={
+                      ['credit_card', 'loan', 'mortgage'].includes(selectedAccountForAction.type)
+                        ? 'expense'
+                        : 'neutral'
+                    }
+                  />
+                </View>
+
+                {/* Resumen Histórico de Ingresos y Egresos de Todos los Tiempos */}
+                {accountStats.isLoading ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 8 }} />
+                ) : (
+                  <Surface style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.surfaceVariant, gap: 8 }}>
+                    <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                      Histórico acumulado (Todos los tiempos):
+                    </Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface }]}>
+                        🟢 Total Ingresos:
+                      </Text>
+                      <AmountDisplay amount={accountStats.totalIncome} size="sm" type="income" />
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface }]}>
+                        🔴 Total Gastos:
+                      </Text>
+                      <AmountDisplay amount={accountStats.totalExpenses} size="sm" type="expense" />
+                    </View>
+                  </Surface>
+                )}
+
+                {selectedAccountForAction.type === 'credit_card' && selectedAccountForAction.closingDay && (
+                  <Text style={[theme.typography.caption, { color: theme.colors.primary }]}>
+                    💳 Día de corte asignado: {selectedAccountForAction.closingDay}
+                  </Text>
+                )}
+
+                {selectedAccountForAction.isPrivate && (
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                    🙈 Esta cuenta está marcada como privada.
+                  </Text>
+                )}
+              </View>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions style={{ flexDirection: 'column', gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
+            <Button
+              mode="contained"
+              icon="format-list-bulleted"
+              style={{ width: '100%' }}
+              onPress={() => {
+                const accId = selectedAccountForAction?.id;
+                setSelectedAccountForAction(null);
+                if (accId) {
+                  router.push({ pathname: '/transactions', params: { accountId: accId } });
+                }
+              }}
+            >
+              Ver Movimientos de esta Cuenta
+            </Button>
+            <Button
+              mode="outlined"
+              icon="plus-circle-outline"
+              style={{ width: '100%' }}
+              onPress={() => {
+                const accId = selectedAccountForAction?.id;
+                setSelectedAccountForAction(null);
+                if (accId) {
+                  router.push({ pathname: '/transaction/new', params: { accountId: accId } });
+                }
+              }}
+            >
+              Registrar Gasto con esta Cuenta
+            </Button>
+            <Button
+              onPress={() => setSelectedAccountForAction(null)}
+              textColor={theme.customColors.textSecondary}
+              style={{ marginTop: 4 }}
+            >
+              Cerrar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }
@@ -555,7 +734,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 80,
+    paddingBottom: 115,
   },
   emailInboxCard: {
     marginTop: 16,

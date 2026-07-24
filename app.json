@@ -70,10 +70,15 @@
             "add_expense": {
               "foregroundImage": "./assets/images/android-icon-foreground.png",
               "backgroundColor": "#1A1A2E"
+            },
+            "scan_receipt": {
+              "foregroundImage": "./assets/images/android-icon-foreground.png",
+              "backgroundColor": "#1A1A2E"
             }
           },
           "iosIcons": {
-            "add_expense": "symbol:plus.circle.fill"
+            "add_expense": "symbol:plus.circle.fill",
+            "scan_receipt": "symbol:camera.fill"
           }
         }
       ],

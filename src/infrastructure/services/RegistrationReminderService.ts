@@ -8,12 +8,23 @@
  * refleja el ritmo real más reciente del usuario.
  */
 
-import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BudgetAlertService } from './BudgetAlertService';
 
 const SCHEDULED_ID_KEY = 'zenmoney:registration_reminder_id';
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+let Notifications: typeof import('expo-notifications') | null = null;
+
+if (!isExpoGo && Platform.OS !== 'web') {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (err) {
+    console.warn('[RegistrationReminderService] Notificaciones nativas no disponibles:', err);
+  }
+}
 
 export class RegistrationReminderService {
   /**
@@ -21,7 +32,7 @@ export class RegistrationReminderService {
    *   el recordatorio se programa para ese horizonte, acotado entre 1 y 5 días.
    */
   static async schedule(expectedGapDays: number): Promise<void> {
-    if (Platform.OS === 'web') return; // Notificaciones locales programadas no aplican en web
+    if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
 
     try {
       await this.cancelExisting();
@@ -48,6 +59,8 @@ export class RegistrationReminderService {
   }
 
   static async cancelExisting(): Promise<void> {
+    if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
+
     try {
       const existingId = await AsyncStorage.getItem(SCHEDULED_ID_KEY);
       if (existingId) {

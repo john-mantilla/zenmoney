@@ -20,11 +20,12 @@ import { Transaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 export default function TransactionsScreen() {
   const theme = useAppTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ accountId?: string }>();
   const { selectedYear, selectedMonth } = useDateStore();
 
   // Estados de datos
@@ -40,6 +41,12 @@ export default function TransactionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (params.accountId) {
+      setSelectedAccountId(params.accountId);
+    }
+  }, [params.accountId]);
   const [viewMode, setViewMode] = useState<'date' | 'category'>('date');
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [collapsedDates, setCollapsedDates] = useState<Set<string>>(new Set());

@@ -6,13 +6,13 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Card, HelperText, Surface, IconButton, ActivityIndicator, Switch, Divider } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
-import { CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
+import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet } from '@/src/presentation/components';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -35,9 +35,21 @@ import { Transaction } from '@/src/domain/entities/Transaction';
 import { CategorizationRule } from '@/src/domain/entities/CategorizationRule';
 import { GeminiFlashProvider } from '@/src/infrastructure/ai/GeminiFlashProvider';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+let ExpoSpeechRecognitionModule: any = null;
+let useSpeechRecognitionEvent: (_event: string, _listener: Function) => void = () => {};
+
+try {
+  const speechPkg = require('expo-speech-recognition');
+  if (speechPkg?.ExpoSpeechRecognitionModule) {
+    ExpoSpeechRecognitionModule = speechPkg.ExpoSpeechRecognitionModule;
+    useSpeechRecognitionEvent = speechPkg.useSpeechRecognitionEvent;
+  }
+} catch {
+  // Módulo nativo no compilado en el cliente Expo Go actual
+}
 
 const WebSpeechRecognition =
   typeof window !== 'undefined'
@@ -59,6 +71,7 @@ export default function NewTransactionScreen() {
     transferToAccountId?: string;
     amount?: string;
     description?: string;
+    action?: string;
   }>();
   const id = params.id;
   const isEditing = !!id;
@@ -86,12 +99,14 @@ export default function NewTransactionScreen() {
 
   // Campos del formulario
   const [amount, setAmount] = useState('');
+  const [isNumpadVisible, setIsNumpadVisible] = useState(false);
   const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
   const [accountId, setAccountId] = useState('');
   
   // Selección jerárquica de categorías
   const [selectedParentCategoryId, setSelectedParentCategoryId] = useState<string>('');
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string>('');
+  const [isCategorySheetVisible, setIsCategorySheetVisible] = useState(false);
 
   const [description, setDescription] = useState('');
   const [merchantName, setMerchantName] = useState('');
@@ -216,6 +231,12 @@ export default function NewTransactionScreen() {
           } catch {
             // Los atajos son un extra: si fallan, el formulario sigue funcionando normal.
           }
+          if (params.action === 'camera') {
+            setMode('ai');
+            setTimeout(() => {
+              handlePickReceipt('camera');
+            }, 400);
+          }
         }
       } catch (err) {
         setErrorMsg('Error al cargar la información financiera.');
@@ -224,7 +245,7 @@ export default function NewTransactionScreen() {
       }
     }
     loadData();
-  }, [id, isEditing]);
+  }, [id, isEditing, params.action]);
 
   // Consulta de Tasa de Cambio en Tiempo Real (USD -> COP)
   const fetchRate = async () => {
@@ -323,39 +344,50 @@ export default function NewTransactionScreen() {
   };
 
   // ─── Reconocimiento de voz (iOS / Android nativo) ─────────────────────
-  useSpeechRecognitionEvent('result', (event) => {
-    const transcript = event.results[0]?.transcript;
+  useSpeechRecognitionEvent('result', (event: any) => {
+    const transcript = event?.results?.[0]?.transcript;
     if (transcript) setAiInput(transcript);
   });
   useSpeechRecognitionEvent('end', () => setIsListening(false));
-  useSpeechRecognitionEvent('error', (event) => {
+  useSpeechRecognitionEvent('error', (event: any) => {
     setIsListening(false);
     setErrorMsg(
-      event.error === 'not-allowed'
+      event?.error === 'not-allowed'
         ? 'Necesitas dar permiso de micrófono para dictar el gasto.'
         : 'No se pudo reconocer el audio. Intenta de nuevo.'
     );
   });
 
   const handleStartNativeSpeech = async () => {
-    const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!permission.granted) {
-      setErrorMsg('Necesitas dar permiso de micrófono para dictar el gasto.');
+    if (!ExpoSpeechRecognitionModule) {
+      handleStartSpeech();
       return;
     }
-    setErrorMsg(null);
-    setIsListening(true);
-    ExpoSpeechRecognitionModule.start({ lang: 'es-CO', interimResults: false });
+    try {
+      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!permission?.granted) {
+        setErrorMsg('Necesitas dar permiso de micrófono para dictar el gasto.');
+        return;
+      }
+      setErrorMsg(null);
+      setIsListening(true);
+      ExpoSpeechRecognitionModule.start({ lang: 'es-CO', interimResults: false });
+    } catch {
+      handleStartSpeech();
+    }
   };
 
   const handleStopNativeSpeech = () => {
-    ExpoSpeechRecognitionModule.stop();
+    if (ExpoSpeechRecognitionModule?.stop) {
+      ExpoSpeechRecognitionModule.stop();
+    }
+    setIsListening(false);
   };
 
   // Un solo botón de micrófono: en web usa la Web Speech API del navegador,
-  // en iOS/Android usa el reconocimiento nativo del dispositivo.
+  // en iOS/Android usa el reconocimiento nativo del dispositivo si está disponible.
   const handleMicPress = () => {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || !ExpoSpeechRecognitionModule) {
       handleStartSpeech();
     } else if (isListening) {
       handleStopNativeSpeech();
@@ -853,12 +885,17 @@ export default function NewTransactionScreen() {
               ¿Cuánto gastaste?
             </Text>
             
-            {/* Display de Monto */}
-            <Surface style={[styles.quickAmountDisplay, theme.shadows.sm, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline }]}>
-              <Text style={[theme.typography.amountLarge, { color: theme.colors.primary, textAlign: 'center' }]}>
-                $ {parseFloat(amount || '0').toLocaleString('es-CO')}
-              </Text>
-            </Surface>
+            {/* Display de Monto (Tocar para abrir el teclado flotante) */}
+            <Pressable onPress={() => setIsNumpadVisible(true)}>
+              <Surface style={[styles.quickAmountDisplay, theme.shadows.sm, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline }]}>
+                <Text style={[theme.typography.amountLarge, { color: theme.colors.primary, textAlign: 'center' }]}>
+                  $ {/[+\-×÷]/.test(amount) ? amount : (parseFloat(amount || '0') || 0).toLocaleString('es-CO')}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, textAlign: 'center', marginTop: 4 }]}>
+                  Toca para cambiar monto
+                </Text>
+              </Surface>
+            </Pressable>
 
             {/* Teclado de Botones Rápidos */}
             <View style={styles.quickChipsRow}>
@@ -869,7 +906,7 @@ export default function NewTransactionScreen() {
                   compact
                   style={styles.quickChip}
                   onPress={() => {
-                    const current = parseFloat(amount || '0');
+                    const current = parseFloat(amount || '0') || 0;
                     setAmount(String(current + val));
                     setErrorMsg(null);
                   }}
@@ -894,19 +931,18 @@ export default function NewTransactionScreen() {
               ¿En qué lo gastaste?
             </Text>
 
-            {/* Grid de Emojis */}
-            <View style={styles.emojiGrid}>
+            {/* Grid de Categorías con Vector Icons */}
+            <View style={styles.categoryGrid}>
               {[
-                { label: 'Comida', emoji: '🍔', keywords: ['comida', 'alimentación', 'mercado', 'restaurante'] },
-                { label: 'Casa', emoji: '🏠', keywords: ['vivienda', 'hogar', 'arriendo', 'casa', 'servicios públicos'] },
-                { label: 'Transporte', emoji: '🚌', keywords: ['transporte', 'car', 'bus', 'taxi', 'uber', 'gasolina'] },
-                { label: 'Salud', emoji: '💊', keywords: ['salud', 'bienestar', 'médico', 'hospital', 'farmacia'] },
-                { label: 'Diversión', emoji: '🎮', keywords: ['entretenimiento', 'juegos', 'suscripciones', 'cine', 'ocio'] },
-                { label: 'Estudio', emoji: '🏫', keywords: ['educación', 'escuela', 'libros', 'curso'] },
-                { label: 'Finanzas', emoji: '🛡️', keywords: ['finanzas', 'seguros', 'banco', 'impuestos', 'deuda'] },
-                { label: 'Otros', emoji: '❓', keywords: ['sin clasificar', 'otros', 'varios', 'compras', 'regalos'] }
+                { label: 'Comida', icon: 'silverware-fork-knife', keywords: ['comida', 'alimentación', 'mercado', 'restaurante'] },
+                { label: 'Casa', icon: 'home-variant-outline', keywords: ['vivienda', 'hogar', 'arriendo', 'casa', 'servicios públicos'] },
+                { label: 'Transporte', icon: 'bus-clock', keywords: ['transporte', 'car', 'bus', 'taxi', 'uber', 'gasolina'] },
+                { label: 'Salud', icon: 'medical-bag', keywords: ['salud', 'bienestar', 'médico', 'hospital', 'farmacia'] },
+                { label: 'Ocio', icon: 'controller-classic-outline', keywords: ['entretenimiento', 'juegos', 'suscripciones', 'cine', 'ocio'] },
+                { label: 'Estudio', icon: 'school-outline', keywords: ['educación', 'escuela', 'libros', 'curso'] },
+                { label: 'Finanzas', icon: 'shield-check-outline', keywords: ['finanzas', 'seguros', 'banco', 'impuestos', 'deuda'] },
+                { label: 'Otros', icon: 'dots-horizontal-circle-outline', keywords: ['sin clasificar', 'otros', 'varios', 'compras', 'regalos'] }
               ].map(item => {
-                // Buscar la mejor categoría coincidente de la base de datos
                 const matchedCategory = categories.find(c => 
                   c.name.toLowerCase().includes(item.label.toLowerCase()) ||
                   item.keywords.some(k => c.name.toLowerCase().includes(k))
@@ -918,7 +954,7 @@ export default function NewTransactionScreen() {
                   <Pressable
                     key={item.label}
                     style={[
-                      styles.emojiCard,
+                      styles.categoryCard,
                       theme.shadows.sm,
                       {
                         backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surface,
@@ -933,27 +969,35 @@ export default function NewTransactionScreen() {
                       }
                     }}
                   >
-                    <Text style={{ fontSize: 32, marginBottom: 6 }}>{item.emoji}</Text>
-                    <Text style={[theme.typography.bodySmall, { color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurface, fontWeight: isSelected ? '700' : '400', textAlign: 'center' }]}>
+                    <View style={[
+                      styles.iconCircle,
+                      { backgroundColor: isSelected ? theme.colors.primary : theme.colors.surfaceVariant }
+                    ]}>
+                      <MaterialCommunityIcons
+                        name={item.icon as any}
+                        size={22}
+                        color={isSelected ? theme.colors.onPrimary : theme.colors.primary}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        theme.typography.caption,
+                        {
+                          color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurface,
+                          fontWeight: isSelected ? '700' : '500',
+                          textAlign: 'center',
+                          marginTop: 4
+                        }
+                      ]}
+                      numberOfLines={1}
+                      allowFontScaling={false}
+                    >
                       {item.label}
                     </Text>
                   </Pressable>
                 );
               })}
             </View>
-
-            {/* Gran Botón de Guardar */}
-            <Button
-              mode="contained"
-              icon="check-circle"
-              onPress={handleSaveTransaction}
-              loading={isLoading}
-              disabled={isLoading || !amount || parseFloat(amount) <= 0 || !selectedParentCategoryId}
-              style={styles.quickSaveBtn}
-              labelStyle={{ fontSize: 16, paddingVertical: 4 }}
-            >
-              ¡Registrar Gasto!
-            </Button>
           </View>
         )}
 
@@ -967,27 +1011,24 @@ export default function NewTransactionScreen() {
               Di o escribe tu gasto para que la IA lo auto-rellene
             </Text>
 
-            <Surface
-              style={[
-                styles.micContainer,
-                theme.shadows.md,
-                {
-                  backgroundColor: isListening ? theme.customColors.dangerLight : theme.colors.surface,
-                  borderColor: isListening ? theme.colors.error : theme.colors.outline,
-                },
-              ]}
-            >
-              <Button mode="text" onPress={handleMicPress} style={styles.micButton} contentStyle={styles.micButtonContent}>
-                <MaterialCommunityIcons
-                  name={isListening ? 'microphone-off' : 'microphone'}
-                  size={48}
-                  color={isListening ? theme.colors.error : theme.colors.primary}
-                />
-              </Button>
-              <Text style={[theme.typography.caption, { marginTop: 8 }]}>
-                {isListening ? 'Escuchando...' : 'Toca para dictar por micrófono'}
+            <View style={{ marginVertical: 20, alignItems: 'center' }}>
+              <VoicePulseWave
+                isListening={isListening}
+                onPress={handleMicPress}
+              />
+              <Text
+                style={[
+                  theme.typography.caption,
+                  {
+                    marginTop: 14,
+                    color: isListening ? theme.colors.error : theme.customColors.textSecondary,
+                    fontWeight: isListening ? '700' : '500',
+                  },
+                ]}
+              >
+                {isListening ? '🎙️ Escuchando tu voz...' : 'Toca el micrófono para dictar'}
               </Text>
-            </Surface>
+            </View>
 
             <TextInput
               label="Comando de voz/texto"
@@ -1064,15 +1105,19 @@ export default function NewTransactionScreen() {
               style={styles.typeSelector}
             />
 
-            <TextInput
-              label={purchaseCurrency === 'USD' ? 'Monto en USD ($)' : 'Monto ($)'}
-              value={amount}
-              onChangeText={(txt) => { setAmount(txt.replace(/[^0-9.]/g, '')); setErrorMsg(null); }}
-              mode="outlined"
-              keyboardType="numeric"
-              style={styles.input}
-              disabled={isLoading}
-            />
+            <Text style={[styles.selectLabel, theme.typography.caption]}>
+              {purchaseCurrency === 'USD' ? 'Monto en USD ($)' : 'Monto ($)'}
+            </Text>
+            <Pressable onPress={() => setIsNumpadVisible(true)}>
+              <Surface style={[styles.quickAmountDisplay, theme.shadows.sm, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline, paddingVertical: 12, marginBottom: 16 }]}>
+                <Text style={[theme.typography.amountLarge, { color: theme.colors.primary, textAlign: 'center' }]}>
+                  $ {/[+\-×÷]/.test(amount) ? amount : (parseFloat(amount || '0') || 0).toLocaleString('es-CO')}
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, textAlign: 'center', marginTop: 2 }]}>
+                  Toca para cambiar monto
+                </Text>
+              </Surface>
+            </Pressable>
 
             {!isEditing && type === 'expense' && (
               <>
@@ -1129,27 +1174,69 @@ export default function NewTransactionScreen() {
               </>
             )}
 
-            {/* Cuentas origen / destino */}
+            {/* Cuentas origen / destino (Carrusel Horizontal Deslizable) */}
             <Text style={[styles.selectLabel, theme.typography.caption]}>
               {type === 'transfer' ? 'Cuenta Origen' : type === 'income' ? 'Cuenta Destino' : 'Cuenta de Pago'}
             </Text>
-            <View style={styles.accountsRow}>
-              {accounts.map(acc => (
-                <Button
-                  key={acc.id}
-                  mode={accountId === acc.id ? 'contained' : 'outlined'}
-                  compact
-                  onPress={() => setAccountId(acc.id)}
-                  style={styles.selectBtn}
-                  disabled={isLoading}
-                >
-                  {acc.name}
-                </Button>
-              ))}
-            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingVertical: 4, marginBottom: 16 }}
+            >
+              {accounts.map(acc => {
+                const isSelected = accountId === acc.id;
+                const getAccountIcon = (accType: string) => {
+                  if (accType === 'credit_card') return 'credit-card-outline';
+                  if (accType === 'cash') return 'cash';
+                  return 'bank-outline';
+                };
+
+                return (
+                  <Surface
+                    key={acc.id}
+                    elevation={isSelected ? 2 : 0}
+                    style={{
+                      borderRadius: 14,
+                      paddingHorizontal: 14,
+                      paddingVertical: 10,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surface,
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '40',
+                    }}
+                  >
+                    <Pressable
+                      onPress={() => setAccountId(acc.id)}
+                      style={{ flexDirection: 'row', alignItems: 'center' }}
+                      disabled={isLoading}
+                    >
+                      <MaterialCommunityIcons
+                        name={getAccountIcon(acc.type)}
+                        size={20}
+                        color={isSelected ? theme.colors.primary : theme.customColors.textSecondary}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text
+                        style={[
+                          theme.typography.caption,
+                          {
+                            fontWeight: isSelected ? '700' : '500',
+                            color: isSelected ? theme.colors.primary : theme.colors.onSurface,
+                            fontSize: 14,
+                          },
+                        ]}
+                      >
+                        {acc.name}
+                      </Text>
+                    </Pressable>
+                  </Surface>
+                );
+              })}
+            </ScrollView>
 
             {!isEditing && type === 'expense' && accounts.find(a => a.id === accountId)?.type === 'credit_card' && (
-              <View style={{ marginTop: 12, marginBottom: 16 }}>
+              <View style={{ marginTop: 4, marginBottom: 16 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <Text style={[theme.typography.body, { color: theme.colors.onSurface }]}>
                     ¿Diferir compra a cuotas?
@@ -1191,41 +1278,129 @@ export default function NewTransactionScreen() {
               </View>
             )}
 
-            {/* Campo Cuenta Destino en Transferencias */}
+            {/* Campo Cuenta Destino en Transferencias (Carrusel) */}
             {type === 'transfer' && (
               <>
                 <Text style={[styles.selectLabel, theme.typography.caption, { color: theme.customColors.transfer }]}>
                   Cuenta Destino
                 </Text>
-                <View style={styles.accountsRow}>
-                  {accounts.map(acc => (
-                    <Button
-                      key={acc.id}
-                      mode={transferToAccountId === acc.id ? 'contained' : 'outlined'}
-                      compact
-                      disabled={acc.id === accountId || isLoading}
-                      onPress={() => setTransferToAccountId(acc.id)}
-                      style={styles.selectBtn}
-                    >
-                      {acc.name}
-                    </Button>
-                  ))}
-                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, paddingVertical: 4, marginBottom: 16 }}
+                >
+                  {accounts.map(acc => {
+                    const isSelected = transferToAccountId === acc.id;
+                    const isDisabled = acc.id === accountId || isLoading;
+
+                    return (
+                      <Surface
+                        key={acc.id}
+                        elevation={isSelected ? 2 : 0}
+                        style={{
+                          borderRadius: 14,
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surface,
+                          borderWidth: 1.5,
+                          borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '40',
+                          opacity: isDisabled ? 0.5 : 1,
+                        }}
+                      >
+                        <Pressable
+                          onPress={() => setTransferToAccountId(acc.id)}
+                          style={{ flexDirection: 'row', alignItems: 'center' }}
+                          disabled={isDisabled}
+                        >
+                          <MaterialCommunityIcons
+                            name="bank-outline"
+                            size={18}
+                            color={isSelected ? theme.colors.primary : theme.customColors.textSecondary}
+                            style={{ marginRight: 6 }}
+                          />
+                          <Text
+                            style={[
+                              theme.typography.caption,
+                              {
+                                fontWeight: isSelected ? '700' : '500',
+                                color: isSelected ? theme.colors.primary : theme.colors.onSurface,
+                              },
+                            ]}
+                          >
+                            {acc.name}
+                          </Text>
+                        </Pressable>
+                      </Surface>
+                    );
+                  })}
+                </ScrollView>
               </>
             )}
 
-            {/* Categoría (lista desplegable, respeta jerarquía categoría/subcategoría) */}
+            {/* Categoría (Selector con BottomSheet Modal) */}
             {type === 'expense' && (
               <>
                 <Text style={[styles.selectLabel, theme.typography.caption]}>Categoría</Text>
-                <CategoryPickerMenu
-                  categories={categories}
-                  selectedCategoryId={selectedSubCategoryId || selectedParentCategoryId}
-                  onSelect={applyCategoryId}
-                  excludeNamesContaining="ingreso"
-                  disabled={isLoading}
-                  style={{ marginBottom: 16, alignSelf: 'flex-start' }}
-                />
+                {(() => {
+                  const selectedCatId = selectedSubCategoryId || selectedParentCategoryId;
+                  const selectedCatObj = categories.find((c) => c.id === selectedCatId);
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setIsCategorySheetVisible(true)}
+                      disabled={isLoading}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: 14,
+                        borderWidth: 1.5,
+                        borderColor: selectedCatObj ? theme.colors.primary : theme.colors.outline,
+                        backgroundColor: selectedCatObj ? theme.colors.primaryContainer + '30' : theme.colors.surface,
+                        marginBottom: 16,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 18,
+                            backgroundColor: selectedCatObj?.color ? selectedCatObj.color + '20' : theme.colors.primaryContainer,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginRight: 12,
+                          }}
+                        >
+                          <MaterialCommunityIcons
+                            name={(selectedCatObj?.icon as any) || 'tag-outline'}
+                            size={20}
+                            color={selectedCatObj?.color || theme.colors.primary}
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            theme.typography.body,
+                            {
+                              fontWeight: selectedCatObj ? '700' : '500',
+                              color: selectedCatObj ? theme.colors.onSurface : theme.customColors.textSecondary,
+                              fontSize: 15,
+                            },
+                          ]}
+                        >
+                          {selectedCatObj ? selectedCatObj.name : 'Seleccionar Categoría'}
+                        </Text>
+                      </View>
+
+                      <MaterialCommunityIcons name="chevron-down" size={22} color={theme.customColors.textSecondary} />
+                    </TouchableOpacity>
+                  );
+                })()}
               </>
             )}
 
@@ -1349,18 +1524,62 @@ export default function NewTransactionScreen() {
               </>
             )}
 
-            <Button
-              mode="contained"
-              onPress={handleSaveTransaction}
-              loading={isLoading}
-              disabled={isLoading || !amount || !accountId}
-              style={[styles.actionBtn, { backgroundColor: theme.colors.primary, marginTop: 24 }]}
-            >
-              {isEditing ? 'Guardar Cambios' : 'Confirmar Movimiento'}
-            </Button>
           </View>
         )}
       </ScrollView>
+
+      {/* Barra Flotante Inferior de Acción Principal (Sticky Bottom Bar Exclusiva) */}
+      <Surface
+        style={[
+          styles.stickyBottomBar,
+          {
+            backgroundColor: theme.colors.surface,
+            borderTopColor: theme.colors.outline,
+            paddingBottom: Math.max(insets.bottom + 8, 12),
+          },
+        ]}
+        elevation={4}
+      >
+        <Button
+          mode="contained"
+          icon="check-circle"
+          onPress={handleSaveTransaction}
+          loading={isLoading}
+          disabled={
+            isLoading ||
+            !amount ||
+            parseFloat(amount) <= 0 ||
+            (mode === 'quick' ? !selectedParentCategoryId : !accountId)
+          }
+          style={styles.floatingPrimaryBtn}
+          labelStyle={{ fontSize: 16, fontWeight: '700', paddingVertical: 2 }}
+        >
+          {mode === 'quick'
+            ? '¡Registrar Gasto!'
+            : isEditing
+            ? 'Guardar Cambios'
+            : 'Confirmar Movimiento'}
+        </Button>
+      </Surface>
+
+      <NumpadBottomSheet
+        visible={isNumpadVisible}
+        value={amount}
+        onChangeValue={(val) => {
+          setAmount(val);
+          setErrorMsg(null);
+        }}
+        onClose={() => setIsNumpadVisible(false)}
+      />
+
+      <CategoryBottomSheet
+        visible={isCategorySheetVisible}
+        categories={categories}
+        selectedCategoryId={selectedSubCategoryId || selectedParentCategoryId}
+        onSelect={applyCategoryId}
+        onClose={() => setIsCategorySheetVisible(false)}
+        excludeNamesContaining="ingreso"
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -1548,27 +1767,44 @@ const styles = StyleSheet.create({
   quickChip: {
     borderRadius: 20,
   },
-  emojiGrid: {
+  categoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
     marginBottom: 24,
   },
-  emojiCard: {
-    width: '22%', // 4 columns
-    aspectRatio: 1,
+  categoryCard: {
+    width: '23%',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
     borderRadius: 16,
     borderWidth: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 8,
   },
-  quickSaveBtn: {
+  iconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  stickyBottomBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  floatingPrimaryBtn: {
     width: '100%',
-    borderRadius: 12,
-    paddingVertical: 6,
-    marginTop: 8,
+    borderRadius: 14,
+    elevation: 2,
   },
 });
 

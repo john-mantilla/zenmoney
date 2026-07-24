@@ -14,18 +14,18 @@ export const TrendChart: React.FC<Props> = ({ data }) => {
   const screenWidth = Dimensions.get('window').width;
 
   // Transform data for gifted-charts
-  const expenseData = data.map((d, i) => ({
-    value: Number(d.expense) || 0,
+  const incomeData = data.map((d) => ({
+    value: Number(d.income) || 0,
     label: d.label,
     date: d.fullDate,
     income: Number(d.income) || 0,
-    budget: Number(d.budget) || 0,
     expense: Number(d.expense) || 0,
+    budget: Number(d.budget) || 0,
   }));
-  const incomeData = data.map((d, i) => ({
-    value: Number(d.income) || 0,
+  const expenseData = data.map((d) => ({
+    value: Number(d.expense) || 0,
   }));
-  const budgetData = data.map((d, i) => ({
+  const budgetData = data.map((d) => ({
     value: Number(d.budget) || 0,
   }));
 
@@ -44,8 +44,8 @@ export const TrendChart: React.FC<Props> = ({ data }) => {
       
       <View style={{ marginLeft: -16 }}>
         <LineChart
-          data={expenseData}
-          data2={incomeData}
+          data={incomeData}
+          data2={expenseData}
           data3={budgetData}
           height={220}
           width={screenWidth - 90}
@@ -59,28 +59,37 @@ export const TrendChart: React.FC<Props> = ({ data }) => {
           thickness={3}
           thickness2={3}
           thickness3={2}
-          color1={theme.customColors.expense}
-          color2={theme.customColors.income}
+          color1={theme.customColors.income}
+          color2={theme.customColors.expense}
           color3="#2196F3"
-          dataPointsColor1={theme.customColors.expense}
-          dataPointsColor2={theme.customColors.income}
+          strokeDashArray3={[6, 6]}
+          dataPointsColor1={theme.customColors.income}
+          dataPointsColor2={theme.customColors.expense}
           dataPointsColor3="#2196F3"
           hideDataPoints1={false}
           hideDataPoints2={false}
           hideDataPoints3={false}
-          dataPointsRadius={2}
+          dataPointsRadius={3}
           curved
-          isAnimated={false}
+          isAnimated
+          animationDuration={800}
+          animateOnDataChange
           
-          // Gradientes para Income y Expense
-          startFillColor1={theme.customColors.expense}
-          endFillColor1={theme.customColors.expense}
-          startOpacity1={0.2}
+          // Gradientes para Ingresos y Gastos (Presupuesto sin relleno de área)
+          startFillColor1={theme.customColors.income}
+          endFillColor1={theme.customColors.income}
+          startOpacity1={0.15}
           endOpacity1={0.0}
-          startFillColor2={theme.customColors.income}
-          endFillColor2={theme.customColors.income}
-          startOpacity2={0.2}
+          
+          startFillColor2={theme.customColors.expense}
+          endFillColor2={theme.customColors.expense}
+          startOpacity2={0.15}
           endOpacity2={0.0}
+
+          startFillColor3="transparent"
+          endFillColor3="transparent"
+          startOpacity3={0.0}
+          endOpacity3={0.0}
           areaChart
           
           // Ejes

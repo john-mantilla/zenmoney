@@ -397,14 +397,15 @@ export class GeminiFlashProvider implements AIProvider {
           merchant: t.merchantName
         })))}
 
-      INSTRUCCIONES DE RESPUESTA:
-      1. Mantén tus respuestas concisas y amigables. Habla directamente en español colombiano (ej. usando pesos COP).
-      2. No inventes datos que no estén en el contexto. Si no tienes información sobre algo, acláralo de forma proactiva.
-      3. Sugiere siempre 2 o 3 acciones financieras inteligentes basadas en tu respuesta (ej. "Revisar presupuesto de ocio", "Registrar un gasto pendiente").
+      INSTRUCCIONES DE RESPUESTA Y FORMATO:
+      1. NUNCA generes bloques de texto continuo o párrafos largos. La gente en móvil escanea, no lee. Divide tu respuesta en viñetas o secciones breves de máximo 2 líneas.
+      2. Resalta SIEMPRE en **negrita** todas las cifras numéricas, montos en dinero, nombres de categorías y conceptos críticos (ej: **$ 2.251.000 COP**, **Mercado**, **Gastos Hormiga**).
+      3. Utiliza viñetas con emojis contextuales en cada punto clave (ej: 📊 **Estado actual:** ..., 💡 **Consejo clave:** ..., ⚠️ **Atención:** ...).
+      4. Sugiere 2 a 3 acciones interactivas cortas e intuitivas como frases de respuesta (ej: "Ver presupuestos", "Registrar un gasto", "Revisar facturas").
 
       Devuelve ÚNICAMENTE un objeto JSON estructurado con este esquema exacto, sin bloques markdown:
       {
-        "answer": "Tu respuesta en texto descriptivo en español, puedes usar emojis y negritas.",
+        "answer": "Tu respuesta en texto estructurado con viñetas y negritas en español.",
         "suggestedActions": ["Acción sugerida 1", "Acción sugerida 2"]
       }
     `;

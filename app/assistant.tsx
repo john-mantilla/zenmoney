@@ -290,24 +290,62 @@ export default function AssistantScreen() {
     }
   };
 
-  const renderRichText = (text: string, baseStyle: any) => {
-    // Expresión regular que captura texto entre doble asterisco
-    const parts = text.split(/\*\*(.*?)\*\*/g);
-    
+  const renderFormattedLine = (line: string, lineIndex: number, baseStyle: any) => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    // Detectar si la línea es un ítem de viñeta (- , • , *)
+    const isBullet = /^[•\-\*]\s+/.test(trimmed);
+    const cleanLine = isBullet ? trimmed.replace(/^[•\-\*]\s+/, '') : trimmed;
+
+    const parts = cleanLine.split(/\*\*(.*?)\*\*/g);
+
     return (
-      <Text style={baseStyle}>
-        {parts.map((part, i) => {
-          // Las partes en índices impares (1, 3, 5...) son las capturadas dentro de **
-          if (i % 2 === 1) {
-            return (
-              <Text key={i} style={[baseStyle, { fontWeight: 'bold' }]}>
-                {part}
-              </Text>
-            );
-          }
-          return <Text key={i}>{part}</Text>;
-        })}
-      </Text>
+      <View
+        key={lineIndex}
+        style={[
+          styles.lineBlock,
+          isBullet && [
+            styles.bulletCard,
+            {
+              backgroundColor: theme.colors.surfaceVariant + '40',
+              borderColor: theme.colors.outline + '40',
+            },
+          ],
+        ]}
+      >
+        <Text style={[baseStyle, { lineHeight: 22 }]}>
+          {parts.map((part, i) => {
+            if (i % 2 === 1) {
+              return (
+                <Text
+                  key={i}
+                  style={[
+                    baseStyle,
+                    {
+                      fontWeight: '800',
+                      color: theme.colors.primary,
+                    },
+                  ]}
+                >
+                  {part}
+                </Text>
+              );
+            }
+            return <Text key={i}>{part}</Text>;
+          })}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderRichText = (text: string, baseStyle: any) => {
+    const lines = text.split('\n').filter(l => l.trim().length > 0);
+
+    return (
+      <View style={styles.richTextContainer}>
+        {lines.map((line, index) => renderFormattedLine(line, index, baseStyle))}
+      </View>
     );
   };
 
@@ -317,7 +355,7 @@ export default function AssistantScreen() {
       <View style={[styles.messageRow, isAi ? styles.rowAi : styles.rowUser]}>
         {isAi && (
           <Avatar.Icon
-            size={36}
+            size={34}
             icon="robot"
             style={[styles.avatar, { backgroundColor: theme.colors.primary }]}
             color="#FFFFFF"
@@ -331,6 +369,7 @@ export default function AssistantScreen() {
                 backgroundColor: isAi ? theme.colors.surface : theme.colors.primary,
                 borderTopLeftRadius: isAi ? 4 : 16,
                 borderTopRightRadius: isAi ? 16 : 4,
+                elevation: isAi ? 2 : 1,
               },
             ]}
           >
@@ -355,17 +394,22 @@ export default function AssistantScreen() {
             </Card.Content>
           </Card>
 
-          {/* Acciones sugeridas de respuesta rápida */}
+          {/* Tarjetas Visuales de Acción Rápida (Action Chips Limpios) */}
           {isAi && item.suggestedActions && item.suggestedActions.length > 0 && (
             <View style={styles.suggestionsContainer}>
               {item.suggestedActions.map((action, index) => (
                 <Button
                   key={index}
-                  mode="outlined"
+                  mode="contained-tonal"
                   compact
+                  icon="creation"
                   onPress={() => handleSendMessage(action)}
                   style={styles.suggestionBtn}
-                  labelStyle={theme.typography.caption}
+                  labelStyle={{
+                    fontSize: 13,
+                    fontWeight: '600',
+                    color: theme.colors.primary,
+                  }}
                 >
                   {action}
                 </Button>
@@ -500,16 +544,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   messageText: {
-    lineHeight: 20,
+    lineHeight: 22,
+  },
+  richTextContainer: {
+    gap: 6,
+  },
+  lineBlock: {
+    marginVertical: 2,
+  },
+  bulletCard: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
   },
   suggestionsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginTop: 8,
+    marginTop: 10,
+    gap: 6,
   },
   suggestionBtn: {
-    marginRight: 6,
-    marginBottom: 6,
     borderRadius: 20,
   },
   typingContainer: {

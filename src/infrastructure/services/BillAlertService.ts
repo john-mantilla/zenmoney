@@ -5,13 +5,24 @@
  * pendientes únicamente el día exacto de su vencimiento a las 2:00 PM.
  */
 
-import * as Notifications from 'expo-notifications';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
 import { BudgetAlertService } from './BudgetAlertService';
 
 const SCHEDULED_BILL_KEYS = 'zenmoney:scheduled_bill_notification_ids';
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+let Notifications: typeof import('expo-notifications') | null = null;
+
+if (!isExpoGo && Platform.OS !== 'web') {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (err) {
+    console.warn('[BillAlertService] Notificaciones nativas no disponibles:', err);
+  }
+}
 
 export class BillAlertService {
   /**
@@ -19,7 +30,7 @@ export class BillAlertService {
    * Cancela la programación previa antes de programar la nueva.
    */
   static async scheduleBillAlerts(): Promise<void> {
-    if (Platform.OS === 'web') return; // Las notificaciones locales nativas no aplican en la versión web
+    if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
 
     try {
       // 1. Cancelar cualquier alerta de facturas programada anteriormente para evitar duplicados
@@ -45,8 +56,6 @@ export class BillAlertService {
       // 5. Verificar si la hora actual es antes de las 2:00 PM (14:00)
       const now = new Date();
       if (now.getHours() >= 14) {
-        // Si ya es después de las 2:00 PM hoy, la hora de la notificación ya pasó.
-        // No agendamos nada para hoy para evitar vibraciones repetidas.
         return;
       }
 
@@ -75,12 +84,11 @@ export class BillAlertService {
           title,
           body,
           sound: true,
-          data: { screen: 'bills' }, // Redirigir a la pestaña de facturas al presionar
+          data: { screen: 'bills' },
         },
         trigger: triggerDate as any,
       });
 
-      // Guardar el ID programado para poder cancelarlo/actualizarlo después
       await AsyncStorage.setItem(SCHEDULED_BILL_KEYS, JSON.stringify([id]));
     } catch (err) {
       console.warn('[BillAlertService] Error al programar alerta de facturas para hoy:', err);
@@ -91,12 +99,14 @@ export class BillAlertService {
    * Cancela todas las notificaciones de facturas previamente programadas.
    */
   static async cancelExistingAlerts(): Promise<void> {
+    if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
+
     try {
       const stored = await AsyncStorage.getItem(SCHEDULED_BILL_KEYS);
       if (stored) {
         const ids: string[] = JSON.parse(stored);
         await Promise.all(
-          ids.map(id => Notifications.cancelScheduledNotificationAsync(id).catch(() => {}))
+          ids.map(id => Notifications!.cancelScheduledNotificationAsync(id).catch(() => {}))
         );
         await AsyncStorage.removeItem(SCHEDULED_BILL_KEYS);
       }

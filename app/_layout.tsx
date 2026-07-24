@@ -7,6 +7,17 @@
 
 import React, { useEffect, useState } from 'react';
 import { useFonts } from 'expo-font';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from '@expo-google-fonts/inter';
+import {
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { PaperProvider } from 'react-native-paper';
@@ -20,16 +31,23 @@ import { LocalDatabase } from '@/src/data/local/LocalDatabase';
 import NetInfo from '@react-native-community/netinfo';
 import { SyncService } from '@/src/infrastructure/services/SyncService';
 
-export { ErrorBoundary } from 'expo-router';
-
-// Ocultar advertencia de web para librerías nativas de gráficos
+// Ocultar advertencias inocuas de React Web para librerías nativas de gráficos
 if (Platform.OS === 'web') {
-  LogBox.ignoreLogs(['Unknown event handler property']);
+  LogBox.ignoreLogs([
+    'Unknown event handler property',
+    'Received `false` for a non-boolean attribute',
+    'collapsable',
+  ]);
   
   // Suprimir el mensaje directamente de la consola de Expo/Terminal
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
-    if (typeof args[0] === 'string' && args[0].includes('Unknown event handler property')) {
+    if (
+      typeof args[0] === 'string' &&
+      (args[0].includes('Unknown event handler property') ||
+        args[0].includes('collapsable') ||
+        args[0].includes('non-boolean attribute'))
+    ) {
       return;
     }
     originalConsoleError(...args);
@@ -42,6 +60,13 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
   });
 
   useEffect(() => {
@@ -75,6 +100,13 @@ function RootLayoutNav() {
         subtitle: 'Voz o manual',
         icon: 'add_expense',
         params: { href: '/transaction/new' },
+      },
+      {
+        id: 'scan_receipt',
+        title: '📷 Escanear Recibo',
+        subtitle: 'Foto con IA (OCR)',
+        icon: 'scan_receipt',
+        params: { href: '/transaction/new?action=camera' },
       },
     ]);
   }, []);

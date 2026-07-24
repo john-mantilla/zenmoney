@@ -72,6 +72,8 @@ export const ExpenseDonut: React.FC<Props> = ({ expenses, categories, monthLabel
           <PieChart
             data={chartData}
             donut
+            isAnimated
+            animationDuration={600}
             showGradient
             sectionAutoFocus
             radius={80}

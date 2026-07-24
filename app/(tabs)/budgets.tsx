@@ -503,30 +503,32 @@ export default function BudgetsScreen() {
                     onPress={bp.children.length > 0 ? () => toggleExpand(bp.categoryId) : (bp.hasDirectBudget && bp.budget ? () => openEditDialog(bp.budget!) : undefined)}
                     style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}
                   >
-                    <View style={styles.categoryInfo}>
+                    <View style={[styles.categoryInfo, { flex: 1, marginRight: 8 }]}>
                       <IconButton
                         icon={bp.icon || 'tag'}
                         iconColor={bp.color}
                         size={20}
                         style={{ margin: 0, marginRight: 4 }}
                       />
-                      <Text style={[styles.categoryName, theme.typography.h4]}>
+                      <Text style={[styles.categoryName, theme.typography.h4, { flex: 1 }]} numberOfLines={1}>
                         {bp.name}
                       </Text>
                     </View>
                     
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <View style={styles.amountsInfo}>
-                        <AmountDisplay amount={bp.spent} size="sm" type="expense" />
+                        <Text style={[theme.typography.bodySmall, { fontWeight: '700', color: bp.status === 'exceeded' ? theme.customColors.danger : theme.colors.onSurface }]}>
+                          {bp.status === 'exceeded' ? '-' : ''}${Math.round(bp.spent).toLocaleString('es-CO')}
+                        </Text>
                         <Text style={[styles.limitLabel, theme.typography.caption]}>
-                          de <AmountDisplay amount={bp.amountLimit} size="sm" style={{ color: theme.customColors.textSecondary }} />
+                          de ${Math.round(bp.amountLimit).toLocaleString('es-CO')}
                         </Text>
                       </View>
                       {bp.hasDirectBudget && bp.budget && (
                         <IconButton
                           icon="pencil-outline"
                           size={18}
-                          style={{ margin: 0, marginLeft: 4, padding: 0 }}
+                          style={{ margin: 0, marginLeft: 2, padding: 0 }}
                           onPress={() => openEditDialog(bp.budget!)}
                         />
                       )}
@@ -534,7 +536,7 @@ export default function BudgetsScreen() {
                         <IconButton
                           icon={isExpanded ? 'chevron-up' : 'chevron-down'}
                           size={20}
-                          style={{ margin: 0, marginLeft: 4, padding: 0 }}
+                          style={{ margin: 0, marginLeft: 2, padding: 0 }}
                           onPress={() => toggleExpand(bp.categoryId)}
                         />
                       )}
@@ -556,9 +558,9 @@ export default function BudgetsScreen() {
                     </Text>
                   </View>
 
-                  {/* Si tiene subcategorías con presupuesto y está expandido, renderizarlas */}
+                  {/* Si tiene subcategorías con presupuesto y está expandido, renderizarlas en tarjetas secundarias anidadas */}
                   {isExpanded && bp.children.length > 0 && (
-                    <View style={{ marginTop: 8, width: '100%' }}>
+                    <View style={{ marginTop: 10, width: '100%', gap: 8 }}>
                       {bp.children.map(child => {
                         let childBarColor = theme.colors.primary;
                         if (child.status === 'exceeded') {
@@ -568,23 +570,34 @@ export default function BudgetsScreen() {
                         }
 
                         return (
-                          <View key={child.id} style={[styles.childContainer, { borderLeftColor: theme.customColors.border }]}>
+                          <View
+                            key={child.id}
+                            style={[
+                              styles.childCardContainer,
+                              {
+                                backgroundColor: theme.colors.surfaceVariant + '35',
+                                borderColor: theme.colors.outline + '25',
+                              },
+                            ]}
+                          >
                             <View style={styles.childHeader}>
-                              <Text style={[styles.childName, theme.typography.body, { color: theme.customColors.text }]}>
+                              <Text style={[styles.childName, theme.typography.body, { color: theme.colors.onSurface, flex: 1, marginRight: 6 }]} numberOfLines={1}>
                                 {child.name}
                               </Text>
                               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                 <View style={styles.childAmountsInfo}>
-                                  <AmountDisplay amount={child.spent} size="sm" type="expense" />
+                                  <Text style={[theme.typography.caption, { fontWeight: '700', color: child.status === 'exceeded' ? theme.customColors.danger : theme.colors.onSurface }]}>
+                                    {child.status === 'exceeded' ? '-' : ''}${Math.round(child.spent).toLocaleString('es-CO')}
+                                  </Text>
                                   <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                                    {' '}de <AmountDisplay amount={child.amountLimit} size="sm" style={{ color: theme.customColors.textSecondary }} />
+                                    {' '}de ${Math.round(child.amountLimit).toLocaleString('es-CO')}
                                   </Text>
                                 </View>
                                 <IconButton
                                   icon="pencil-outline"
                                   size={16}
                                   iconColor={theme.customColors.textSecondary}
-                                  style={{ margin: 0, marginLeft: 4, padding: 0 }}
+                                  style={{ margin: 0, marginLeft: 2, padding: 0 }}
                                   onPress={() => openEditDialog(child.budget)}
                                 />
                               </View>
@@ -732,7 +745,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 80,
+    paddingBottom: 130,
   },
   summaryCard: {
     borderRadius: 16,
@@ -837,11 +850,10 @@ const styles = StyleSheet.create({
   actionButtonsRow: {
     flexDirection: 'row',
   },
-  childContainer: {
-    marginTop: 10,
-    borderLeftWidth: 2,
-    paddingLeft: 12,
-    marginLeft: 6,
+  childCardContainer: {
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 10,
     alignSelf: 'stretch',
   },
   childHeader: {

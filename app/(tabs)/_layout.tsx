@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { Text, ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -16,7 +17,31 @@ export default function TabLayout() {
   const insets = useSafeAreaInsets();
 
   const bottomPadding = insets.bottom > 0 ? insets.bottom : 8;
-  const barHeight = insets.bottom > 0 ? 56 + insets.bottom : 60;
+  const barHeight = insets.bottom > 0 ? 58 + insets.bottom : 62;
+
+  /**
+   * Renderiza la etiqueta del tab únicamente cuando la pestaña está activa (focused).
+   * Evita cualquier saturación o truncamiento de texto en la navegación principal.
+   */
+  const renderTabBarLabel = (label: string) => {
+    return ({ focused, color }: { focused: boolean; color: ColorValue }) => {
+      if (!focused) return null;
+      return (
+        <Text
+          style={{
+            color,
+            fontSize: 11,
+            fontWeight: '600',
+            marginTop: 2,
+          }}
+          numberOfLines={1}
+          allowFontScaling={false}
+        >
+          {label}
+        </Text>
+      );
+    };
+  };
 
   return (
     <Tabs
@@ -42,17 +67,13 @@ export default function TabLayout() {
         },
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.onSurface + '80', // Opacidad de 50%
-        tabBarLabelStyle: {
-          ...theme.typography.caption,
-          fontWeight: '500',
-        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Resumen',
-          tabBarLabel: 'Resumen',
+          tabBarLabel: renderTabBarLabel('Resumen'),
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="view-dashboard" size={size} color={color} />
           ),
@@ -63,7 +84,7 @@ export default function TabLayout() {
         name="transactions"
         options={{
           title: 'Movimientos',
-          tabBarLabel: 'Movimientos',
+          tabBarLabel: renderTabBarLabel('Gastos'),
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="format-list-bulleted" size={size} color={color} />
           ),
@@ -74,7 +95,7 @@ export default function TabLayout() {
         name="bills"
         options={{
           title: 'Facturas',
-          tabBarLabel: 'Facturas',
+          tabBarLabel: renderTabBarLabel('Facturas'),
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="calendar-clock" size={size} color={color} />
           ),
@@ -85,7 +106,7 @@ export default function TabLayout() {
         name="budgets"
         options={{
           title: 'Presupuestos',
-          tabBarLabel: 'Presupuestos',
+          tabBarLabel: renderTabBarLabel('Plan'),
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="chart-arc" size={size} color={color} />
           ),
@@ -96,7 +117,7 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: 'Ajustes',
-          tabBarLabel: 'Ajustes',
+          tabBarLabel: renderTabBarLabel('Ajustes'),
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="cog" size={size} color={color} />
           ),
@@ -105,3 +126,4 @@ export default function TabLayout() {
     </Tabs>
   );
 }
+
