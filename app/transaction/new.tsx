@@ -429,6 +429,7 @@ export default function NewTransactionScreen() {
       quality: 0.6,
       base64: true,
       allowsEditing: true,
+      cameraType: ImagePicker.CameraType.back,
     };
 
     const result = source === 'camera'

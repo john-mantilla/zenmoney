@@ -25,6 +25,15 @@ export { ErrorBoundary } from 'expo-router';
 // Ocultar advertencia de web para librerías nativas de gráficos
 if (Platform.OS === 'web') {
   LogBox.ignoreLogs(['Unknown event handler property']);
+  
+  // Suprimir el mensaje directamente de la consola de Expo/Terminal
+  const originalConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    if (typeof args[0] === 'string' && args[0].includes('Unknown event handler property')) {
+      return;
+    }
+    originalConsoleError(...args);
+  };
 }
 
 // Mantener el splash screen visible mientras se cargan los recursos

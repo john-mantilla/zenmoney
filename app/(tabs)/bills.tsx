@@ -595,6 +595,13 @@ export default function BillsScreen() {
   const selectedDayBills = bills.filter(b => b.amount > 0 && (b.aiMetadata?.dueDate || b.transactionDate) === selectedDate);
   const totalBillsAmountInMonth = bills.reduce((sum, b) => sum + b.amount, 0);
 
+  // Helper para ordenar por fecha de vencimiento (más antigua/próxima primero)
+  const sortByDateAsc = (a: Transaction, b: Transaction) => {
+    const dateA = a.aiMetadata?.dueDate || a.transactionDate;
+    const dateB = b.aiMetadata?.dueDate || b.transactionDate;
+    return dateA.localeCompare(dateB);
+  };
+
   // Agrupamiento mensual por defecto (solo del mes seleccionado)
   const unpaidBills = bills.filter(b => {
     if (b.status !== 'pending' || b.amount === 0) return false;
@@ -602,7 +609,7 @@ export default function BillsScreen() {
     const parts = d.split('-');
     if (parts.length !== 3) return false;
     return parseInt(parts[1], 10) === currentMonth && parseInt(parts[0], 10) === currentYear;
-  });
+  }).sort(sortByDateAsc);
   
   const paidBills = bills.filter(b => {
     if (b.status !== 'confirmed' || b.amount === 0) return false;
@@ -610,7 +617,7 @@ export default function BillsScreen() {
     const parts = d.split('-');
     if (parts.length !== 3) return false;
     return parseInt(parts[1], 10) === currentMonth && parseInt(parts[0], 10) === currentYear;
-  });
+  }).sort(sortByDateAsc);
 
   // Facturas futuras sin pagar (de meses posteriores al seleccionado)
   const futureUnpaid = bills.filter(b => {
@@ -621,7 +628,7 @@ export default function BillsScreen() {
     const y = parseInt(parts[0], 10);
     const m = parseInt(parts[1], 10);
     return y > currentYear || (y === currentYear && m > currentMonth);
-  });
+  }).sort(sortByDateAsc);
 
   const totalUnpaid = unpaidBills.reduce((s, b) => s + b.amount, 0);
   const totalPaid = paidBills.reduce((s, b) => s + b.amount, 0);
