@@ -41,6 +41,7 @@ export default function TransactionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
 
   useEffect(() => {
     if (params.accountId) {
@@ -106,12 +107,11 @@ export default function TransactionsScreen() {
       const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
       const loadedTxs = await transactionRepo.getAll({ 
-        status: 'confirmed',
-        startDate,
-        endDate
+        startDate, 
+        endDate,
+        status: 'confirmed'
       });
       setTransactions(loadedTxs);
-      setFilteredTransactions(loadedTxs);
     } catch (err) {
       console.error('[Transactions Load Error]:', err);
     } finally {
@@ -148,6 +148,11 @@ export default function TransactionsScreen() {
       );
     }
 
+    // Filtro por integrante familiar
+    if (selectedMemberId) {
+      result = result.filter(tx => tx.createdByUserId === selectedMemberId);
+    }
+
     // Filtro por buscador (descripción o comercio)
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase();
@@ -159,7 +164,7 @@ export default function TransactionsScreen() {
     }
 
     setFilteredTransactions(result);
-  }, [searchQuery, selectedAccountId, transactions]);
+  }, [searchQuery, selectedAccountId, selectedMemberId, transactions]);
 
   const getFilteredSums = () => {
     let incomeSum = 0;
@@ -363,6 +368,31 @@ export default function TransactionsScreen() {
             </Chip>
           ))}
         </ScrollView>
+
+        {/* Filtros horizontales por miembro de la familia */}
+        {Object.keys(familyMembers).length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.chipsRow, { marginTop: 4 }]}>
+            <Chip
+              selected={selectedMemberId === null}
+              onPress={() => setSelectedMemberId(null)}
+              style={styles.chip}
+              compact
+            >
+              👥 Todos
+            </Chip>
+            {Object.entries(familyMembers).map(([id, initials]) => (
+              <Chip
+                key={id}
+                selected={selectedMemberId === id}
+                onPress={() => setSelectedMemberId(id)}
+                style={styles.chip}
+                compact
+              >
+                👤 {id === currentUserId ? 'Tú' : initials}
+              </Chip>
+            ))}
+          </ScrollView>
+        )}
         {/* Toggle Vista */}
         <View style={styles.viewToggleContainer}>
           <SegmentedButtons
@@ -552,7 +582,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
-    paddingBottom: 100, // Margen extra para que el último item no quede tapado por la barra de totales
+    paddingBottom: 150, // Margen extra para que el último item no quede tapado por la barra de totales
   },
   viewToggleContainer: {
     marginTop: 12,
@@ -593,7 +623,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     margin: 16,
     right: 0,
-    bottom: 80,
+    bottom: 95,
     borderRadius: 16,
   },
 });

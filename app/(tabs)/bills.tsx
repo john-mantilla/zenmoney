@@ -50,10 +50,12 @@ export default function BillsScreen() {
   // Estados de carga e interfaz
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(''); // YYYY-MM-DD del día seleccionado (vacío = ver resumen mensual)
-
-  // Estados del calendario mensual
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  // Estados del calendario y secciones colapsables
   const { selectedYear: currentYear, selectedMonth: currentMonth } = useDateStore();
+  const [isCalendarVisible, setIsCalendarVisible] = useState(false);
+  const [isUnpaidExpanded, setIsUnpaidExpanded] = useState(true);
+  const [isPaidExpanded, setIsPaidExpanded] = useState(false);
 
   // Estados del Diálogo para registrar una nueva factura
   const [isDialogVisible, setIsDialogVisible] = useState(false);
@@ -491,7 +493,13 @@ export default function BillsScreen() {
   // ─── GENERADOR DE CALENDARIO EN PURE REACT NATIVE ──────────────────────
 
   const renderCalendar = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayObj = new Date();
+    const todayStr = todayObj.toISOString().split('T')[0];
+
+    const in3Days = new Date();
+    in3Days.setDate(in3Days.getDate() + 3);
+    const in3DaysStr = in3Days.toISOString().split('T')[0];
+
     const firstDayIndex = new Date(currentYear, currentMonth - 1, 1).getDay(); // Día de la semana en que inicia
     const totalDays = new Date(currentYear, currentMonth, 0).getDate(); // Total de días de este mes
     
@@ -522,6 +530,26 @@ export default function BillsScreen() {
 
     return (
       <View style={styles.calendarGrid}>
+        {/* Leyenda Cromática de 4 Estados */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginBottom: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.outline + '20' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#059669' }} />
+            <Text style={[theme.typography.caption, { fontSize: 10, color: theme.customColors.textSecondary }]}>Pagada</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#D97706' }} />
+            <Text style={[theme.typography.caption, { fontSize: 10, color: theme.customColors.textSecondary }]}>Próxima</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#DC2626' }} />
+            <Text style={[theme.typography.caption, { fontSize: 10, color: theme.customColors.textSecondary }]}>Vencida</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#2563EB' }} />
+            <Text style={[theme.typography.caption, { fontSize: 10, color: theme.customColors.textSecondary }]}>Hoy</Text>
+          </View>
+        </View>
+
         {/* Cabecera días semana */}
         <View style={styles.weekDaysRow}>
           {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
@@ -539,6 +567,7 @@ export default function BillsScreen() {
                 return <View key={cellIndex} style={styles.dayCellEmpty} />;
               }
 
+              const isToday = cell.dateStr === todayStr;
               const isSelected = selectedDate === cell.dateStr;
 
               // Evaluar facturas de este día específico
@@ -547,20 +576,25 @@ export default function BillsScreen() {
               const hasUpcoming = dayBills.some(b => b.status === 'pending' && cell.dateStr >= todayStr);
               const hasPaid = dayBills.some(b => b.status === 'confirmed');
 
-              // Determinar estilos del círculo alrededor del día:
-              // rojo = vencida sin pagar, naranja = pendiente futura, verde = pagada.
-              // Prioridad: lo más urgente manda si hay varias facturas ese día.
-              let circleStyle = {};
+              let circleStyle: any = {};
               let textColor = theme.colors.onSurface;
 
               if (dayBills.length > 0) {
                 if (hasOverdue) {
-                  circleStyle = { borderWidth: 2, borderColor: theme.customColors.danger };
+                  circleStyle = { borderWidth: 2, borderColor: '#DC2626' };
                 } else if (hasUpcoming) {
-                  circleStyle = { borderWidth: 2, borderColor: theme.customColors.warning };
+                  circleStyle = { borderWidth: 2, borderColor: '#D97706' };
                 } else if (hasPaid) {
-                  circleStyle = { borderWidth: 2, borderColor: theme.customColors.success };
+                  circleStyle = { borderWidth: 2, borderColor: '#059669' };
                 }
+              }
+
+              if (isToday) {
+                circleStyle = {
+                  ...circleStyle,
+                  borderColor: '#2563EB',
+                  borderWidth: 2,
+                };
               }
 
               if (isSelected) {
@@ -578,7 +612,7 @@ export default function BillsScreen() {
                   onPress={() => setSelectedDate(cell.dateStr)}
                 >
                   <View style={[styles.dayCircle, circleStyle]}>
-                    <Text style={[styles.dayText, { color: textColor }]}>
+                    <Text style={[styles.dayText, { color: textColor, fontWeight: isToday || isSelected ? '700' : '400' }]}>
                       {cell.day}
                     </Text>
                   </View>
@@ -641,43 +675,115 @@ export default function BillsScreen() {
     );
   }
 
+  // Cálculo de progreso mensual para la tarjeta inteligente
+  const totalMonthBillsCount = paidBills.length + unpaidBills.length;
+  const monthProgress = totalMonthBillsCount > 0 ? (paidBills.length / totalMonthBillsCount) * 100 : 0;
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  const nextImminentBill = unpaidBills.find(b => {
+    const d = b.aiMetadata?.dueDate || b.transactionDate;
+    return d >= todayDateStr;
+  }) || unpaidBills[0];
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <NetworkStatusBar />
-      {/* Cabecera de Facturas de Ancho Completo pero Contenido Centrado */}
-      <View style={{ width: '100%', backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.outline, zIndex: 10 }}>
-        <Surface style={[styles.header, { backgroundColor: theme.colors.surface }]} elevation={0}>
-          <View style={styles.headerControlRow}>
-            <View style={[styles.headerTitleContainer, { alignItems: 'flex-start' }]}>
-              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                Presupuesto agendado para el mes
-              </Text>
-              <AmountDisplay amount={totalBillsAmountInMonth} size="md" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }} />
-            </View>
-          </View>
-
-          <IconButton
-            icon="plus"
-            iconColor={theme.colors.primary}
-            size={24}
-            onPress={openCreateDialog}
-            style={styles.headerAddBtn}
-          />
-        </Surface>
-      </View>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
-        {/* Render del Calendario */}
-        <Card style={styles.calendarCard}>
-          <Card.Content>
-            {renderCalendar()}
-          </Card.Content>
-        </Card>
+        {/* ─── TARJETA INTELIGENTE DE RESUMEN DEL MES ──────────────────────── */}
+        {selectedDate === '' && (
+          <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
+            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600', marginBottom: 4 }]}>
+              Facturas pendientes este mes
+            </Text>
+            
+            <Text style={[theme.typography.amountLarge, { color: totalUnpaid > 0 ? '#DC2626' : '#059669', fontSize: 30, fontWeight: '800', marginBottom: 12 }]}>
+              $ {Math.round(totalUnpaid).toLocaleString('es-CO')}
+            </Text>
+
+            {/* Barra de progreso de facturas pagadas vs total */}
+            <View style={{ marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600' }]}>
+                  Progreso del mes
+                </Text>
+                <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                  {paidBills.length} de {totalMonthBillsCount} pagadas ({Math.round(monthProgress)}%)
+                </Text>
+              </View>
+              <View style={{ height: 8, width: '100%', backgroundColor: theme.colors.outline + '20', borderRadius: 4, overflow: 'hidden' }}>
+                <View style={{ height: '100%', width: `${Math.min(Math.max(monthProgress, 0), 100)}%`, backgroundColor: '#059669', borderRadius: 4 }} />
+              </View>
+            </View>
+
+            {/* Badges de estado rápido */}
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#05966915', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                <MaterialCommunityIcons name="check-circle" size={14} color="#059669" style={{ marginRight: 4 }} />
+                <Text style={[theme.typography.caption, { color: '#059669', fontWeight: '700' }]}>
+                  {paidBills.length} pagadas
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: totalUnpaid > 0 ? '#DC262615' : '#05966915', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                <MaterialCommunityIcons name="clock-alert-outline" size={14} color={totalUnpaid > 0 ? '#DC2626' : '#059669'} style={{ marginRight: 4 }} />
+                <Text style={[theme.typography.caption, { color: totalUnpaid > 0 ? '#DC2626' : '#059669', fontWeight: '700' }]}>
+                  {unpaidBills.length} pendientes
+                </Text>
+              </View>
+            </View>
+
+            {/* Ficha Próximo Vencimiento */}
+            {nextImminentBill && (
+              <View style={{ backgroundColor: theme.colors.background, borderRadius: 14, padding: 12, borderLeftWidth: 4, borderLeftColor: '#D97706' }}>
+                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 10, fontWeight: '700', textTransform: 'uppercase' }]}>
+                  Próximo vencimiento
+                </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]} numberOfLines={1}>
+                      {parseLocalDate(nextImminentBill.aiMetadata?.dueDate || nextImminentBill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} • {nextImminentBill.description}
+                    </Text>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                      $ {Math.round(nextImminentBill.amount).toLocaleString('es-CO')} COP
+                    </Text>
+                  </View>
+                  <Button
+                    mode="contained"
+                    compact
+                    onPress={() => handlePayBill(nextImminentBill)}
+                    style={{ backgroundColor: '#059669', borderRadius: 10 }}
+                    labelStyle={{ fontSize: 11, fontWeight: '700' }}
+                  >
+                    Pagar ahora
+                  </Button>
+                </View>
+              </View>
+            )}
+          </Surface>
+        )}
+
+        {/* ─── ENLACE CALENDARIO COLAPSABLE ─────────────────────────────────── */}
+        <Pressable
+          onPress={() => setIsCalendarVisible(!isCalendarVisible)}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 6, marginBottom: 12 }}
+        >
+          <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700', marginRight: 4 }]}>
+            {isCalendarVisible ? '▴ Ocultar calendario' : '▾ Ver calendario'}
+          </Text>
+        </Pressable>
+
+        {/* ─── CARD CALENDARIO (COLAPSABLE POR DEFECTO) ──────────────────────── */}
+        {isCalendarVisible && (
+          <Card style={[styles.calendarCard, { marginBottom: 16 }]}>
+            <Card.Content>
+              {renderCalendar()}
+            </Card.Content>
+          </Card>
+        )}
 
         {/* ─── VISTA FILTRADA POR DÍA SELECCIONADO ─────────────────────────── */}
         {selectedDate !== '' ? (
@@ -695,7 +801,7 @@ export default function BillsScreen() {
               <EmptyState
                 icon="calendar-check"
                 title="Sin facturas agendadas"
-                description="No tienes pagos agendados para este día. ¡Presiona el '+' superior para agendar uno!"
+                description="No tienes pagos agendados para este día."
               />
             ) : (
               <View style={styles.billsList}>
@@ -733,7 +839,7 @@ export default function BillsScreen() {
                               mode="contained"
                               compact
                               onPress={() => handlePayBill(bill)}
-                              style={[styles.payBtn, { backgroundColor: theme.customColors.success }]}
+                              style={[styles.payBtn, { backgroundColor: '#059669' }]}
                               labelStyle={{ fontSize: 11, paddingHorizontal: 4 }}
                             >
                               Pagar
@@ -748,88 +854,105 @@ export default function BillsScreen() {
             )}
           </View>
         ) : (
-          /* ─── VISTA DE RESUMEN MENSUAL GRUPAL (POR DEFECTO) ───────────────── */
+          /* ─── VISTA DE RESUMEN MENSUAL GRUPAL (ACORDEONES) ───────────────── */
           <View>
-            <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurface, marginBottom: 12 }]}>
-              Resumen Mensual de Facturas
-            </Text>
-
-            {/* Grupo 1: SIN PAGAR */}
-            <Card style={[styles.summaryGroupCard, { marginBottom: 16 }]}>
-              <View style={[styles.summaryGroupHeader, { backgroundColor: theme.customColors.dangerLight }]}>
-                <Text style={[theme.typography.h4, { color: theme.colors.error, fontWeight: 'bold' }]}>
-                  SIN PAGAR ESTE MES
-                </Text>
+            {/* Grupo 1: SIN PAGAR ESTE MES (Colapsable, abierto por defecto) */}
+            <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 16, marginBottom: 16, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.outline + '20' }]}>
+              <Pressable
+                onPress={() => setIsUnpaidExpanded(!isUnpaidExpanded)}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: theme.customColors.dangerLight }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[theme.typography.h4, { color: theme.colors.error, fontWeight: '800' }]}>
+                    SIN PAGAR ESTE MES ({unpaidBills.length})
+                  </Text>
+                  <MaterialCommunityIcons name={isUnpaidExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={theme.colors.error} />
+                </View>
                 <AmountDisplay amount={totalUnpaid} size="sm" type="expense" />
-              </View>
-              <Card.Content style={{ paddingVertical: 8 }}>
-                {unpaidBills.length === 0 ? (
-                  <Text style={[theme.typography.bodySmall, { padding: 12, opacity: 0.6, textAlign: 'center' }]}>
-                    ¡Al día! No tienes facturas pendientes este mes.
-                  </Text>
-                ) : (
-                  unpaidBills.map(bill => (
-                    <List.Item
-                      key={bill.id}
-                      title={bill.description}
-                      titleStyle={{ color: theme.colors.primary, fontWeight: '500' }}
-                      onPress={() => openEditDialog(bill)}
-                      description={`Vence: ${parseLocalDate(bill.aiMetadata?.dueDate || bill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} • ${getBillAccountLabel(bill)}`}
-                      left={props => <List.Icon {...props} icon="clock-alert-outline" color={theme.customColors.accent} />}
-                      right={() => (
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <AmountDisplay amount={bill.amount} size="sm" type="neutral" style={{ marginRight: 12 }} />
-                          <Button
-                            mode="contained"
-                            compact
-                            onPress={() => handlePayBill(bill)}
-                            style={{ backgroundColor: theme.customColors.success, borderRadius: 8 }}
-                            labelStyle={{ fontSize: 10, paddingHorizontal: 4 }}
-                          >
-                            Pagar
-                          </Button>
-                        </View>
-                      )}
-                      style={styles.listItemBottomBorder}
-                    />
-                  ))
-                )}
-              </Card.Content>
-            </Card>
+              </Pressable>
 
-            {/* Grupo 2: PAGADAS */}
-            <Card style={[styles.summaryGroupCard, { marginBottom: 16 }]}>
-              <View style={[styles.summaryGroupHeader, { backgroundColor: theme.customColors.successLight }]}>
-                <Text style={[theme.typography.h4, { color: theme.customColors.success, fontWeight: 'bold' }]}>
-                  PAGADAS
-                </Text>
-                <AmountDisplay amount={totalPaid} size="sm" type="expense" />
-              </View>
-              <Card.Content style={{ paddingVertical: 8 }}>
-                {paidBills.length === 0 ? (
-                  <Text style={[theme.typography.bodySmall, { padding: 12, opacity: 0.6, textAlign: 'center' }]}>
-                    No has pagado facturas todavía este mes.
+              {isUnpaidExpanded && (
+                <View style={{ paddingVertical: 4 }}>
+                  {unpaidBills.length === 0 ? (
+                    <Text style={[theme.typography.bodySmall, { padding: 16, opacity: 0.6, textAlign: 'center' }]}>
+                      ¡Al día! No tienes facturas pendientes este mes.
+                    </Text>
+                  ) : (
+                    unpaidBills.map(bill => (
+                      <List.Item
+                        key={bill.id}
+                        title={bill.description}
+                        titleStyle={{ color: theme.colors.primary, fontWeight: '600' }}
+                        onPress={() => openEditDialog(bill)}
+                        description={`Vence: ${parseLocalDate(bill.aiMetadata?.dueDate || bill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} • ${getBillAccountLabel(bill)}`}
+                        left={props => <List.Icon {...props} icon="clock-alert-outline" color={theme.customColors.accent} />}
+                        right={() => (
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <AmountDisplay amount={bill.amount} size="sm" type="neutral" style={{ marginRight: 10 }} />
+                            <Button
+                              mode="contained"
+                              compact
+                              onPress={() => handlePayBill(bill)}
+                              style={{ backgroundColor: '#059669', borderRadius: 8 }}
+                              labelStyle={{ fontSize: 10, paddingHorizontal: 4 }}
+                            >
+                              Pagar
+                            </Button>
+                          </View>
+                        )}
+                        style={styles.listItemBottomBorder}
+                      />
+                    ))
+                  )}
+                </View>
+              )}
+            </Surface>
+
+            {/* Grupo 2: PAGADAS (Colapsable, contraído por defecto) */}
+            <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 16, marginBottom: 16, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.outline + '20' }]}>
+              <Pressable
+                onPress={() => setIsPaidExpanded(!isPaidExpanded)}
+                style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, backgroundColor: theme.customColors.successLight }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[theme.typography.h4, { color: theme.customColors.success, fontWeight: '800' }]}>
+                    PAGADAS ({paidBills.length})
                   </Text>
-                ) : (
-                  paidBills.map(bill => (
-                    <List.Item
-                      key={bill.id}
-                      title={bill.description}
-                      titleStyle={{ color: theme.colors.primary, fontWeight: '500' }}
-                      onPress={() => openEditDialog(bill)}
-                      description={`Vence: ${parseLocalDate(bill.aiMetadata?.dueDate || bill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}${bill.transactionDate !== (bill.aiMetadata?.dueDate || bill.transactionDate) ? ` • Pagada el: ${parseLocalDate(bill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}` : ''} • ${getBillAccountLabel(bill)}`}
-                      left={props => <List.Icon {...props} icon="check-circle-outline" color={theme.customColors.success} />}
-                      right={() => (
-                        <View style={{ justifyContent: 'center' }}>
-                          <AmountDisplay amount={bill.amount} size="sm" type="neutral" />
-                        </View>
-                      )}
-                      style={styles.listItemBottomBorder}
-                    />
-                  ))
-                )}
-              </Card.Content>
-            </Card>
+                  <MaterialCommunityIcons name={isPaidExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={theme.customColors.success} />
+                </View>
+                <AmountDisplay amount={totalPaid} size="sm" type="expense" />
+              </Pressable>
+
+              {isPaidExpanded && (
+                <View style={{ paddingVertical: 4 }}>
+                  {paidBills.length === 0 ? (
+                    <Text style={[theme.typography.bodySmall, { padding: 16, opacity: 0.6, textAlign: 'center' }]}>
+                      No has pagado facturas todavía este mes.
+                    </Text>
+                  ) : (
+                    paidBills.map(bill => (
+                      <List.Item
+                        key={bill.id}
+                        title={bill.description}
+                        titleStyle={{ color: theme.colors.primary, fontWeight: '600' }}
+                        onPress={() => {
+                          // Al dar clic en una factura pagada, abre el detalle de la transacción correspondiente
+                          router.push({ pathname: '/transaction/new', params: { id: bill.id } });
+                        }}
+                        description={`Vence: ${parseLocalDate(bill.aiMetadata?.dueDate || bill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}${bill.transactionDate !== (bill.aiMetadata?.dueDate || bill.transactionDate) ? ` • Pagada el: ${parseLocalDate(bill.transactionDate).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}` : ''} • ${getBillAccountLabel(bill)}`}
+                        left={props => <List.Icon {...props} icon="check-circle-outline" color="#059669" />}
+                        right={() => (
+                          <View style={{ justifyContent: 'center' }}>
+                            <AmountDisplay amount={bill.amount} size="sm" type="neutral" />
+                          </View>
+                        )}
+                        style={styles.listItemBottomBorder}
+                      />
+                    ))
+                  )}
+                </View>
+              )}
+            </Surface>
 
             {/* Grupo 3: FUTURAS PENDIENTES */}
             {futureUnpaid.length > 0 && (
@@ -851,12 +974,12 @@ export default function BillsScreen() {
                       left={props => <List.Icon {...props} icon="calendar-clock" color={theme.colors.primary} />}
                       right={() => (
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <AmountDisplay amount={bill.amount} size="sm" type="neutral" style={{ marginRight: 12 }} />
+                          <AmountDisplay amount={bill.amount} size="sm" type="neutral" style={{ marginRight: 10 }} />
                           <Button
                             mode="contained"
                             compact
                             onPress={() => handlePayBill(bill)}
-                            style={{ backgroundColor: theme.customColors.success, borderRadius: 8 }}
+                            style={{ backgroundColor: '#059669', borderRadius: 8 }}
                             labelStyle={{ fontSize: 10, paddingHorizontal: 4 }}
                           >
                             Pagar

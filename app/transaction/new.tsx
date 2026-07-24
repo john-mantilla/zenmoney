@@ -7,11 +7,12 @@
 
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard } from 'react-native';
-import { Text, TextInput, Button, SegmentedButtons, Card, HelperText, Surface, IconButton, ActivityIndicator, Switch, Divider } from 'react-native-paper';
+import { Text, TextInput, Button, SegmentedButtons, Card, HelperText, Surface, IconButton, ActivityIndicator, Switch, Divider, Portal, Dialog } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
+import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet } from '@/src/presentation/components';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
@@ -107,6 +108,8 @@ export default function NewTransactionScreen() {
   const [selectedParentCategoryId, setSelectedParentCategoryId] = useState<string>('');
   const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string>('');
   const [isCategorySheetVisible, setIsCategorySheetVisible] = useState(false);
+  const [isAccountSheetVisible, setIsAccountSheetVisible] = useState(false);
+  const [accountSelectorTarget, setAccountSelectorTarget] = useState<'origin' | 'destination'>('origin');
 
   const [description, setDescription] = useState('');
   const [merchantName, setMerchantName] = useState('');
@@ -834,7 +837,7 @@ export default function NewTransactionScreen() {
         {isEditing ? (
           <IconButton icon="trash-can-outline" iconColor={theme.colors.error} size={22} onPress={handleDeleteTransaction} />
         ) : (
-          <View style={{ width: 48 }} />
+          <IconButton icon="history" size={24} iconColor={theme.colors.primary} onPress={() => router.push('/transactions')} />
         )}
       </View>
 
@@ -931,7 +934,7 @@ export default function NewTransactionScreen() {
               ¿En qué lo gastaste?
             </Text>
 
-            {/* Grid de Categorías con Vector Icons */}
+            {/* Grid 4x2 de Categorías con Vector Icons y Badge Checkmark ✓ */}
             <View style={styles.categoryGrid}>
               {[
                 { label: 'Comida', icon: 'silverware-fork-knife', keywords: ['comida', 'alimentación', 'mercado', 'restaurante'] },
@@ -941,7 +944,7 @@ export default function NewTransactionScreen() {
                 { label: 'Ocio', icon: 'controller-classic-outline', keywords: ['entretenimiento', 'juegos', 'suscripciones', 'cine', 'ocio'] },
                 { label: 'Estudio', icon: 'school-outline', keywords: ['educación', 'escuela', 'libros', 'curso'] },
                 { label: 'Finanzas', icon: 'shield-check-outline', keywords: ['finanzas', 'seguros', 'banco', 'impuestos', 'deuda'] },
-                { label: 'Otros', icon: 'dots-horizontal-circle-outline', keywords: ['sin clasificar', 'otros', 'varios', 'compras', 'regalos'] }
+                { label: 'Sin clasificar', icon: 'help-circle-outline', keywords: ['sin clasificar', 'otros', 'varios', 'compras', 'regalos'] }
               ].map(item => {
                 const matchedCategory = categories.find(c => 
                   c.name.toLowerCase().includes(item.label.toLowerCase()) ||
@@ -957,9 +960,10 @@ export default function NewTransactionScreen() {
                       styles.categoryCard,
                       theme.shadows.sm,
                       {
-                        backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surface,
+                        backgroundColor: isSelected ? theme.colors.primaryContainer + '40' : theme.colors.surface,
                         borderColor: isSelected ? theme.colors.primary : theme.colors.outline,
-                        borderWidth: isSelected ? 2 : 1
+                        borderWidth: isSelected ? 2 : 1,
+                        position: 'relative',
                       }
                     ]}
                     onPress={() => {
@@ -969,6 +973,26 @@ export default function NewTransactionScreen() {
                       }
                     }}
                   >
+                    {/* Badge Checkmark ✓ en la esquina superior derecha */}
+                    {isSelected && (
+                      <View
+                        style={{
+                          position: 'absolute',
+                          top: 6,
+                          right: 6,
+                          width: 18,
+                          height: 18,
+                          borderRadius: 9,
+                          backgroundColor: theme.colors.primary,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          zIndex: 2,
+                        }}
+                      >
+                        <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
+                      </View>
+                    )}
+
                     <View style={[
                       styles.iconCircle,
                       { backgroundColor: isSelected ? theme.colors.primary : theme.colors.surfaceVariant }
@@ -983,7 +1007,7 @@ export default function NewTransactionScreen() {
                       style={[
                         theme.typography.caption,
                         {
-                          color: isSelected ? theme.colors.onPrimaryContainer : theme.colors.onSurface,
+                          color: isSelected ? theme.colors.primary : theme.colors.onSurface,
                           fontWeight: isSelected ? '700' : '500',
                           textAlign: 'center',
                           marginTop: 4
@@ -1002,16 +1026,116 @@ export default function NewTransactionScreen() {
         )}
 
         {/* ─── VISTA: ASISTENTE IA ────────────────────────────────────────── */}
+        {/* ─── VISTA: ASISTENTE IA (Cámara OCR + Dictado por Voz) ──────────────── */}
         {mode === 'ai' && !isEditing && (
           <View style={styles.aiSection}>
             <Text style={[styles.aiTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
-              ¿Qué gastaste hoy?
+              ¿Cómo quieres registrar tu gasto?
             </Text>
-            <Text style={[styles.aiSubtitle, theme.typography.bodySmall, { color: theme.customColors.textSecondary }]}>
-              Di o escribe tu gasto para que la IA lo auto-rellene
+            <Text style={[styles.aiSubtitle, theme.typography.bodySmall, { color: theme.customColors.textSecondary, marginBottom: 16 }]}>
+              Usa la inteligencia artificial para escanear tu factura o dictar por voz
             </Text>
 
-            <View style={{ marginVertical: 20, alignItems: 'center' }}>
+            {/* Tarjetas Principales de Ingreso de IA (Cámara OCR + Galería arriba de todo) */}
+            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+              {/* Tarjeta 1: Escanear Factura (Cámara OCR) */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => handlePickReceipt('camera')}
+                disabled={isLoading || isProcessingReceipt}
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.colors.primaryContainer + '40',
+                  borderRadius: 16,
+                  padding: 16,
+                  borderWidth: 2,
+                  borderColor: theme.colors.primary,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {isProcessingReceipt ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 12 }} />
+                ) : (
+                  <>
+                    <View
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        backgroundColor: theme.colors.primary,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: 8,
+                      }}
+                    >
+                      <MaterialCommunityIcons name="camera-plus" size={24} color="#FFFFFF" />
+                    </View>
+                    <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.primary, textAlign: 'center' }]}>
+                      Escanear Factura
+                    </Text>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, textAlign: 'center', marginTop: 2, fontSize: 11 }]}>
+                      Tomar foto con IA
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Tarjeta 2: Subir de Galería */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => handlePickReceipt('library')}
+                disabled={isLoading || isProcessingReceipt}
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.colors.surface,
+                  borderRadius: 16,
+                  padding: 16,
+                  borderWidth: 1.5,
+                  borderColor: theme.colors.outline + '60',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {isProcessingReceipt ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 12 }} />
+                ) : (
+                  <>
+                    <View
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 22,
+                        backgroundColor: theme.colors.surfaceVariant,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginBottom: 8,
+                      }}
+                    >
+                      <MaterialCommunityIcons name="image-multiple" size={24} color={theme.colors.primary} />
+                    </View>
+                    <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface, textAlign: 'center' }]}>
+                      Elegir de Galería
+                    </Text>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, textAlign: 'center', marginTop: 2, fontSize: 11 }]}>
+                      Subir foto existente
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Separador elegante para Dictado por Voz */}
+            <View style={styles.receiptDividerRow}>
+              <Divider style={{ flex: 1 }} />
+              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginHorizontal: 12, fontWeight: '600' }]}>
+                o dicta / escribe con tu voz
+              </Text>
+              <Divider style={{ flex: 1 }} />
+            </View>
+
+            {/* Sección de Dictado por Voz y Entrada de Texto */}
+            <View style={{ marginVertical: 14, alignItems: 'center' }}>
               <VoicePulseWave
                 isListening={isListening}
                 onPress={handleMicPress}
@@ -1020,7 +1144,7 @@ export default function NewTransactionScreen() {
                 style={[
                   theme.typography.caption,
                   {
-                    marginTop: 14,
+                    marginTop: 12,
                     color: isListening ? theme.colors.error : theme.customColors.textSecondary,
                     fontWeight: isListening ? '700' : '500',
                   },
@@ -1051,49 +1175,17 @@ export default function NewTransactionScreen() {
             >
               Procesar con IA
             </Button>
-
-            <View style={styles.receiptDividerRow}>
-              <Divider style={{ flex: 1 }} />
-              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginHorizontal: 12 }]}>
-                o sube una foto del recibo
-              </Text>
-              <Divider style={{ flex: 1 }} />
-            </View>
-
-            <View style={styles.receiptBtnRow}>
-              <Button
-                mode="outlined"
-                icon="camera"
-                onPress={() => handlePickReceipt('camera')}
-                loading={isProcessingReceipt}
-                disabled={isLoading}
-                style={styles.receiptBtn}
-              >
-                Tomar foto
-              </Button>
-              <Button
-                mode="outlined"
-                icon="image-multiple"
-                onPress={() => handlePickReceipt('library')}
-                loading={isProcessingReceipt}
-                disabled={isLoading}
-                style={styles.receiptBtn}
-              >
-                Galería
-              </Button>
-            </View>
           </View>
         )}
 
-        {/* ─── VISTA: FORMULARIO MANUAL REDISEÑADO ────────────────────────── */}
+        {/* ─── VISTA: FORMULARIO MANUAL REDISEÑADO SEGÚN MOCKUP ──────────── */}
         {mode === 'manual' && (
           <View style={styles.formSection}>
-            
+            {/* 1. Selector de Tipo (Gasto / Ingreso / Transferencia) */}
             <SegmentedButtons
               value={type}
               onValueChange={(val) => {
                 setType(val as any);
-                // Reset de categorías al cambiar tipo
                 setSelectedParentCategoryId('');
                 setSelectedSubCategoryId('');
               }}
@@ -1105,424 +1197,389 @@ export default function NewTransactionScreen() {
               style={styles.typeSelector}
             />
 
-            <Text style={[styles.selectLabel, theme.typography.caption]}>
-              {purchaseCurrency === 'USD' ? 'Monto en USD ($)' : 'Monto ($)'}
-            </Text>
-            <Pressable onPress={() => setIsNumpadVisible(true)}>
-              <Surface style={[styles.quickAmountDisplay, theme.shadows.sm, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline, paddingVertical: 12, marginBottom: 16 }]}>
-                <Text style={[theme.typography.amountLarge, { color: theme.colors.primary, textAlign: 'center' }]}>
-                  $ {/[+\-×÷]/.test(amount) ? amount : (parseFloat(amount || '0') || 0).toLocaleString('es-CO')}
-                </Text>
-                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, textAlign: 'center', marginTop: 2 }]}>
-                  Toca para cambiar monto
-                </Text>
-              </Surface>
-            </Pressable>
-
-            {!isEditing && type === 'expense' && (
-              <>
-                <Text style={[styles.selectLabel, theme.typography.caption, { marginTop: 0, marginBottom: 4 }]}>Moneda del Gasto</Text>
-                <SegmentedButtons
-                  value={purchaseCurrency}
-                  onValueChange={val => {
-                    setPurchaseCurrency(val as 'COP' | 'USD');
-                    setErrorMsg(null);
-                  }}
-                  buttons={[
-                    { value: 'COP', label: 'COP ($)', disabled: isLoading },
-                    { value: 'USD', label: 'USD ($)', disabled: isLoading },
-                  ]}
-                  style={{ marginBottom: 12 }}
-                />
-                
-                {purchaseCurrency === 'USD' && (
-                  <View style={{ marginBottom: 16 }}>
-                    <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-                      <TextInput
-                        label="Tasa de Cambio (COP per USD)"
-                        value={exchangeRate}
-                        onChangeText={txt => {
-                          setExchangeRate(txt.replace(/[^0-9.]/g, ''));
-                          setErrorMsg(null);
-                        }}
-                        mode="outlined"
-                        keyboardType="numeric"
-                        style={{ flex: 1 }}
-                        disabled={isLoading || loadingRate}
-                        right={loadingRate ? <TextInput.Icon icon={() => <ActivityIndicator size="small" color={theme.colors.primary} />} /> : null}
-                      />
-                      <IconButton
-                        icon="autorenew"
-                        size={24}
-                        iconColor={theme.colors.primary}
-                        disabled={loadingRate || isLoading}
-                        onPress={fetchRate}
-                        style={{ margin: 0, marginTop: 6 }}
-                      />
-                    </View>
-                    
-                    <Surface style={{ padding: 12, borderRadius: 8, backgroundColor: theme.colors.surfaceVariant, borderWidth: 1, borderColor: theme.colors.outline, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                        Total Equivalente en COP
-                      </Text>
-                      <Text style={[theme.typography.body, { fontWeight: 'bold', color: theme.colors.primary }]}>
-                        $ {Math.round((parseFloat(amount || '0') || 0) * (parseFloat(exchangeRate || '0') || 0)).toLocaleString('es-CO')}
-                      </Text>
-                    </Surface>
-                  </View>
-                )}
-              </>
-            )}
-
-            {/* Cuentas origen / destino (Carrusel Horizontal Deslizable) */}
-            <Text style={[styles.selectLabel, theme.typography.caption]}>
-              {type === 'transfer' ? 'Cuenta Origen' : type === 'income' ? 'Cuenta Destino' : 'Cuenta de Pago'}
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingVertical: 4, marginBottom: 16 }}
-            >
-              {accounts.map(acc => {
-                const isSelected = accountId === acc.id;
-                const getAccountIcon = (accType: string) => {
-                  if (accType === 'credit_card') return 'credit-card-outline';
-                  if (accType === 'cash') return 'cash';
-                  return 'bank-outline';
-                };
-
-                return (
-                  <Surface
-                    key={acc.id}
-                    elevation={isSelected ? 2 : 0}
+            {/* 2. Tarjeta Principal de Monto y Selector de Moneda (COP / USD Pill Integrado) */}
+            <Surface style={[styles.quickAmountDisplay, theme.shadows.sm, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 16 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* Pill de Moneda sutil de 1 toque (Sin banderas ni redundancia) */}
+                {!isEditing && type === 'expense' && (
+                  <Pressable
+                    onPress={() => setPurchaseCurrency(prev => prev === 'COP' ? 'USD' : 'COP')}
                     style={{
-                      borderRadius: 14,
-                      paddingHorizontal: 14,
-                      paddingVertical: 10,
                       flexDirection: 'row',
                       alignItems: 'center',
-                      backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surface,
-                      borderWidth: 1.5,
-                      borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '40',
+                      backgroundColor: theme.colors.surface,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: theme.colors.outline + '60',
+                      gap: 4,
                     }}
                   >
-                    <Pressable
-                      onPress={() => setAccountId(acc.id)}
-                      style={{ flexDirection: 'row', alignItems: 'center' }}
-                      disabled={isLoading}
-                    >
-                      <MaterialCommunityIcons
-                        name={getAccountIcon(acc.type)}
-                        size={20}
-                        color={isSelected ? theme.colors.primary : theme.customColors.textSecondary}
-                        style={{ marginRight: 8 }}
-                      />
-                      <Text
-                        style={[
-                          theme.typography.caption,
-                          {
-                            fontWeight: isSelected ? '700' : '500',
-                            color: isSelected ? theme.colors.primary : theme.colors.onSurface,
-                            fontSize: 14,
-                          },
-                        ]}
-                      >
-                        {acc.name}
-                      </Text>
-                    </Pressable>
-                  </Surface>
-                );
-              })}
-            </ScrollView>
+                    <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                      {purchaseCurrency}
+                    </Text>
+                    <MaterialCommunityIcons name="chevron-down" size={16} color={theme.customColors.textSecondary} />
+                  </Pressable>
+                )}
 
-            {!isEditing && type === 'expense' && accounts.find(a => a.id === accountId)?.type === 'credit_card' && (
-              <View style={{ marginTop: 4, marginBottom: 16 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text style={[theme.typography.body, { color: theme.colors.onSurface }]}>
-                    ¿Diferir compra a cuotas?
+                {/* Display del Monto en el centro/derecha */}
+                <Pressable onPress={() => setIsNumpadVisible(true)} style={{ flex: 1, alignItems: 'flex-end' }}>
+                  <Text style={[theme.typography.amountLarge, { color: theme.colors.primary }]}>
+                    $ {/[+\-×÷]/.test(amount) ? amount : (parseFloat(amount || '0') || 0).toLocaleString('es-CO')}
                   </Text>
-                  <Switch
-                    value={isInstallments}
-                    onValueChange={setIsInstallments}
-                    disabled={isLoading}
+                </Pressable>
+
+                {/* Lápiz de edición */}
+                <IconButton
+                  icon="pencil-outline"
+                  size={20}
+                  iconColor={theme.customColors.textSecondary}
+                  onPress={() => setIsNumpadVisible(true)}
+                  style={{ margin: 0, marginLeft: 8 }}
+                />
+              </View>
+            </Surface>
+
+            {/* Tasa de cambio cuando la divisa es USD */}
+            {!isEditing && type === 'expense' && purchaseCurrency === 'USD' && (
+              <View style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <TextInput
+                    label="Tasa de Cambio (COP por USD)"
+                    value={exchangeRate}
+                    onChangeText={txt => {
+                      setExchangeRate(txt.replace(/[^0-9.]/g, ''));
+                      setErrorMsg(null);
+                    }}
+                    mode="outlined"
+                    keyboardType="numeric"
+                    style={{ flex: 1 }}
+                    disabled={isLoading || loadingRate}
+                    right={loadingRate ? <TextInput.Icon icon={() => <ActivityIndicator size="small" color={theme.colors.primary} />} /> : null}
+                  />
+                  <IconButton
+                    icon="autorenew"
+                    size={24}
+                    iconColor={theme.colors.primary}
+                    disabled={loadingRate || isLoading}
+                    onPress={fetchRate}
+                    style={{ margin: 0, marginTop: 6 }}
                   />
                 </View>
-
-                {isInstallments && (
-                  <View style={{ gap: 12, marginTop: 8 }}>
-                    <TextInput
-                      label="Número de Cuotas"
-                      value={installmentsCount}
-                      onChangeText={txt => {
-                        setInstallmentsCount(txt.replace(/[^0-9]/g, ''));
-                        setErrorMsg(null);
-                      }}
-                      mode="outlined"
-                      keyboardType="numeric"
-                      disabled={isLoading}
-                    />
-                    
-                    <Surface style={{ padding: 12, borderRadius: 8, backgroundColor: theme.colors.surfaceVariant, borderWidth: 1, borderColor: theme.colors.outline }}>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 4 }]}>
-                        Resumen del diferido:
-                      </Text>
-                      <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface }]}>
-                        • Deuda total: <Text style={{ fontWeight: 'bold' }}>$ {Math.round(parseFloat(amount || '0') || 0).toLocaleString('es-CO')} COP</Text> se cargará hoy a la tarjeta.
-                      </Text>
-                      <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface, marginTop: 4 }]}>
-                        • Cuota mensual estimada: <Text style={{ fontWeight: 'bold', color: theme.colors.primary }}>$ {Math.round((parseFloat(amount || '0') || 0) / (parseInt(installmentsCount) || 1)).toLocaleString('es-CO')} COP</Text> al mes durante {installmentsCount} meses.
-                      </Text>
-                    </Surface>
-                  </View>
-                )}
+                
+                <Surface style={{ padding: 10, borderRadius: 10, backgroundColor: theme.colors.surfaceVariant, borderWidth: 1, borderColor: theme.colors.outline, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Total Equivalente en COP</Text>
+                  <Text style={[theme.typography.body, { fontWeight: 'bold', color: theme.colors.primary }]}>
+                    $ {Math.round((parseFloat(amount || '0') || 0) * (parseFloat(exchangeRate || '0') || 0)).toLocaleString('es-CO')}
+                  </Text>
+                </Surface>
               </View>
             )}
 
-            {/* Campo Cuenta Destino en Transferencias (Carrusel) */}
-            {type === 'transfer' && (
-              <>
-                <Text style={[styles.selectLabel, theme.typography.caption, { color: theme.customColors.transfer }]}>
-                  Cuenta Destino
+            {/* 3. Fila Doble 50% / 50%: Cuenta (Izquierda) + Categoría (Derecha) */}
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              {/* Tarjeta Cuenta Origen (50% en gasto/ingreso, 50% en transferencia) */}
+              <View style={{ flex: 1 }}>
+                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 4, fontWeight: '600' }]}>
+                  {type === 'transfer' ? 'Cuenta Origen' : 'Cuenta'}
                 </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8, paddingVertical: 4, marginBottom: 16 }}
-                >
-                  {accounts.map(acc => {
-                    const isSelected = transferToAccountId === acc.id;
-                    const isDisabled = acc.id === accountId || isLoading;
-
-                    return (
-                      <Surface
-                        key={acc.id}
-                        elevation={isSelected ? 2 : 0}
-                        style={{
-                          borderRadius: 14,
-                          paddingHorizontal: 14,
-                          paddingVertical: 10,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          backgroundColor: isSelected ? theme.colors.primaryContainer : theme.colors.surface,
-                          borderWidth: 1.5,
-                          borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '40',
-                          opacity: isDisabled ? 0.5 : 1,
-                        }}
-                      >
-                        <Pressable
-                          onPress={() => setTransferToAccountId(acc.id)}
-                          style={{ flexDirection: 'row', alignItems: 'center' }}
-                          disabled={isDisabled}
-                        >
-                          <MaterialCommunityIcons
-                            name="bank-outline"
-                            size={18}
-                            color={isSelected ? theme.colors.primary : theme.customColors.textSecondary}
-                            style={{ marginRight: 6 }}
-                          />
-                          <Text
-                            style={[
-                              theme.typography.caption,
-                              {
-                                fontWeight: isSelected ? '700' : '500',
-                                color: isSelected ? theme.colors.primary : theme.colors.onSurface,
-                              },
-                            ]}
-                          >
-                            {acc.name}
-                          </Text>
-                        </Pressable>
-                      </Surface>
-                    );
-                  })}
-                </ScrollView>
-              </>
-            )}
-
-            {/* Categoría (Selector con BottomSheet Modal) */}
-            {type === 'expense' && (
-              <>
-                <Text style={[styles.selectLabel, theme.typography.caption]}>Categoría</Text>
                 {(() => {
-                  const selectedCatId = selectedSubCategoryId || selectedParentCategoryId;
-                  const selectedCatObj = categories.find((c) => c.id === selectedCatId);
-
+                  const selAcc = accounts.find(a => a.id === accountId);
+                  const brand = selAcc ? getAccountBrandInfo(selAcc) : null;
                   return (
                     <TouchableOpacity
                       activeOpacity={0.8}
-                      onPress={() => setIsCategorySheetVisible(true)}
+                      onPress={() => {
+                        setAccountSelectorTarget('origin');
+                        setIsAccountSheetVisible(true);
+                      }}
                       disabled={isLoading}
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
                         borderRadius: 14,
                         borderWidth: 1.5,
-                        borderColor: selectedCatObj ? theme.colors.primary : theme.colors.outline,
-                        backgroundColor: selectedCatObj ? theme.colors.primaryContainer + '30' : theme.colors.surface,
-                        marginBottom: 16,
+                        borderColor: selAcc ? theme.colors.primary : theme.colors.outline,
+                        backgroundColor: theme.colors.surface,
                       }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4 }}>
                         <View
                           style={{
-                            width: 36,
-                            height: 36,
-                            borderRadius: 18,
-                            backgroundColor: selectedCatObj?.color ? selectedCatObj.color + '20' : theme.colors.primaryContainer,
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                            backgroundColor: brand?.color || theme.colors.primaryContainer,
                             justifyContent: 'center',
                             alignItems: 'center',
-                            marginRight: 12,
+                            marginRight: 8,
                           }}
                         >
                           <MaterialCommunityIcons
-                            name={(selectedCatObj?.icon as any) || 'tag-outline'}
-                            size={20}
-                            color={selectedCatObj?.color || theme.colors.primary}
+                            name={(brand?.icon as any) || 'bank-outline'}
+                            size={18}
+                            color="#FFFFFF"
                           />
                         </View>
                         <Text
-                          style={[
-                            theme.typography.body,
-                            {
-                              fontWeight: selectedCatObj ? '700' : '500',
-                              color: selectedCatObj ? theme.colors.onSurface : theme.customColors.textSecondary,
-                              fontSize: 15,
-                            },
-                          ]}
+                          style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}
+                          numberOfLines={1}
                         >
-                          {selectedCatObj ? selectedCatObj.name : 'Seleccionar Categoría'}
+                          {selAcc ? selAcc.name : 'Seleccionar'}
                         </Text>
                       </View>
-
-                      <MaterialCommunityIcons name="chevron-down" size={22} color={theme.customColors.textSecondary} />
+                      <MaterialCommunityIcons name="chevron-down" size={20} color={theme.customColors.textSecondary} />
                     </TouchableOpacity>
                   );
                 })()}
-              </>
-            )}
+              </View>
 
-            {/* Para ingresos no se muestra selector de categoría, se asocia automáticamente una de ingreso */}
-            {type === 'income' && (
-              <HelperText type="info" visible={true}>
-                Este movimiento se registrará directamente como un Ingreso en tu historial.
-              </HelperText>
-            )}
+              {/* En Transferencia: Cuenta Destino (50% derecha para simetría total con Origen) */}
+              {type === 'transfer' && (
+                <View style={{ flex: 1 }}>
+                  <Text style={[theme.typography.caption, { color: theme.customColors.transfer, marginBottom: 4, fontWeight: '600' }]}>
+                    Cuenta Destino
+                  </Text>
+                  {(() => {
+                    const selTargetAcc = accounts.find(a => a.id === transferToAccountId);
+                    const brandTarget = selTargetAcc ? getAccountBrandInfo(selTargetAcc) : null;
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setAccountSelectorTarget('destination');
+                          setIsAccountSheetVisible(true);
+                        }}
+                        disabled={isLoading}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingHorizontal: 10,
+                          paddingVertical: 10,
+                          borderRadius: 14,
+                          borderWidth: 1.5,
+                          borderColor: selTargetAcc ? theme.customColors.transfer : theme.colors.outline,
+                          backgroundColor: theme.colors.surface,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4 }}>
+                          <View
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: brandTarget?.color || theme.colors.primaryContainer,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              marginRight: 8,
+                            }}
+                          >
+                            <MaterialCommunityIcons
+                              name={(brandTarget?.icon as any) || 'bank-outline'}
+                              size={18}
+                              color="#FFFFFF"
+                            />
+                          </View>
+                          <Text
+                            style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}
+                            numberOfLines={1}
+                          >
+                            {selTargetAcc ? selTargetAcc.name : 'Seleccionar'}
+                          </Text>
+                        </View>
+                        <MaterialCommunityIcons name="chevron-down" size={20} color={theme.customColors.textSecondary} />
+                      </TouchableOpacity>
+                    );
+                  })()}
+                </View>
+              )}
 
-            {/* Comercios recientes en esta cuenta (atajo de un toque) */}
-            {type === 'expense' && !!suggestions?.recentMerchantsByAccount[accountId]?.length && (
-              <>
-                <Text style={[styles.selectLabel, theme.typography.caption]}>Recientes en esta cuenta</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryRow}>
-                  {suggestions.recentMerchantsByAccount[accountId].map(merchant => (
-                    <Button
-                      key={merchant}
-                      mode={merchantName.toLowerCase() === merchant.toLowerCase() ? 'contained' : 'outlined'}
-                      compact
-                      onPress={() => handleSelectMerchant(merchant)}
-                      style={styles.selectBtn}
-                      disabled={isLoading}
-                    >
-                      {merchant}
-                    </Button>
-                  ))}
-                </ScrollView>
-              </>
-            )}
+              {/* Tarjeta Categoría (50%) - Solo para gastos */}
+              {type === 'expense' && (
+                <View style={{ flex: 1 }}>
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 4, fontWeight: '600' }]}>
+                    Categoría
+                  </Text>
+                  {(() => {
+                    const selectedCatId = selectedSubCategoryId || selectedParentCategoryId;
+                    const selectedCatObj = categories.find((c) => c.id === selectedCatId);
+                    return (
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setIsCategorySheetVisible(true)}
+                        disabled={isLoading}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingHorizontal: 10,
+                          paddingVertical: 10,
+                          borderRadius: 14,
+                          borderWidth: 1.5,
+                          borderColor: selectedCatObj ? theme.colors.primary : theme.colors.outline,
+                          backgroundColor: theme.colors.surface,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4 }}>
+                          <View
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: selectedCatObj?.color ? selectedCatObj.color + '20' : theme.colors.primaryContainer,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              marginRight: 8,
+                            }}
+                          >
+                            <MaterialCommunityIcons
+                              name={(selectedCatObj?.icon as any) || 'tag-outline'}
+                              size={18}
+                              color={selectedCatObj?.color || theme.colors.primary}
+                            />
+                          </View>
+                          <Text
+                            style={[theme.typography.caption, { fontWeight: selectedCatObj ? '700' : '500', color: theme.colors.onSurface }]}
+                            numberOfLines={1}
+                          >
+                            {selectedCatObj ? selectedCatObj.name : 'Categoría'}
+                          </Text>
+                        </View>
+                        <MaterialCommunityIcons name="chevron-down" size={20} color={theme.customColors.textSecondary} />
+                      </TouchableOpacity>
+                    );
+                  })()}
+                </View>
+              )}
+            </View>
 
-            {/* Establecimiento (Solo para gastos) */}
+            {/* 4. Sección Comercio / Establecimiento + Chips Recientes (Limpio, sin íconos recargados) */}
             {type === 'expense' && (
-              <TextInput
-                label="Comercio / Establecimiento"
-                value={merchantName}
-                onChangeText={(text) => {
-                  setMerchantName(text);
-                  handlePredictiveCategorization(text);
-                }}
-                mode="outlined"
-                style={styles.input}
-                disabled={isLoading}
-              />
-            )}
-
-            <TextInput
-              label="Descripción / Notas"
-              value={description}
-              onChangeText={(text) => {
-                setDescription(text);
-                handlePredictiveCategorization(text);
-              }}
-              mode="outlined"
-              style={styles.input}
-              disabled={isLoading}
-            />
-
-            {/* Calendario Nativo Web o Campo Móvil */}
-            {Platform.OS === 'web' ? (
-              <View style={styles.inputContainer}>
-                <Text style={[styles.dateLabel, theme.typography.caption]}>Fecha de Transacción</Text>
-                <input
-                  type="date"
-                  value={transactionDate}
-                  onChange={(e) => setTransactionDate(e.target.value)}
-                  style={webStyles.dateInput}
+              <View style={{ marginBottom: 16 }}>
+                <TextInput
+                  label="Comercio / Establecimiento"
+                  placeholder="Escribe el nombre del comercio"
+                  value={merchantName}
+                  onChangeText={(text) => {
+                    setMerchantName(text);
+                    handlePredictiveCategorization(text);
+                  }}
+                  mode="outlined"
+                  style={{ marginBottom: 8 }}
                   disabled={isLoading}
                 />
-              </View>
-            ) : (
-              <View>
-                <Pressable onPress={() => setShowDatePicker(true)}>
-                  <View pointerEvents="none">
-                    <TextInput
-                      label="Fecha de Transacción"
-                      value={transactionDate}
-                      mode="outlined"
-                      style={styles.input}
-                      disabled={isLoading}
-                      right={<TextInput.Icon icon="calendar" />}
-                    />
+
+                {/* Recientes (Chips de texto sutiles sin íconos redundantes) */}
+                {!!suggestions?.recentMerchantsByAccount[accountId]?.length && (
+                  <View style={{ marginTop: 4 }}>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 6, fontWeight: '600' }]}>
+                      Recientes:
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                      {suggestions.recentMerchantsByAccount[accountId].map(merchant => (
+                        <Pressable
+                          key={merchant}
+                          onPress={() => handleSelectMerchant(merchant)}
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 12,
+                            backgroundColor: merchantName.toLowerCase() === merchant.toLowerCase() ? theme.colors.primaryContainer : theme.colors.surface,
+                            borderWidth: 1,
+                            borderColor: merchantName.toLowerCase() === merchant.toLowerCase() ? theme.colors.primary : theme.colors.outline + '40',
+                          }}
+                        >
+                          <Text style={[theme.typography.caption, { fontWeight: merchantName.toLowerCase() === merchant.toLowerCase() ? '700' : '500', color: theme.colors.onSurface }]}>
+                            {merchant}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
                   </View>
-                </Pressable>
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={(() => {
-                      const parts = transactionDate.split('-');
-                      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-                    })()}
-                    mode="date"
-                    display="default"
-                    onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
-                      setShowDatePicker(false);
-                      if (selectedDate && event.type === 'set') {
-                        const year = selectedDate.getFullYear();
-                        const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-                        const day = String(selectedDate.getDate()).padStart(2, '0');
-                        setTransactionDate(`${year}-${month}-${day}`);
-                      }
-                    }}
-                  />
                 )}
               </View>
             )}
 
-            {/* Ocultar del resto de la familia — última decisión antes de guardar, no un
-                campo de captura más; solo disponible en cuentas propias */}
-            {canBePrivate && (
-              <>
-                <Divider style={styles.privacyDivider} />
-                <View style={styles.privacyRow}>
-                  <View style={styles.privacyText}>
-                    <Text style={theme.typography.body}>🙈 Ocultar del resto de la familia</Text>
-                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                      Solo tú podrás ver este movimiento
-                    </Text>
+            {/* 5. Tarjeta Agrupada: Detalles opcionales (Fecha, Notas, Transacción Privada) */}
+            <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: theme.colors.outline + '40', marginBottom: 16 }]}>
+              <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface, marginBottom: 12 }]}>
+                Detalles opcionales
+              </Text>
+
+              {/* Fila Fecha */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.outline + '20' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="calendar-month-outline" size={18} color={theme.colors.primary} />
                   </View>
-                  <Switch value={isPrivate} onValueChange={setIsPrivate} disabled={isLoading} />
+                  <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Fecha</Text>
                 </View>
-              </>
-            )}
+
+                {Platform.OS === 'web' ? (
+                  <input
+                    type="date"
+                    value={transactionDate}
+                    onChange={(e) => setTransactionDate(e.target.value)}
+                    style={{ ...webStyles.dateInput, paddingVertical: 4, paddingHorizontal: 8, fontSize: 13 }}
+                    disabled={isLoading}
+                  />
+                ) : (
+                  <Pressable onPress={() => setShowDatePicker(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '600' }]}>
+                      {transactionDate}
+                    </Text>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color={theme.customColors.textSecondary} />
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Fila Notas / Descripción */}
+              <View style={{ paddingVertical: 8, borderBottomWidth: canBePrivate ? 1 : 0, borderBottomColor: theme.colors.outline + '20' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
+                    <MaterialCommunityIcons name="comment-text-outline" size={18} color={theme.colors.primary} />
+                  </View>
+                  <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Notas</Text>
+                </View>
+                <TextInput
+                  placeholder="Añadir nota opcional"
+                  value={description}
+                  onChangeText={(text) => {
+                    setDescription(text);
+                    handlePredictiveCategorization(text);
+                  }}
+                  mode="outlined"
+                  dense
+                  style={{ backgroundColor: theme.colors.background }}
+                  disabled={isLoading}
+                />
+              </View>
+
+              {/* Fila Ocultar del resto de la familia (Privado) */}
+              {canBePrivate && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
+                      <MaterialCommunityIcons name="eye-off-outline" size={18} color={theme.colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>
+                        Ocultar del resto de la familia
+                      </Text>
+                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                        Solo tú podrás ver este movimiento
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch value={isPrivate} onValueChange={setIsPrivate} disabled={isLoading} color={theme.colors.primary} />
+                </View>
+              )}
+            </Surface>
 
           </View>
         )}
@@ -1580,6 +1637,82 @@ export default function NewTransactionScreen() {
         onClose={() => setIsCategorySheetVisible(false)}
         excludeNamesContaining="ingreso"
       />
+
+      {/* ─── PORTAL: DIÁLOGO SELECTOR DE CUENTAS ──────────────────────────── */}
+      <Portal>
+        <Dialog
+          visible={isAccountSheetVisible}
+          onDismiss={() => setIsAccountSheetVisible(false)}
+          style={{ maxHeight: '80%', borderRadius: 16 }}
+        >
+          <Dialog.Title>
+            {accountSelectorTarget === 'destination' ? 'Seleccionar Cuenta Destino' : 'Seleccionar Cuenta Origen'}
+          </Dialog.Title>
+          <Dialog.ScrollArea style={{ paddingHorizontal: 0 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 8 }}>
+              {accounts.map(acc => {
+                const brand = getAccountBrandInfo(acc);
+                const isSelected = accountSelectorTarget === 'origin' ? accountId === acc.id : transferToAccountId === acc.id;
+                const isDisabled = accountSelectorTarget === 'destination' && acc.id === accountId;
+
+                return (
+                  <TouchableOpacity
+                    key={acc.id}
+                    activeOpacity={0.7}
+                    disabled={isDisabled}
+                    onPress={() => {
+                      if (accountSelectorTarget === 'origin') {
+                        setAccountId(acc.id);
+                      } else {
+                        setTransferToAccountId(acc.id);
+                      }
+                      setIsAccountSheetVisible(false);
+                    }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      marginBottom: 6,
+                      backgroundColor: isSelected ? theme.colors.primaryContainer + '40' : 'transparent',
+                      borderWidth: isSelected ? 1.5 : 0,
+                      borderColor: theme.colors.primary,
+                      opacity: isDisabled ? 0.4 : 1,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        backgroundColor: brand.color,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginRight: 12,
+                      }}
+                    >
+                      <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.body, { fontWeight: isSelected ? '700' : '500', color: theme.colors.onSurface }]}>
+                        {acc.name}
+                      </Text>
+                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                        {acc.type === 'bank' ? 'Banco' : acc.type === 'cash' ? 'Efectivo' : acc.type === 'credit_card' ? 'Tarjeta de Crédito' : acc.type === 'loan' ? 'Deuda / Préstamo' : 'Inversión'}
+                      </Text>
+                    </View>
+                    {isSelected && <MaterialCommunityIcons name="check" size={20} color={theme.colors.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => setIsAccountSheetVisible(false)}>Cerrar</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </KeyboardAvoidingView>
   );
 }

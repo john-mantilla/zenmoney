@@ -6,12 +6,13 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform, TouchableOpacity, Image } from 'react-native';
 import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, Portal, Dialog } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
+import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
@@ -387,6 +388,7 @@ export default function DashboardScreen() {
           expenses={monthlyExpenses}
           currency="COP"
           label="DISPONIBLE LÍQUIDO"
+          onPressAnalysis={() => router.push('/analytics')}
         />
 
         {/* Aviso de posible vacío en el registro: lleva más días de lo habitual sin anotar nada */}
@@ -448,21 +450,44 @@ export default function DashboardScreen() {
             )}
             style={[styles.accordionHeader, { backgroundColor: theme.colors.surface }]}
           >
-            {liquidAccounts.map(account => (
-              <List.Item
-                key={account.id}
-                title={account.name}
-                description={
-                  (account.type === 'cash' ? 'Efectivo' : 'Cuenta bancaria') +
-                  (account.isPrivate ? ' • 🙈 Privada' : '')
-                }
-                onPress={() => setSelectedAccountForAction(account)}
-                right={() => (
-                  <AmountDisplay amount={account.initialBalance} size="sm" type="neutral" style={styles.itemAmount} />
-                )}
-                style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
-              />
-            ))}
+            {liquidAccounts.map(account => {
+              const brand = getAccountBrandInfo(account);
+              return (
+                <List.Item
+                  key={account.id}
+                  title={account.name}
+                  description={
+                    (account.type === 'cash' ? 'Efectivo' : 'Cuenta de ahorro/corriente') +
+                    (account.isPrivate ? ' • 🙈 Privada' : '')
+                  }
+                  onPress={() => setSelectedAccountForAction(account)}
+                  left={() => (
+                    <View
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 19,
+                        backgroundColor: brand.color,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        marginLeft: 8,
+                        alignSelf: 'center',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
+                    </View>
+                  )}
+                  right={() => (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <AmountDisplay amount={account.initialBalance} size="sm" type="neutral" style={styles.itemAmount} />
+                      <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
+                    </View>
+                  )}
+                  style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
+                />
+              );
+            })}
           </List.Accordion>
 
           {/* 2. Tarjetas de Crédito */}
@@ -478,22 +503,45 @@ export default function DashboardScreen() {
               )}
               style={[styles.accordionHeader, { backgroundColor: theme.colors.surface, marginTop: 8 }]}
             >
-              {creditCards.map(account => (
-                <List.Item
-                  key={account.id}
-                  title={account.name}
-                  description={
-                    account.closingDay
-                      ? `Día de corte: ${account.closingDay}` + (account.isPrivate ? ' • 🙈 Privada' : '')
-                      : account.isPrivate ? '🙈 Cuenta privada' : 'Tarjeta de crédito'
-                  }
-                  onPress={() => setSelectedAccountForAction(account)}
-                  right={() => (
-                    <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
-                  )}
-                  style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
-                />
-              ))}
+              {creditCards.map(account => {
+                const brand = getAccountBrandInfo(account);
+                return (
+                  <List.Item
+                    key={account.id}
+                    title={account.name}
+                    description={
+                      account.closingDay
+                        ? `Día de corte: ${account.closingDay}` + (account.isPrivate ? ' • 🙈 Privada' : '')
+                        : account.isPrivate ? '🙈 Cuenta privada' : 'Tarjeta de crédito'
+                    }
+                    onPress={() => setSelectedAccountForAction(account)}
+                    left={() => (
+                      <View
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 19,
+                          backgroundColor: brand.color,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginLeft: 8,
+                          alignSelf: 'center',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
+                      </View>
+                    )}
+                    right={() => (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
+                        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
+                      </View>
+                    )}
+                    style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
+                  />
+                );
+              })}
             </List.Accordion>
           )}
 
@@ -510,23 +558,129 @@ export default function DashboardScreen() {
               )}
               style={[styles.accordionHeader, { backgroundColor: theme.colors.surface, marginTop: 8 }]}
             >
-              {loanAccounts.map(account => (
-                <List.Item
-                  key={account.id}
-                  title={account.name}
-                  description={
-                    (account.type === 'mortgage' ? 'Crédito Hipotecario' : 'Préstamo / Vehículo') +
-                    (account.isPrivate ? ' • 🙈 Privado' : '')
-                  }
-                  onPress={() => setSelectedAccountForAction(account)}
-                  right={() => (
-                    <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
-                  )}
-                  style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
-                />
-              ))}
+              {loanAccounts.map(account => {
+                const brand = getAccountBrandInfo(account);
+                return (
+                  <List.Item
+                    key={account.id}
+                    title={account.name}
+                    description={
+                      'Préstamo / Crédito' +
+                      (account.isPrivate ? ' • 🙈 Privado' : '')
+                    }
+                    onPress={() => setSelectedAccountForAction(account)}
+                    left={() => (
+                      <View
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 19,
+                          backgroundColor: brand.color,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginLeft: 8,
+                          alignSelf: 'center',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
+                      </View>
+                    )}
+                    right={() => (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
+                        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
+                      </View>
+                    )}
+                    style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
+                  />
+                );
+              })}
             </List.Accordion>
           )}
+        </View>
+
+        {/* ─── SECCIÓN ACCIONES RÁPIDAS (1 sola fila compacta de 3 botones) ── */}
+        <View style={{ marginTop: 16, marginBottom: 8 }}>
+          <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurface, marginBottom: 10 }]}>
+            Acciones rápidas
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {/* 1. Escanear Recibo */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { action: 'camera' } })}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                paddingVertical: 12,
+                paddingHorizontal: 6,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.colors.outline + '30',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+            >
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="camera" size={18} color={theme.colors.primary} />
+              </View>
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 11 }]}>
+                Escanear
+              </Text>
+            </TouchableOpacity>
+
+            {/* 2. Dictar por Voz */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'ai' } })}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                paddingVertical: 12,
+                paddingHorizontal: 6,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.colors.outline + '30',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+            >
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="microphone" size={18} color={theme.colors.primary} />
+              </View>
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 11 }]}>
+                Voz
+              </Text>
+            </TouchableOpacity>
+
+            {/* 3. Transferir */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'manual', type: 'transfer' } })}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                paddingVertical: 12,
+                paddingHorizontal: 6,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: theme.colors.outline + '30',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}
+            >
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="swap-horizontal" size={18} color={theme.colors.primary} />
+              </View>
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 11 }]}>
+                Transferir
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ─── MOVIMIENTOS RECIENTES (ÚLTIMOS 3) ───────────────────────────── */}

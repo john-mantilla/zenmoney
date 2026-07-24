@@ -3,9 +3,10 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Image } from 'react-native';
 import { Button, Card, Text, Switch, ActivityIndicator, Dialog, Portal, TextInput, IconButton, Appbar, HelperText } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '@/src/presentation/theme';
 import { SupabaseAccountRepository } from '@/src/data/repositories/SupabaseAccountRepository';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
@@ -13,6 +14,8 @@ import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseT
 import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurringInstances';
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
+import { inferAccountBrand, getAccountBrandInfo, BRAND_COLORS } from '@/src/presentation/theme/accountBrands';
+import { useAccountCustomizationStore } from '@/src/infrastructure/state/accountCustomizationStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -32,6 +35,9 @@ export default function SettingsAccountsScreen() {
   const [accountName, setAccountName] = useState('');
   const [accountType, setAccountType] = useState<AccountType>('bank');
   const [initialBalanceInput, setInitialBalanceInput] = useState('');
+  const [accountColor, setAccountColor] = useState('');
+  const [accountIcon, setAccountIcon] = useState('');
+  const [isManualBrandSet, setIsManualBrandSet] = useState(false);
   
   // Parámetros de cuotas automáticas
   const [hasInstallment, setHasInstallment] = useState(false);
@@ -102,11 +108,41 @@ export default function SettingsAccountsScreen() {
     }
   };
 
+  const [customLogoUri, setCustomLogoUri] = useState<string | null>(null);
+
+  const handlePickAccountImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setErrorMsg('Necesitamos acceso a tus fotos para seleccionar un logo.');
+        return;
+      }
+
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        setCustomLogoUri(res.assets[0].uri);
+        setIsManualBrandSet(true);
+      }
+    } catch (e) {
+      console.warn('[Pick Account Image Error]', e);
+    }
+  };
+
   const openAccountCreateDialog = () => {
     setSelectedAccount(null);
     setAccountName('');
     setAccountType('bank');
     setInitialBalanceInput('');
+    setAccountColor('');
+    setAccountIcon('');
+    setCustomLogoUri(null);
+    setIsManualBrandSet(false);
     setHasInstallment(false);
     setInstallmentAmount('');
     setInstallmentEndDate('');
@@ -122,6 +158,13 @@ export default function SettingsAccountsScreen() {
     setSelectedAccount(account);
     setAccountName(account.name);
     setAccountType(account.type);
+    
+    // Al editar: pre-cargar el color de la cuenta (o inferido inicial) y marcar que se respete la selección
+    const brand = getAccountBrandInfo(account);
+    setAccountColor(account.color || brand.color);
+    setAccountIcon(account.icon || brand.icon);
+    setIsManualBrandSet(true);
+    
     setClosingDay(account.closingDay ? String(account.closingDay) : '');
     setPaymentDay(account.paymentDay ? String(account.paymentDay) : '');
     setIsPrivate(account.isPrivate || false);
@@ -141,6 +184,17 @@ export default function SettingsAccountsScreen() {
     setIsDialogVisible(true);
   };
 
+  const handleNameOrTypeChange = (newName: string, newType: AccountType) => {
+    setAccountName(newName);
+    setAccountType(newType);
+    // Auto-inferir marca SOLAMENTE si se está CREANDO una cuenta nueva y no se ha seleccionado color manualmente
+    if (!selectedAccount && !isManualBrandSet) {
+      const inferred = inferAccountBrand(newName, newType);
+      setAccountColor(inferred.color);
+      setAccountIcon(inferred.icon);
+    }
+  };
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleSaveAccount = async () => {
@@ -154,6 +208,9 @@ export default function SettingsAccountsScreen() {
     try {
       let savedAccount: Account;
 
+      const finalBrand = inferAccountBrand(accountName, accountType);
+      const colorToSave = accountColor || finalBrand.color;
+      const iconToSave = accountIcon || finalBrand.icon;
       if (selectedAccount) {
         savedAccount = await accountRepo.update(selectedAccount.id, {
           name: accountName.trim(),
@@ -173,6 +230,13 @@ export default function SettingsAccountsScreen() {
           paymentDay: paymentDay ? parseInt(paymentDay) : null,
           isPrivate,
         });
+      }
+
+      // Guardar personalización de color e ícono en el store Zustand
+      if (savedAccount && savedAccount.id) {
+        const store = useAccountCustomizationStore.getState();
+        store.setCustomColor(savedAccount.id, colorToSave);
+        store.setCustomIcon(savedAccount.id, iconToSave);
       }
 
       // Procesamiento de auto-cuotas para créditos o tarjetas de deuda
@@ -252,23 +316,21 @@ export default function SettingsAccountsScreen() {
 
   const getAccountIcon = (type: AccountType) => {
     switch (type) {
-      case 'cash': return 'cash-multiple';
       case 'bank': return 'bank';
+      case 'cash': return 'cash-multiple';
       case 'credit_card': return 'credit-card';
-      case 'investment': return 'chart-line';
       case 'loan': return 'bank-minus';
-      case 'mortgage': return 'home-analytics';
+      case 'investment': return 'chart-line';
       default: return 'help-circle';
     }
   };
 
   const getAccountTypeLabel = (type: AccountType) => {
     switch (type) {
+      case 'bank': return 'Banco';
       case 'cash': return 'Efectivo';
-      case 'bank': return 'Banco / Monedero';
       case 'credit_card': return 'Tarjeta de Crédito';
-      case 'loan': return 'Crédito / Préstamo';
-      case 'mortgage': return 'Crédito Hipotecario';
+      case 'loan': return 'Crédito';
       case 'investment': return 'Inversión';
       default: return type;
     }
@@ -328,38 +390,54 @@ export default function SettingsAccountsScreen() {
                       ]}>
                         {group.title}
                       </Text>
-                      {group.data.map((account) => (
-                        <View key={account.id} style={styles.accountRow}>
-                          <Pressable style={styles.accountMeta} onPress={() => openAccountEditDialog(account)}>
-                            <MaterialCommunityIcons
-                              name={getAccountIcon(account.type)}
-                              size={20}
-                              color={account.isActive ? theme.colors.primary : theme.colors.outline}
-                              style={styles.accountIcon}
+                      {group.data.map((account) => {
+                        const brand = getAccountBrandInfo(account);
+                        const finalColor = brand.color;
+                        const finalIcon = brand.icon;
+                        return (
+                          <View key={account.id} style={styles.accountRow}>
+                            <Pressable style={styles.accountMeta} onPress={() => openAccountEditDialog(account)}>
+                              <View
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 18,
+                                  backgroundColor: account.isActive ? finalColor : theme.colors.outline,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  marginRight: 12,
+                                }}
+                              >
+                                <MaterialCommunityIcons
+                                  name={finalIcon as any}
+                                  size={20}
+                                  color="#FFFFFF"
+                                />
+                              </View>
+                              <View>
+                                <Text style={[
+                                  theme.typography.body,
+                                  {
+                                    textDecorationLine: account.isActive ? 'none' : 'line-through',
+                                    opacity: account.isActive ? 1 : 0.5,
+                                    fontWeight: '600'
+                                  }
+                                ]}>
+                                  {account.name}
+                                </Text>
+                                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                                  {getAccountTypeLabel(account.type)} {account.isPrivate ? '• 🙈 Privada' : ''}
+                                </Text>
+                              </View>
+                            </Pressable>
+                            <Switch
+                              value={account.isActive}
+                              onValueChange={() => handleToggleAccountActive(account)}
+                              color={theme.colors.primary}
                             />
-                            <View>
-                              <Text style={[
-                                theme.typography.body,
-                                {
-                                  textDecorationLine: account.isActive ? 'none' : 'line-through',
-                                  opacity: account.isActive ? 1 : 0.5,
-                                  fontWeight: '600'
-                                }
-                              ]}>
-                                {account.name}
-                              </Text>
-                              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                                {getAccountTypeLabel(account.type)}
-                              </Text>
-                            </View>
-                          </Pressable>
-                          <Switch
-                            value={account.isActive}
-                            onValueChange={() => handleToggleAccountActive(account)}
-                            color={theme.colors.primary}
-                          />
-                        </View>
-                      ))}
+                          </View>
+                        );
+                      })}
                     </View>
                   ))}
                 </View>
@@ -382,51 +460,89 @@ export default function SettingsAccountsScreen() {
               <HelperText type="error" visible={!!errorMsg}>
                 {errorMsg}
               </HelperText>
-              <TextInput
-                label="Nombre de la Cuenta (ej: Cuenta Ahorros)"
-                value={accountName}
-                onChangeText={setAccountName}
-                mode="outlined"
-                style={styles.dialogInput}
-                disabled={savingAccount}
-              />
-
-              <View style={[styles.switchRow, { marginBottom: 16, marginTop: 4 }]}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={theme.typography.body}>¿Hacer cuenta privada?</Text>
-                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
-                    Solo tú podrás ver esta cuenta y sus transacciones en tu grupo familiar.
-                  </Text>
+              {/* Fila Única: Avatar Cromático + Nombre de Cuenta */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <View
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: accountColor || inferAccountBrand(accountName, accountType).color,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderWidth: 2,
+                    borderColor: theme.colors.outline + '40',
+                  }}
+                >
+                  <MaterialCommunityIcons
+                    name={(accountIcon || inferAccountBrand(accountName, accountType).icon) as any}
+                    size={24}
+                    color="#FFFFFF"
+                  />
                 </View>
-                <Switch
-                  value={isPrivate}
-                  onValueChange={setIsPrivate}
-                  color={theme.colors.primary}
-                  disabled={savingAccount}
-                />
+
+                <View style={{ flex: 1 }}>
+                  <TextInput
+                    label="Nombre de la Cuenta (ej: Bancolombia, Nequi, Nu)"
+                    value={accountName}
+                    onChangeText={(txt) => handleNameOrTypeChange(txt, accountType)}
+                    mode="outlined"
+                    disabled={savingAccount}
+                  />
+                </View>
               </View>
 
-              {!selectedAccount && (
-                <View style={styles.dialogInput}>
-                  <Text style={[theme.typography.caption, { marginBottom: 4, color: theme.customColors.textSecondary }]}>
-                    Tipo de Cuenta
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginVertical: 4 }}>
-                    {(['bank', 'cash', 'credit_card', 'loan', 'mortgage', 'investment'] as AccountType[]).map((t) => (
-                      <Button
-                        key={t}
-                        mode={accountType === t ? 'contained' : 'outlined'}
-                        compact
-                        style={{ marginRight: 8, borderRadius: 8, marginBottom: 4 }}
-                        onPress={() => setAccountType(t)}
-                        disabled={savingAccount}
-                      >
-                        {getAccountTypeLabel(t)}
-                      </Button>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
+              {/* Selector de Tipo de Cuenta (5 Básicos) */}
+              <Text style={[theme.typography.caption, { marginBottom: 6, color: theme.customColors.textSecondary, fontWeight: '600' }]}>
+                Tipo de Cuenta:
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginBottom: 12 }}>
+                {(['bank', 'cash', 'credit_card', 'loan', 'investment'] as AccountType[]).map((t) => (
+                  <Button
+                    key={t}
+                    mode={accountType === t ? 'contained' : 'outlined'}
+                    compact
+                    style={{ marginRight: 8, borderRadius: 8 }}
+                    onPress={() => handleNameOrTypeChange(accountName, t)}
+                    disabled={savingAccount}
+                  >
+                    {getAccountTypeLabel(t)}
+                  </Button>
+                ))}
+              </ScrollView>
+
+              {/* Paleta Horizontal de Colores */}
+              <Text style={[theme.typography.caption, { marginBottom: 6, color: theme.customColors.textSecondary, fontWeight: '600' }]}>
+                Color de Marca / Fondo del Ícono:
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginBottom: 14 }}>
+                {BRAND_COLORS.map(c => {
+                  const activeColor = accountColor || inferAccountBrand(accountName, accountType).color;
+                  const isSelected = activeColor.toLowerCase() === c.color.toLowerCase();
+                  return (
+                    <Pressable
+                      key={c.color}
+                      onPress={() => {
+                        setAccountColor(c.color);
+                        setIsManualBrandSet(true);
+                      }}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: c.color,
+                        marginRight: 8,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: isSelected ? 3 : 1,
+                        borderColor: isSelected ? theme.colors.primary : '#FFFFFF',
+                      }}
+                    >
+                      {isSelected && <MaterialCommunityIcons name="check" size={16} color="#FFFFFF" />}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
 
               {!selectedAccount && (
                 <TextInput
@@ -549,6 +665,23 @@ export default function SettingsAccountsScreen() {
                   )}
                 </View>
               )}
+              {/* Opción de Cuenta Privada (Solo visible para ti) */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.outline + '20' }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={[theme.typography.body, { fontWeight: '600', color: theme.colors.onSurface }]}>
+                    Cuenta Privada
+                  </Text>
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                    Ocultar del patrimonio familiar (solo visible para ti)
+                  </Text>
+                </View>
+                <Switch
+                  value={isPrivate}
+                  onValueChange={setIsPrivate}
+                  color={theme.colors.primary}
+                  disabled={savingAccount}
+                />
+              </View>
             </ScrollView>
           </Dialog.ScrollArea>
           <Dialog.Actions>

@@ -5,8 +5,8 @@
  * profundo azul noche, bordes con biselado de cristal (glassmorphism) y sombras multicapa.
  */
 
-import React from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Text, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '../theme';
 import { AmountDisplay } from './AmountDisplay';
@@ -18,6 +18,7 @@ interface BalanceCardProps {
   expenses: number;
   currency?: string;
   label?: string;
+  onPressAnalysis?: () => void;
 }
 
 export const BalanceCard: React.FC<BalanceCardProps> = ({
@@ -26,8 +27,10 @@ export const BalanceCard: React.FC<BalanceCardProps> = ({
   expenses,
   currency = 'COP',
   label = 'DISPONIBLE LÍQUIDO',
+  onPressAnalysis,
 }) => {
   const theme = useAppTheme();
+  const [isHidden, setIsHidden] = useState(false);
 
   return (
     <View style={styles.shadowWrapper}>
@@ -41,16 +44,51 @@ export const BalanceCard: React.FC<BalanceCardProps> = ({
         <View style={styles.glassHighlight} />
 
         <View style={styles.content}>
-          <Text style={[styles.label, theme.typography.label, { color: '#94A3B8' }]}>
-            {label}
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={[styles.label, theme.typography.label, { color: '#94A3B8', marginBottom: 0 }]}>
+                {label}
+              </Text>
+              <Pressable onPress={() => setIsHidden(!isHidden)} hitSlop={8}>
+                <MaterialCommunityIcons
+                  name={isHidden ? 'eye-off-outline' : 'eye-outline'}
+                  size={18}
+                  color="#94A3B8"
+                />
+              </Pressable>
+            </View>
+
+            {onPressAnalysis && (
+              <Pressable
+                onPress={onPressAnalysis}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  gap: 4,
+                }}
+              >
+                <MaterialCommunityIcons name="chart-bar" size={14} color="#38BDF8" />
+                <Text style={{ color: '#38BDF8', fontSize: 11, fontWeight: '700' }}>Ver análisis</Text>
+              </Pressable>
+            )}
+          </View>
           
-          <AmountDisplay
-            amount={balance}
-            currency={currency}
-            size="lg"
-            style={styles.balanceText}
-          />
+          {isHidden ? (
+            <Text style={{ color: '#FFFFFF', fontSize: 26, fontWeight: '800', marginVertical: 4 }}>
+              $ ••••••••
+            </Text>
+          ) : (
+            <AmountDisplay
+              amount={balance}
+              currency={currency}
+              size="lg"
+              style={styles.balanceText}
+            />
+          )}
 
           {/* Separador translúcido */}
           <View style={styles.divider} />

@@ -8,7 +8,8 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton } from 'react-native-paper';
+import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface } from 'react-native-paper';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
 import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
@@ -434,43 +435,58 @@ export default function BudgetsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
-        {/* ─── TARJETA CONSOLIDADA (HomeBudget style) ───────────────────────── */}
-        {totalBudgeted > 0 && (
-          <Card style={[styles.summaryCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
-            <Card.Content>
-              <Text style={[styles.summaryLabel, theme.typography.label, { color: theme.customColors.textSecondary }]}>
-                Disponible del Presupuesto
+        {/* ─── TARJETA CONSOLIDADA: RESUMEN DEL PRESUPUESTO ───────────────────────── */}
+        <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
+          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600', marginBottom: 6 }]}>
+            Resumen del presupuesto
+          </Text>
+          
+          <Text style={[theme.typography.amountLarge, { color: availableBudget >= 0 ? '#059669' : '#DC2626', fontSize: 32, fontWeight: '800' }]}>
+            {availableBudget >= 0 ? '+' : ''}$ {Math.round(availableBudget).toLocaleString('es-CO')}
+          </Text>
+          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 14, fontWeight: '500' }]}>
+            Disponible
+          </Text>
+
+          {/* Fila Gastado vs Límite Total */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+            <View>
+              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                Gastado
               </Text>
-              
-              <AmountDisplay
-                amount={availableBudget}
-                size="lg"
-                type={availableBudget < 0 ? 'expense' : 'income'}
-                style={styles.summaryAmount}
-              />
+              <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                $ {Math.round(totalSpent).toLocaleString('es-CO')}
+              </Text>
+            </View>
 
-              <View style={styles.summaryBarRow}>
-                <Text style={theme.typography.bodySmall}>
-                  Consumido: {Math.round(globalPercentage)}%
-                </Text>
-                 <Text style={[theme.typography.bodySmall, { color: theme.customColors.textSecondary }]}>
-                  Límite: <AmountDisplay amount={totalBudgeted} size="sm" style={{ color: theme.colors.onSurface }} />
-                </Text>
-              </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                Límite total
+              </Text>
+              <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                $ {Math.round(totalBudgeted).toLocaleString('es-CO')}
+              </Text>
+            </View>
+          </View>
 
-              <ProgressBar
-                progress={Math.min(globalPercentage / 100, 1)}
-                color={globalColor}
-                style={styles.progressBar}
-              />
-            </Card.Content>
-          </Card>
-        )}
+          {/* Barra de Progreso Consolidada */}
+          <CustomProgressBar progress={globalPercentage / 100} color={globalColor} />
 
-        {/* ─── LISTADO DE LÍMITES POR CATEGORÍA ─────────────────────────────────── */}
-        <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
-          Presupuesto por Categorías
-        </Text>
+          {/* Insight Inferior */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.outline + '15' }}>
+            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+              Te quedan <Text style={{ fontWeight: '700', color: availableBudget >= 0 ? '#059669' : '#DC2626' }}>$ {Math.round(availableBudget).toLocaleString('es-CO')}</Text> para el resto del mes
+            </Text>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={theme.customColors.textSecondary} />
+          </View>
+        </Surface>
+
+        {/* ─── SECCIÓN: PRESUPUESTO POR CATEGORÍAS ────────────────────────────── */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 }}>
+          <Text style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}>
+            Presupuesto por categorías
+          </Text>
+        </View>
 
         {budgetsProgress.length === 0 ? (
           <EmptyState
@@ -481,157 +497,147 @@ export default function BudgetsScreen() {
             onAction={openCreateDialog}
           />
         ) : (
-          <View style={styles.budgetsList}>
+          <View style={{ gap: 12, marginBottom: 80 }}>
             {budgetsProgress.map(bp => {
               const isExpanded = expandedCategories[bp.categoryId] || false;
               
-              // Determinar color de barra individual del padre
-              let barColor = theme.colors.primary;
+              // Determinar color de etiqueta % consumido y barra
+              let statusColor = '#059669'; // Verde
               if (bp.status === 'exceeded') {
-                barColor = theme.customColors.danger;
+                statusColor = '#DC2626'; // Rojo
               } else if (bp.status === 'warning') {
-                barColor = theme.customColors.accent;
+                statusColor = '#D97706'; // Naranja
               }
 
               return (
-                <View
+                <Surface
                   key={bp.id}
-                  style={[styles.budgetItemCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant }]}
+                  style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}
                 >
-                  {/* Encabezado del presupuesto Padre (Clickable para expandir/colapsar) */}
+                  {/* Encabezado Principal de la Categoría */}
                   <Pressable
                     onPress={bp.children.length > 0 ? () => toggleExpand(bp.categoryId) : (bp.hasDirectBudget && bp.budget ? () => openEditDialog(bp.budget!) : undefined)}
-                    style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}
                   >
-                    <View style={[styles.categoryInfo, { flex: 1, marginRight: 8 }]}>
-                      <IconButton
-                        icon={bp.icon || 'tag'}
-                        iconColor={bp.color}
-                        size={20}
-                        style={{ margin: 0, marginRight: 4 }}
-                      />
-                      <Text style={[styles.categoryName, theme.typography.h4, { flex: 1 }]} numberOfLines={1}>
-                        {bp.name}
-                      </Text>
-                    </View>
-                    
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <View style={styles.amountsInfo}>
-                        <Text style={[theme.typography.bodySmall, { fontWeight: '700', color: bp.status === 'exceeded' ? theme.customColors.danger : theme.colors.onSurface }]}>
-                          {bp.status === 'exceeded' ? '-' : ''}${Math.round(bp.spent).toLocaleString('es-CO')}
-                        </Text>
-                        <Text style={[styles.limitLabel, theme.typography.caption]}>
-                          de ${Math.round(bp.amountLimit).toLocaleString('es-CO')}
-                        </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      {/* Avatar e info de la categoría */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                        <View
+                          style={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: 21,
+                            backgroundColor: bp.color + '20',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginRight: 10,
+                          }}
+                        >
+                          <MaterialCommunityIcons name={(bp.icon as any) || 'tag-outline'} size={22} color={bp.color} />
+                        </View>
+                        
+                        <View style={{ flex: 1 }}>
+                          <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]} numberOfLines={1}>
+                            {bp.name}
+                          </Text>
+                          <Text style={[theme.typography.caption, { fontWeight: '700', color: statusColor, marginTop: 1, fontSize: 11 }]}>
+                            {bp.percentage}% consumido
+                          </Text>
+                        </View>
                       </View>
-                      {bp.hasDirectBudget && bp.budget && (
-                        <IconButton
-                          icon="pencil-outline"
-                          size={18}
-                          style={{ margin: 0, marginLeft: 2, padding: 0 }}
-                          onPress={() => openEditDialog(bp.budget!)}
-                        />
-                      )}
-                      {bp.children.length > 0 && (
-                        <IconButton
-                          icon={isExpanded ? 'chevron-up' : 'chevron-down'}
-                          size={20}
-                          style={{ margin: 0, marginLeft: 2, padding: 0 }}
-                          onPress={() => toggleExpand(bp.categoryId)}
-                        />
-                      )}
+
+                      {/* Montos y acción de edición / expansión */}
+                      <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 6 }}>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                            $ {Math.round(bp.spent).toLocaleString('es-CO')}
+                          </Text>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                            de $ {Math.round(bp.amountLimit).toLocaleString('es-CO')}
+                          </Text>
+                        </View>
+
+                        {bp.hasDirectBudget && bp.budget && (
+                          <IconButton
+                            icon="pencil-outline"
+                            size={18}
+                            iconColor={theme.customColors.textSecondary}
+                            style={{ margin: 0, padding: 0 }}
+                            onPress={() => openEditDialog(bp.budget!)}
+                          />
+                        )}
+                        {bp.children.length > 0 && (
+                          <IconButton
+                            icon={isExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={18}
+                            iconColor={theme.customColors.textSecondary}
+                            style={{ margin: 0, padding: 0 }}
+                            onPress={() => toggleExpand(bp.categoryId)}
+                          />
+                        )}
+                      </View>
+                    </View>
+
+                    {/* Barra de progreso */}
+                    <CustomProgressBar progress={bp.percentage / 100} color={statusColor} />
+
+                    {/* Footer de remanente */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 }}>
+                      <Text style={[theme.typography.caption, { fontWeight: '600', color: bp.remaining < 0 ? '#DC2626' : '#059669', fontSize: 11 }]}>
+                        {bp.remaining < 0 
+                          ? `Excedido por $ ${Math.abs(bp.remaining).toLocaleString('es-CO')}` 
+                          : `Restan $ ${bp.remaining.toLocaleString('es-CO')}`}
+                      </Text>
                     </View>
                   </Pressable>
 
-                  {/* Barra de progreso consolidada del padre */}
-                  <CustomProgressBar progress={bp.percentage / 100} color={barColor} />
-
-                  {/* Footer con el consumo de la categoría padre */}
-                  <View style={styles.budgetItemFooter}>
-                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                      {bp.percentage}% consumido
-                    </Text>
-                    <Text style={[theme.typography.caption, { color: bp.remaining < 0 ? theme.colors.error : theme.colors.primary }]}>
-                      {bp.remaining < 0 
-                        ? `Excedido por: $${Math.abs(bp.remaining).toLocaleString('es-CO')}` 
-                        : `Restan: $${bp.remaining.toLocaleString('es-CO')}`}
-                    </Text>
-                  </View>
-
-                  {/* Si tiene subcategorías con presupuesto y está expandido, renderizarlas en tarjetas secundarias anidadas */}
+                  {/* Subcategorías anidadas cuando está expandido */}
                   {isExpanded && bp.children.length > 0 && (
-                    <View style={{ marginTop: 10, width: '100%', gap: 8 }}>
+                    <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.outline + '15', gap: 8 }}>
                       {bp.children.map(child => {
-                        let childBarColor = theme.colors.primary;
-                        if (child.status === 'exceeded') {
-                          childBarColor = theme.customColors.danger;
-                        } else if (child.status === 'warning') {
-                          childBarColor = theme.customColors.accent;
-                        }
+                        let childStatusColor = '#059669';
+                        if (child.status === 'exceeded') childStatusColor = '#DC2626';
+                        else if (child.status === 'warning') childStatusColor = '#D97706';
 
                         return (
-                          <View
-                            key={child.id}
-                            style={[
-                              styles.childCardContainer,
-                              {
-                                backgroundColor: theme.colors.surfaceVariant + '35',
-                                borderColor: theme.colors.outline + '25',
-                              },
-                            ]}
-                          >
-                            <View style={styles.childHeader}>
-                              <Text style={[styles.childName, theme.typography.body, { color: theme.colors.onSurface, flex: 1, marginRight: 6 }]} numberOfLines={1}>
-                                {child.name}
+                          <View key={child.id} style={{ paddingLeft: 8, paddingVertical: 4 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={[theme.typography.caption, { fontWeight: '600', color: theme.colors.onSurface }]}>
+                                {child.name} ({child.percentage}%)
                               </Text>
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <View style={styles.childAmountsInfo}>
-                                  <Text style={[theme.typography.caption, { fontWeight: '700', color: child.status === 'exceeded' ? theme.customColors.danger : theme.colors.onSurface }]}>
-                                    {child.status === 'exceeded' ? '-' : ''}${Math.round(child.spent).toLocaleString('es-CO')}
-                                  </Text>
-                                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                                    {' '}de ${Math.round(child.amountLimit).toLocaleString('es-CO')}
-                                  </Text>
-                                </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                                  $ {Math.round(child.spent).toLocaleString('es-CO')}
+                                </Text>
+                                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 10 }]}>
+                                  de $ {Math.round(child.amountLimit).toLocaleString('es-CO')}
+                                </Text>
                                 <IconButton
                                   icon="pencil-outline"
-                                  size={16}
+                                  size={14}
                                   iconColor={theme.customColors.textSecondary}
-                                  style={{ margin: 0, marginLeft: 2, padding: 0 }}
+                                  style={{ margin: 0, padding: 0 }}
                                   onPress={() => openEditDialog(child.budget)}
                                 />
                               </View>
                             </View>
-
-                            <CustomProgressBar progress={child.percentage / 100} color={childBarColor} />
-
-                            <View style={styles.childFooter}>
-                              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
-                                {child.percentage}% consumido
-                              </Text>
-                              <Text style={[theme.typography.caption, { fontSize: 11, color: child.remaining < 0 ? theme.colors.error : theme.colors.primary }]}>
-                                {child.remaining < 0 
-                                  ? `Excedido por: $${Math.abs(child.remaining).toLocaleString('es-CO')}` 
-                                  : `Restan: $${child.remaining.toLocaleString('es-CO')}`}
-                              </Text>
-                            </View>
+                            <CustomProgressBar progress={child.percentage / 100} color={childStatusColor} />
                           </View>
                         );
                       })}
                     </View>
                   )}
-                </View>
+                </Surface>
               );
             })}
           </View>
         )}
       </ScrollView>
 
-      {/* Botón flotante FAB para agregar presupuestos */}
+      {/* Botón Flotante FAB "+ Nuevo límite" (Verde Esmeralda del mockup) */}
       <FAB
         icon="plus"
-        label="Nuevo Límite"
-        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        label="Nuevo límite"
+        style={[styles.fab, { backgroundColor: '#059669', borderRadius: 28 }]}
         color="#FFFFFF"
         onPress={openCreateDialog}
       />

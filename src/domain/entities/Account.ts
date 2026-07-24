@@ -2,7 +2,7 @@
  * ZenMoney — Entidad Account
  */
 
-export type AccountType = 'cash' | 'bank' | 'credit_card' | 'investment' | 'loan' | 'mortgage';
+export type AccountType = 'bank' | 'cash' | 'credit_card' | 'loan' | 'investment';
 
 export interface Account {
   id: string;
@@ -17,6 +17,8 @@ export interface Account {
   closingDay?: number | null;
   paymentDay?: number | null;
   isPrivate?: boolean;
+  color?: string;
+  icon?: string;
 }
 
 export interface CreateAccountInput {
@@ -28,4 +30,6 @@ export interface CreateAccountInput {
   closingDay?: number | null;
   paymentDay?: number | null;
   isPrivate?: boolean;
+  color?: string;
+  icon?: string;
 }

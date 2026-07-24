@@ -6,7 +6,7 @@
  */
 
 import { Transaction, AIMetadata } from '@domain/entities/Transaction';
-import { Account } from '@domain/entities/Account';
+import { Account, AccountType } from '@domain/entities/Account';
 import { Category } from '@domain/entities/Category';
 import { Budget } from '@domain/entities/Budget';
 import { UserProfile, FamilyGroup } from '@domain/entities/User';
@@ -49,7 +49,7 @@ export class Mapper {
       familyGroupId: row.family_group_id,
       ownerUserId: row.owner_user_id,
       name: row.name,
-      type: row.type,
+      type: (row.type === 'mortgage' ? 'loan' : row.type) as AccountType,
       initialBalance: Number(row.initial_balance),
       currency: row.currency,
       isActive: row.is_active,
@@ -57,6 +57,8 @@ export class Mapper {
       closingDay: row.closing_day ? Number(row.closing_day) : null,
       paymentDay: row.payment_day ? Number(row.payment_day) : null,
       isPrivate: row.is_private === true,
+      color: row.color,
+      icon: row.icon,
     };
   }
 
@@ -73,6 +75,8 @@ export class Mapper {
       ...(entity.closingDay !== undefined && { closing_day: entity.closingDay }),
       ...(entity.paymentDay !== undefined && { payment_day: entity.paymentDay }),
       ...(entity.isPrivate !== undefined && { is_private: entity.isPrivate }),
+      ...(entity.color && { color: entity.color }),
+      ...(entity.icon && { icon: entity.icon }),
     };
   }
 

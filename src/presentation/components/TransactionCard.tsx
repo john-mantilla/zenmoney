@@ -84,7 +84,10 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
             </Text>
             
             <View style={styles.subMeta}>
-              <Text style={[styles.details, theme.typography.bodySmall, { color: theme.customColors.textSecondary }]}>
+              <Text
+                numberOfLines={1}
+                style={[styles.details, theme.typography.bodySmall, { color: theme.customColors.textSecondary, flexShrink: 1 }]}
+              >
                 {formattedDate} • {accountName}
               </Text>
               
@@ -115,9 +118,9 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
                 </View>
               )}
               {authorInitials && (
-                <View style={[styles.avatarBadge, { backgroundColor: theme.customColors.expense + '20' }]}>
-                  <Text style={{ fontSize: 9, fontWeight: 'bold', color: theme.customColors.expense }}>
-                    {authorInitials}
+                <View style={[styles.avatarBadge, { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary + '40', borderWidth: 1 }]}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.primary }}>
+                    👤 {authorInitials}
                   </Text>
                 </View>
               )}
@@ -178,14 +181,16 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   avatarBadge: {
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 4,
   },
   rightSection: {
     alignItems: 'flex-end',
-    marginLeft: 12,
+    marginLeft: 8,
+    flexShrink: 0,
   },
 });
