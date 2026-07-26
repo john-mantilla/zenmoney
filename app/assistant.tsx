@@ -44,11 +44,26 @@ function makeWelcomeMessage(displayName?: string): Message {
   };
 }
 
+export interface MessagePendingAction {
+  type: 'create_transaction';
+  payload: {
+    amount: number;
+    transactionType?: 'expense' | 'income' | 'transfer';
+    suggestedCategoryName?: string;
+    suggestedAccountName?: string;
+    description?: string;
+    merchantName?: string;
+    transactionDate?: string;
+  };
+  status: 'pending' | 'confirmed' | 'cancelled';
+}
+
 interface Message {
   id: string;
   sender: 'user' | 'ai';
   text: string;
   suggestedActions?: string[];
+  pendingAction?: MessagePendingAction;
   createdAt: Date;
 }
 
@@ -263,11 +278,48 @@ export default function AssistantScreen() {
       // 3. Enviar a Gemini junto al contexto financiero recolectado y el historial
       const response = await aiProvider.queryFinances(textToSend, financialContext, history);
 
+      let pendingActionToAttach: MessagePendingAction | undefined = undefined;
+
+      if (response.pendingAction) {
+        pendingActionToAttach = {
+          type: response.pendingAction.type,
+          payload: response.pendingAction.payload,
+          status: 'pending',
+        };
+      } else {
+        // Fallback inteligente: si el mensaje del usuario suena a registrar un gasto pero Gemini omitió el JSON del pendingAction, invocamos parseTransaction
+        const keywords = ['gasto', 'gasté', 'pagué', 'compré', 'mercado', 'restaurante', 'gasolina', 'registra', 'anota', 'vale'];
+        const isTransactionIntent = keywords.some(kw => textToSend.toLowerCase().includes(kw));
+
+        if (isTransactionIntent) {
+          try {
+            const parsed = await aiProvider.parseTransaction(textToSend, financialContext.accounts, financialContext.categories);
+            if (parsed.amount && parsed.amount > 0) {
+              pendingActionToAttach = {
+                type: 'create_transaction',
+                payload: {
+                  amount: parsed.amount,
+                  transactionType: parsed.type || 'expense',
+                  suggestedCategoryName: parsed.suggestedCategoryName || 'Mercado',
+                  suggestedAccountName: parsed.suggestedAccountName || 'Efectivo',
+                  description: parsed.description || parsed.suggestedCategoryName || textToSend,
+                  transactionDate: parsed.transactionDate || financialContext.currentDate,
+                },
+                status: 'pending',
+              };
+            }
+          } catch {
+            // Ignorar fallback si la frase no contenía montos válidos
+          }
+        }
+      }
+
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
         text: response.answer,
         suggestedActions: response.suggestedActions,
+        pendingAction: pendingActionToAttach,
         createdAt: new Date(),
       };
 
@@ -287,6 +339,111 @@ export default function AssistantScreen() {
     } finally {
       setIsTyping(false);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  };
+
+  // ─── ACCIONES HUMAN-IN-THE-LOOP (CONFIRMACIÓN PREVIA) ────────────────
+  const handleConfirmPendingAction = async (messageId: string, action: MessagePendingAction) => {
+    if (!financialContext) return;
+
+    try {
+      const payload = action.payload;
+
+      // Matchear categoría
+      let matchedCatId = financialContext.categories.find(
+        c => c.name.toLowerCase() === (payload.suggestedCategoryName || '').toLowerCase()
+      )?.id;
+
+      if (!matchedCatId) {
+        const cat = financialContext.categories.find(
+          c => c.name.toLowerCase().includes((payload.suggestedCategoryName || '').toLowerCase())
+        );
+        matchedCatId = cat?.id || financialContext.categories[0]?.id;
+      }
+
+      // Matchear cuenta
+      let matchedAccId = financialContext.accounts.find(
+        a => a.name.toLowerCase() === (payload.suggestedAccountName || '').toLowerCase()
+      )?.id;
+
+      if (!matchedAccId) {
+        const acc = financialContext.accounts.find(
+          a => a.name.toLowerCase().includes((payload.suggestedAccountName || '').toLowerCase())
+        );
+        matchedAccId = acc?.id || financialContext.accounts[0]?.id;
+      }
+
+      const newTxData = {
+        amount: payload.amount,
+        type: payload.transactionType || 'expense',
+        categoryId: matchedCatId,
+        accountId: matchedAccId,
+        description: payload.description || payload.suggestedCategoryName || 'Gasto por Asistente IA',
+        merchantName: payload.merchantName || null,
+        transactionDate: payload.transactionDate || financialContext.currentDate,
+        status: 'confirmed' as const,
+        inputMethod: 'nlq' as const,
+        isPrivate: false,
+      };
+
+      await transactionRepo.create(newTxData);
+
+      // Cambiar estado de la tarjeta borrador en pantalla a confirmada
+      setMessages(prev =>
+        prev.map(m => (m.id === messageId && m.pendingAction ? { ...m, pendingAction: { ...m.pendingAction, status: 'confirmed' } } : m))
+      );
+
+      // Re-setear recordatorio de inactividad a 2 días
+      try {
+        const { RegistrationReminderService } = require('@/src/infrastructure/services/RegistrationReminderService');
+        RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
+      } catch {}
+
+      // Recargar el contexto financiero real
+      await gatherFinancialContext();
+
+      // Mensaje del sistema notificando éxito
+      const confirmMessage: Message = {
+        id: Date.now().toString(),
+        sender: 'ai',
+        text: `✅ **¡Guardado con éxito en la Base de Datos!**\nSe insertó el gasto de **$ ${payload.amount.toLocaleString('es-CO')} COP** en **${payload.suggestedCategoryName || 'Mercado'}**. Tus saldos y presupuestos ya están actualizados en toda la app.`,
+        createdAt: new Date(),
+      };
+      setMessages(prev => [...prev, confirmMessage]);
+    } catch (err) {
+      AppAlert.alert('Error', err instanceof Error ? err.message : 'No se pudo guardar la transacción.');
+    }
+  };
+
+  const handleCancelPendingAction = (messageId: string) => {
+    setMessages(prev =>
+      prev.map(m => (m.id === messageId && m.pendingAction ? { ...m, pendingAction: { ...m.pendingAction, status: 'cancelled' } } : m))
+    );
+  };
+
+  const handleAdjustPendingAction = (action: MessagePendingAction) => {
+    const payload = action.payload;
+    router.push({
+      pathname: '/transaction/new',
+      params: {
+        amount: payload.amount.toString(),
+        description: payload.description || '',
+      }
+    });
+  };
+
+  const handleActionClick = (actionText: string) => {
+    const lower = actionText.toLowerCase();
+    if (lower.includes('presupuesto')) {
+      router.push('/(tabs)/budgets');
+    } else if (lower.includes('cuenta') || lower.includes('saldo')) {
+      router.push('/settings/accounts');
+    } else if (lower.includes('factura')) {
+      router.push('/(tabs)/bills');
+    } else if (lower.includes('movimiento') || lower.includes('historial')) {
+      router.push('/(tabs)/transactions');
+    } else {
+      handleSendMessage(actionText);
     }
   };
 
@@ -394,28 +551,100 @@ export default function AssistantScreen() {
             </Card.Content>
           </Card>
 
-          {/* Tarjetas Visuales de Acción Rápida (Action Chips Limpios) */}
-          {isAi && item.suggestedActions && item.suggestedActions.length > 0 && (
-            <View style={styles.suggestionsContainer}>
-              {item.suggestedActions.map((action, index) => (
-                <Button
-                  key={index}
-                  mode="contained-tonal"
-                  compact
-                  icon="creation"
-                  onPress={() => handleSendMessage(action)}
-                  style={styles.suggestionBtn}
-                  labelStyle={{
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: theme.colors.primary,
-                  }}
-                >
-                  {action}
-                </Button>
-              ))}
-            </View>
-          )}
+              {/* Tarjeta Borrador de Pre-Confirmación (Human-in-the-Loop) */}
+              {isAi && item.pendingAction && (
+                <Card style={[styles.draftCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary + '50' }]}>
+                  <Card.Content style={{ padding: 12 }}>
+                    <View style={styles.draftCardHeader}>
+                      <MaterialCommunityIcons 
+                        name={item.pendingAction.status === 'confirmed' ? 'check-circle' : item.pendingAction.status === 'cancelled' ? 'close-circle' : 'file-document-edit-outline'} 
+                        size={22} 
+                        color={item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : theme.colors.primary} 
+                      />
+                      <Text style={[styles.draftCardTitle, { color: item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : theme.colors.primary }]}>
+                        {item.pendingAction.status === 'confirmed'
+                          ? 'Gasto Registrado con Éxito'
+                          : item.pendingAction.status === 'cancelled'
+                          ? 'Acción Descartada'
+                          : 'Pre-Registro de Gasto (Borrador)'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.draftRow}>
+                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Monto:</Text>
+                      <Text style={[theme.typography.body, { fontWeight: '800', color: theme.colors.onSurface }]}>
+                        $ {Number(item.pendingAction.payload.amount).toLocaleString('es-CO')} COP
+                      </Text>
+                    </View>
+
+                    <View style={styles.draftRow}>
+                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Categoría:</Text>
+                      <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.primary }]}>
+                        {item.pendingAction.payload.suggestedCategoryName || 'Mercado'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.draftRow}>
+                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Cuenta Origen:</Text>
+                      <Text style={[theme.typography.body, { fontWeight: '600', color: theme.colors.onSurface }]}>
+                        {item.pendingAction.payload.suggestedAccountName || 'Cuenta principal'}
+                      </Text>
+                    </View>
+
+                    {item.pendingAction.status === 'pending' && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
+                        <Button
+                          mode="contained"
+                          icon="check-circle-outline"
+                          onPress={() => handleConfirmPendingAction(item.id, item.pendingAction!)}
+                          style={{ flex: 1, borderRadius: 10, backgroundColor: theme.colors.primary }}
+                          labelStyle={{ fontSize: 11, fontWeight: '700' }}
+                        >
+                          Confirmar y Guardar
+                        </Button>
+                        <IconButton
+                          icon="pencil-outline"
+                          mode="outlined"
+                          size={18}
+                          onPress={() => handleAdjustPendingAction(item.pendingAction!)}
+                          style={{ margin: 0 }}
+                        />
+                        <IconButton
+                          icon="close-circle-outline"
+                          mode="outlined"
+                          iconColor={theme.colors.error}
+                          size={18}
+                          onPress={() => handleCancelPendingAction(item.id)}
+                          style={{ margin: 0 }}
+                        />
+                      </View>
+                    )}
+                  </Card.Content>
+                </Card>
+              )}
+
+              {/* Tarjetas Visuales de Acción Rápida (Action Chips Limpios) */}
+              {isAi && item.suggestedActions && item.suggestedActions.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  {item.suggestedActions.map((action, index) => (
+                    <Button
+                      key={index}
+                      mode="contained-tonal"
+                      compact
+                      icon="creation"
+                      onPress={() => handleActionClick(action)}
+                      style={styles.suggestionBtn}
+                      labelStyle={{
+                        fontSize: 13,
+                        fontWeight: '600',
+                        color: theme.colors.primary,
+                      }}
+                    >
+                      {action}
+                    </Button>
+                  ))}
+                </View>
+              )}
         </View>
       </View>
     );
@@ -587,5 +816,27 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     backgroundColor: 'transparent',
+  },
+  draftCard: {
+    marginTop: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    width: '100%',
+  },
+  draftCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  draftCardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  draftRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 3,
   },
 });

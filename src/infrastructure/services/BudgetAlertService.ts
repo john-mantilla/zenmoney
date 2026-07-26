@@ -12,18 +12,16 @@ import { RunwayProjection } from '@domain/usecases/ProjectMonthlyRunway';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-
 let Notifications: typeof import('expo-notifications') | null = null;
 
-if (!isExpoGo && Platform.OS !== 'web') {
+if (Platform.OS !== 'web') {
   try {
     Notifications = require('expo-notifications');
     Notifications?.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
         shouldPlaySound: true,
-        shouldSetBadge: false,
+        shouldSetBadge: true,
         shouldShowBanner: true,
         shouldShowList: true,
       }),
@@ -39,7 +37,7 @@ export class BudgetAlertService {
    * Inicializa los permisos para notificaciones nativas en dispositivos móviles.
    */
   static async requestPermissions(): Promise<boolean> {
-    if (Platform.OS === 'web' || isExpoGo || !Notifications) return true;
+    if (Platform.OS === 'web' || !Notifications) return true;
 
     try {
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
@@ -143,7 +141,7 @@ export class BudgetAlertService {
    */
   private static async sendNotification(title: string, body: string): Promise<void> {
     try {
-      if (Platform.OS === 'web' || isExpoGo || !Notifications) {
+      if (Platform.OS === 'web' || !Notifications) {
         // Fallback para Web / Expo Go: Notificación del navegador o log limpio
         if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
           new Notification(title, { body });

@@ -246,7 +246,8 @@ export default function DashboardScreen() {
         const gapResult = gapUseCase.execute(ownTx, todayStr);
         setRegistrationGapDays(gapResult.hasGap ? gapResult.daysSinceLastTransaction : null);
 
-        RegistrationReminderService.schedule(gapResult.expectedGapDays).catch(() => {});
+        RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
+        BillAlertService.scheduleBillAlerts().catch(() => {});
       }
 
       // 4. Calcular resumen financiero mensual

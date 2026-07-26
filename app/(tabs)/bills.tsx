@@ -864,7 +864,7 @@ export default function BillsScreen() {
               >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={[theme.typography.h4, { color: theme.colors.error, fontWeight: '800' }]}>
-                    SIN PAGAR ESTE MES ({unpaidBills.length})
+                    SIN PAGAR ({unpaidBills.length})
                   </Text>
                   <MaterialCommunityIcons name={isUnpaidExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={theme.colors.error} />
                 </View>

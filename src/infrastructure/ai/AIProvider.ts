@@ -38,6 +38,16 @@ export interface NLQParseResult {
 
 // ─── NLQ Financial Queries ─────────────────────────────────────────────
 
+export interface PendingActionPayload {
+  amount: number;
+  transactionType?: 'expense' | 'income' | 'transfer';
+  suggestedCategoryName?: string;
+  suggestedAccountName?: string;
+  description?: string;
+  merchantName?: string;
+  transactionDate?: string;
+}
+
 /** Result of querying financial data using natural language */
 export interface NLQQueryResult {
   /** Human-readable answer to the question */
@@ -46,6 +56,11 @@ export interface NLQQueryResult {
   data?: Record<string, unknown>;
   /** Suggested follow-up actions */
   suggestedActions?: string[];
+  /** Acciones pendientes requeridas por confirmación del usuario (Human-in-the-Loop) */
+  pendingAction?: {
+    type: 'create_transaction';
+    payload: PendingActionPayload;
+  };
 }
 
 /** Un turno previo de la conversación, para darle memoria al modelo entre preguntas. */

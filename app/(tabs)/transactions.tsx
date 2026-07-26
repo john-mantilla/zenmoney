@@ -7,8 +7,8 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, StyleSheet, FlatList, SectionList, RefreshControl, Pressable, ScrollView, Platform } from 'react-native';
-import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons } from 'react-native-paper';
+import { View, StyleSheet, FlatList, SectionList, RefreshControl, Pressable, ScrollView, Platform, TouchableOpacity } from 'react-native';
+import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons, Portal, Dialog } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
 import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
@@ -42,6 +42,8 @@ export default function TransactionsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   useEffect(() => {
     if (params.accountId) {
@@ -153,6 +155,11 @@ export default function TransactionsScreen() {
       result = result.filter(tx => tx.createdByUserId === selectedMemberId);
     }
 
+    // Filtro por tipo de movimiento (Ingresos / Gastos / Transferencias)
+    if (selectedType !== 'all') {
+      result = result.filter(tx => tx.type === selectedType);
+    }
+
     // Filtro por buscador (descripción o comercio)
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase();
@@ -164,7 +171,7 @@ export default function TransactionsScreen() {
     }
 
     setFilteredTransactions(result);
-  }, [searchQuery, selectedAccountId, selectedMemberId, transactions]);
+  }, [searchQuery, selectedAccountId, selectedMemberId, selectedType, transactions]);
 
   const getFilteredSums = () => {
     let incomeSum = 0;
@@ -335,76 +342,93 @@ export default function TransactionsScreen() {
     );
   }
 
+  const activeFiltersCount = (selectedAccountId ? 1 : 0) + (selectedMemberId ? 1 : 0) + (selectedType !== 'all' ? 1 : 0) + (viewMode !== 'date' ? 1 : 0);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <NetworkStatusBar />
-      {/* Barra de Búsqueda */}
-      <Surface style={styles.filterHeader} elevation={1}>
-        <Searchbar
-          placeholder="Buscar descripción o comercio..."
-          onChangeText={setSearchQuery}
-          value={searchQuery}
-          style={[styles.searchBar, { backgroundColor: theme.colors.background }]}
-          inputStyle={theme.typography.body}
-        />
-        
-        {/* Filtros horizontales por cuenta */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsRow}>
-          <Chip
-            selected={selectedAccountId === null}
-            onPress={() => setSelectedAccountId(null)}
-            style={styles.chip}
-          >
-            Todas
-          </Chip>
-          {accounts.filter(a => a.isActive).map(acc => (
-            <Chip
-              key={acc.id}
-              selected={selectedAccountId === acc.id}
-              onPress={() => setSelectedAccountId(acc.id)}
-              style={styles.chip}
-            >
-              {acc.name}
-            </Chip>
-          ))}
-        </ScrollView>
+      
+      {/* ─── OPICÓN 1: BARRA COMPACTA DE BÚSQUEDA Y BOTÓN DE FILTROS ───────── */}
+      <Surface style={[styles.filterHeader, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline + '20' }]} elevation={1}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Searchbar
+            placeholder="Buscar..."
+            onChangeText={setSearchQuery}
+            value={searchQuery}
+            style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42 }]}
+            inputStyle={[theme.typography.body, { fontSize: 13, minHeight: 0 }]}
+          />
 
-        {/* Filtros horizontales por miembro de la familia */}
-        {Object.keys(familyMembers).length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.chipsRow, { marginTop: 4 }]}>
-            <Chip
-              selected={selectedMemberId === null}
-              onPress={() => setSelectedMemberId(null)}
-              style={styles.chip}
-              compact
-            >
-              👥 Todos
-            </Chip>
-            {Object.entries(familyMembers).map(([id, initials]) => (
+          <Button
+            mode={activeFiltersCount > 0 ? 'contained' : 'outlined'}
+            icon="tune-variant"
+            onPress={() => setIsFilterModalOpen(true)}
+            style={{ borderRadius: 12, height: 42, justifyContent: 'center' }}
+            contentStyle={{ height: 42, paddingHorizontal: 4 }}
+            labelStyle={{ fontSize: 12, fontWeight: '700' }}
+          >
+            {activeFiltersCount > 0 ? `Filtros (${activeFiltersCount})` : 'Filtros'}
+          </Button>
+        </View>
+
+        {/* Fila delgada con chips de filtros activos si existe alguno */}
+        {activeFiltersCount > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+            {selectedType !== 'all' && (
               <Chip
-                key={id}
-                selected={selectedMemberId === id}
-                onPress={() => setSelectedMemberId(id)}
-                style={styles.chip}
                 compact
+                onClose={() => setSelectedType('all')}
+                style={{ backgroundColor: selectedType === 'income' ? '#05966920' : selectedType === 'expense' ? '#DC262620' : '#2563EB20' }}
+                textStyle={{ fontSize: 11, color: selectedType === 'income' ? '#059669' : selectedType === 'expense' ? '#DC2626' : '#2563EB', fontWeight: '700' }}
               >
-                👤 {id === currentUserId ? 'Tú' : initials}
+                {selectedType === 'income' ? '🟢 Solo Ingresos' : selectedType === 'expense' ? '🔴 Solo Gastos' : '🔵 Transferencias'}
               </Chip>
-            ))}
+            )}
+            {selectedAccountId && (
+              <Chip
+                compact
+                onClose={() => setSelectedAccountId(null)}
+                style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
+              >
+                {accounts.find(a => a.id === selectedAccountId)?.name || 'Cuenta'}
+              </Chip>
+            )}
+            {selectedMemberId && (
+              <Chip
+                compact
+                onClose={() => setSelectedMemberId(null)}
+                style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
+              >
+                {selectedMemberId === currentUserId ? '👤 Tú' : `👤 ${familyMembers[selectedMemberId] || 'Miembro'}`}
+              </Chip>
+            )}
+            {viewMode === 'category' && (
+              <Chip
+                compact
+                onClose={() => setViewMode('date')}
+                style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
+              >
+                Por Categoría
+              </Chip>
+            )}
+            <Button
+              compact
+              mode="text"
+              onPress={() => {
+                setSelectedAccountId(null);
+                setSelectedMemberId(null);
+                setSelectedType('all');
+                setViewMode('date');
+              }}
+              labelStyle={{ fontSize: 11, color: theme.colors.error }}
+            >
+              Limpiar
+            </Button>
           </ScrollView>
         )}
-        {/* Toggle Vista */}
-        <View style={styles.viewToggleContainer}>
-          <SegmentedButtons
-            value={viewMode}
-            onValueChange={(value) => setViewMode(value as 'date' | 'category')}
-            buttons={[
-              { value: 'date', label: 'Por Fecha', icon: 'calendar-clock' },
-              { value: 'category', label: 'Por Categoría', icon: 'shape-outline' },
-            ]}
-            density="small"
-          />
-        </View>
       </Surface>
 
       {/* Listado de movimientos */}
@@ -516,31 +540,72 @@ export default function TransactionsScreen() {
         />
       )}
 
-      {/* Barra de totales al final de la pantalla */}
-      {filteredTransactions.length > 0 && (
-        <Surface style={[styles.summaryFooter, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]} elevation={2}>
-          <View style={styles.summaryCol}>
-            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Ingresos</Text>
-            <AmountDisplay amount={getFilteredSums().income} size="sm" type="income" />
-          </View>
-          <View style={styles.summaryDivider} />
-          <View style={styles.summaryCol}>
-            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Gastos</Text>
-            <AmountDisplay amount={getFilteredSums().expense} size="sm" type="expense" />
-          </View>
-          <View style={styles.summaryDivider} />
-          <View style={styles.summaryCol}>
-            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Neto</Text>
-            <AmountDisplay
-              amount={getFilteredSums().net}
-              size="sm"
-              type={getFilteredSums().net >= 0 ? 'income' : 'expense'}
-            />
-          </View>
-        </Surface>
-      )}
+      {/* Barra de totales interactivos al pie de la pantalla (Taps para filtrar) */}
+      <Surface style={[styles.summaryFooter, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]} elevation={2}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setSelectedType(selectedType === 'income' ? 'all' : 'income')}
+          style={[
+            styles.summaryCol,
+            {
+              backgroundColor: selectedType === 'income' ? '#05966915' : 'transparent',
+              borderRadius: 8,
+              paddingVertical: 4,
+            }
+          ]}
+        >
+          <Text style={[theme.typography.caption, { color: selectedType === 'income' ? '#059669' : theme.customColors.textSecondary, fontWeight: selectedType === 'income' ? '800' : '500' }]}>
+            Ingresos {selectedType === 'income' ? '✓' : ''}
+          </Text>
+          <AmountDisplay amount={getFilteredSums().income} size="sm" type="income" />
+        </TouchableOpacity>
 
-      {/* Botón Flotante FAB para crear transacciones */}
+        <View style={styles.summaryDivider} />
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setSelectedType(selectedType === 'expense' ? 'all' : 'expense')}
+          style={[
+            styles.summaryCol,
+            {
+              backgroundColor: selectedType === 'expense' ? '#DC262615' : 'transparent',
+              borderRadius: 8,
+              paddingVertical: 4,
+            }
+          ]}
+        >
+          <Text style={[theme.typography.caption, { color: selectedType === 'expense' ? '#DC2626' : theme.customColors.textSecondary, fontWeight: selectedType === 'expense' ? '800' : '500' }]}>
+            Gastos {selectedType === 'expense' ? '✓' : ''}
+          </Text>
+          <AmountDisplay amount={getFilteredSums().expense} size="sm" type="expense" />
+        </TouchableOpacity>
+
+        <View style={styles.summaryDivider} />
+
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setSelectedType('all')}
+          style={[
+            styles.summaryCol,
+            {
+              backgroundColor: selectedType === 'all' ? theme.colors.primaryContainer + '30' : 'transparent',
+              borderRadius: 8,
+              paddingVertical: 4,
+            }
+          ]}
+        >
+          <Text style={[theme.typography.caption, { color: selectedType === 'all' ? theme.colors.primary : theme.customColors.textSecondary, fontWeight: selectedType === 'all' ? '800' : '500' }]}>
+            Neto
+          </Text>
+          <AmountDisplay
+            amount={getFilteredSums().net}
+            size="sm"
+            type={getFilteredSums().net >= 0 ? 'income' : 'expense'}
+          />
+        </TouchableOpacity>
+      </Surface>
+
+      {/* FAB Flotante para crear movimiento rápido */}
       <FAB
         icon="plus"
         label="Gasto / Voz"
@@ -548,6 +613,120 @@ export default function TransactionsScreen() {
         color="#FFFFFF"
         onPress={() => router.push('/transaction/new')}
       />
+
+      {/* ─── PORTAL: DIÁLOGO DE FILTROS ────────────────────────────────────── */}
+      <Portal>
+        <Dialog
+          visible={isFilterModalOpen}
+          onDismiss={() => setIsFilterModalOpen(false)}
+          style={{ borderRadius: 20, maxHeight: '85%' }}
+        >
+          <Dialog.Title style={{ fontWeight: '700' }}>Filtros de Movimientos</Dialog.Title>
+          <Dialog.ScrollArea style={{ paddingHorizontal: 0 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 12 }}>
+              
+              {/* 0. Tipo de Movimiento */}
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
+                TIPO DE MOVIMIENTO
+              </Text>
+              <SegmentedButtons
+                value={selectedType}
+                onValueChange={(val) => setSelectedType(val as any)}
+                buttons={[
+                  { value: 'all', label: 'Todos', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                  { value: 'income', label: 'Ingresos', icon: 'arrow-down-circle', checkedColor: '#059669', uncheckedColor: theme.colors.onSurface },
+                  { value: 'expense', label: 'Gastos', icon: 'arrow-up-circle', checkedColor: '#DC2626', uncheckedColor: theme.colors.onSurface },
+                  { value: 'transfer', label: 'Transfer.', icon: 'swap-horizontal', checkedColor: '#2563EB', uncheckedColor: theme.colors.onSurface },
+                ]}
+                style={{ marginBottom: 20 }}
+              />
+
+              {/* 1. Modo de Agrupamiento */}
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
+                AGRUPAR MOVIMIENTOS
+              </Text>
+              <SegmentedButtons
+                value={viewMode}
+                onValueChange={(val) => setViewMode(val as 'date' | 'category')}
+                buttons={[
+                  { value: 'date', label: 'Por Fecha', icon: 'calendar-clock', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                  { value: 'category', label: 'Por Categoría', icon: 'shape-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                ]}
+                style={{ marginBottom: 20 }}
+              />
+
+              {/* 2. Filtrar por Cuenta */}
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
+                FILTRAR POR CUENTA
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }} contentContainerStyle={{ gap: 6 }}>
+                <Chip
+                  selected={selectedAccountId === null}
+                  onPress={() => setSelectedAccountId(null)}
+                  style={{ borderRadius: 12 }}
+                >
+                  Todas
+                </Chip>
+                {accounts.filter(a => a.isActive).map(acc => (
+                  <Chip
+                    key={acc.id}
+                    selected={selectedAccountId === acc.id}
+                    onPress={() => setSelectedAccountId(acc.id)}
+                    style={{ borderRadius: 12 }}
+                  >
+                    {acc.name}
+                  </Chip>
+                ))}
+              </ScrollView>
+
+              {/* 3. Filtrar por Miembro Familiar */}
+              {Object.keys(familyMembers).length > 0 && (
+                <>
+                  <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
+                    FILTRAR POR MIEMBRO FAMILIAR
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6 }}>
+                    <Chip
+                      selected={selectedMemberId === null}
+                      onPress={() => setSelectedMemberId(null)}
+                      style={{ borderRadius: 12 }}
+                    >
+                      👥 Todos
+                    </Chip>
+                    {Object.entries(familyMembers).map(([id, initials]) => (
+                      <Chip
+                        key={id}
+                        selected={selectedMemberId === id}
+                        onPress={() => setSelectedMemberId(id)}
+                        style={{ borderRadius: 12 }}
+                      >
+                        👤 {id === currentUserId ? 'Tú' : initials}
+                      </Chip>
+                    ))}
+                  </ScrollView>
+                </>
+              )}
+            </ScrollView>
+          </Dialog.ScrollArea>
+
+          <Dialog.Actions style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+            <Button
+              onPress={() => {
+                setSelectedAccountId(null);
+                setSelectedMemberId(null);
+                setSelectedType('all');
+                setViewMode('date');
+              }}
+              textColor={theme.colors.error}
+            >
+              Limpiar Todo
+            </Button>
+            <Button mode="contained" onPress={() => setIsFilterModalOpen(false)} style={{ borderRadius: 10 }}>
+              Aplicar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }

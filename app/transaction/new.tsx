@@ -117,6 +117,7 @@ export default function NewTransactionScreen() {
   const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
+  const [isOptionalDetailsExpanded, setIsOptionalDetailsExpanded] = useState(false);
 
   // Entrada para IA
   const [aiInput, setAiInput] = useState('');
@@ -783,6 +784,8 @@ export default function NewTransactionScreen() {
 
       try {
         await runPostSaveInsights(savedTx);
+        const { RegistrationReminderService } = require('@/src/infrastructure/services/RegistrationReminderService');
+        RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
       } catch {
         // Las alertas predictivas son un extra; nunca deben bloquear el guardado.
       }
@@ -819,7 +822,7 @@ export default function NewTransactionScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
       <NetworkStatusBar />
       <View style={[
@@ -842,36 +845,18 @@ export default function NewTransactionScreen() {
       </View>
 
       <ScrollView 
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 24, 24) }]} 
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: 16, paddingVertical: 12, paddingBottom: Math.max(insets.bottom + 24, 24) }]} 
         keyboardShouldPersistTaps="handled"
       >
-        {!isEditing && suggestions?.lastTransaction && (
-          <Pressable onPress={handleRepeatLast} disabled={isLoading}>
-            <Surface style={[styles.repeatCard, theme.shadows.sm, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline }]}>
-              <MaterialCommunityIcons name="history" size={22} color={theme.colors.primary} />
-              <View style={styles.repeatCardText}>
-                <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                  Repetir el último movimiento
-                </Text>
-                <Text style={[theme.typography.body, { color: theme.colors.onSurface, fontWeight: '600' }]} numberOfLines={1}>
-                  {suggestions.lastTransaction.merchantName || suggestions.lastTransaction.description || 'Sin comercio'}
-                  {'  ·  $'}
-                  {Number(suggestions.lastTransaction.amount).toLocaleString('es-CO')}
-                </Text>
-              </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
-            </Surface>
-          </Pressable>
-        )}
 
         {!isEditing && (
           <SegmentedButtons
             value={mode}
             onValueChange={(val) => setMode(val as 'quick' | 'ai' | 'manual')}
             buttons={[
-              { value: 'quick', label: 'Simple', icon: 'baby-face-outline' },
-              { value: 'ai', label: 'Voz / IA', icon: 'robot' },
-              { value: 'manual', label: 'Detallado', icon: 'form-select' },
+              { value: 'quick', label: 'Simple', icon: 'baby-face-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'ai', label: 'Voz / IA', icon: 'robot', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'manual', label: 'Detallado', icon: 'form-select', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
             ]}
             style={styles.modeSelector}
           />
@@ -900,34 +885,36 @@ export default function NewTransactionScreen() {
               </Surface>
             </Pressable>
 
-            {/* Teclado de Botones Rápidos */}
-            <View style={styles.quickChipsRow}>
-              {[2000, 5000, 10000, 20000, 50000].map(val => (
+            {/* Teclado de Botones Rápidos (ScrollView Horizontal para encajar en cualquier pantalla móvil) */}
+            <View style={{ marginBottom: 12 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickChipsRow}>
+                {[2000, 5000, 10000, 20000, 50000].map(val => (
+                  <Button
+                    key={val}
+                    mode="outlined"
+                    compact
+                    style={styles.quickChip}
+                    onPress={() => {
+                      const current = parseFloat(amount || '0') || 0;
+                      setAmount(String(current + val));
+                      setErrorMsg(null);
+                    }}
+                  >
+                    +{val / 1000}k
+                  </Button>
+                ))}
                 <Button
-                  key={val}
                   mode="outlined"
                   compact
-                  style={styles.quickChip}
+                  textColor={theme.colors.error}
+                  style={[styles.quickChip, { borderColor: theme.colors.error }]}
                   onPress={() => {
-                    const current = parseFloat(amount || '0') || 0;
-                    setAmount(String(current + val));
-                    setErrorMsg(null);
+                    setAmount('');
                   }}
                 >
-                  +{val / 1000}k
+                  Borrar
                 </Button>
-              ))}
-              <Button
-                mode="outlined"
-                compact
-                textColor={theme.colors.error}
-                style={[styles.quickChip, { borderColor: theme.colors.error }]}
-                onPress={() => {
-                  setAmount('');
-                }}
-              >
-                Borrar
-              </Button>
+              </ScrollView>
             </View>
 
             <Text style={[styles.quickTitle, theme.typography.h3, { color: theme.colors.onSurface, marginTop: 24 }]}>
@@ -1181,6 +1168,26 @@ export default function NewTransactionScreen() {
         {/* ─── VISTA: FORMULARIO MANUAL REDISEÑADO SEGÚN MOCKUP ──────────── */}
         {mode === 'manual' && (
           <View style={styles.formSection}>
+            {/* Opción sutil de Repetir último movimiento (Solo en Detallado, evita layout shift) */}
+            {!isEditing && suggestions?.lastTransaction && (
+              <Pressable onPress={handleRepeatLast} disabled={isLoading} style={{ marginBottom: 14 }}>
+                <Surface style={[styles.repeatCard, theme.shadows.sm, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline }]}>
+                  <MaterialCommunityIcons name="history" size={20} color={theme.colors.primary} />
+                  <View style={styles.repeatCardText}>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                      Repetir el último movimiento
+                    </Text>
+                    <Text style={[theme.typography.body, { color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }]} numberOfLines={1}>
+                      {suggestions.lastTransaction.merchantName || suggestions.lastTransaction.description || 'Sin comercio'}
+                      {'  ·  $'}
+                      {Number(suggestions.lastTransaction.amount).toLocaleString('es-CO')}
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={18} color={theme.customColors.textSecondary} />
+                </Surface>
+              </Pressable>
+            )}
+
             {/* 1. Selector de Tipo (Gasto / Ingreso / Transferencia) */}
             <SegmentedButtons
               value={type}
@@ -1190,9 +1197,9 @@ export default function NewTransactionScreen() {
                 setSelectedSubCategoryId('');
               }}
               buttons={[
-                { value: 'expense', label: 'Gasto', icon: 'arrow-up-circle', disabled: isLoading },
-                { value: 'income', label: 'Ingreso', icon: 'arrow-down-circle', disabled: isLoading },
-                { value: 'transfer', label: 'Transferencia', icon: 'swap-horizontal', disabled: isLoading },
+                { value: 'expense', label: 'Gasto', icon: 'arrow-up-circle', disabled: isLoading, checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                { value: 'income', label: 'Ingreso', icon: 'arrow-down-circle', disabled: isLoading, checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                { value: 'transfer', label: 'Transferencia', icon: 'swap-horizontal', disabled: isLoading, checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
               ]}
               style={styles.typeSelector}
             />
@@ -1505,78 +1512,95 @@ export default function NewTransactionScreen() {
               </View>
             )}
 
-            {/* 5. Tarjeta Agrupada: Detalles opcionales (Fecha, Notas, Transacción Privada) */}
+            {/* 5. Tarjeta Agrupada: Detalles opcionales (Fecha, Notas, Transacción Privada - Colapsable) */}
             <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: theme.colors.outline + '40', marginBottom: 16 }]}>
-              <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface, marginBottom: 12 }]}>
-                Detalles opcionales
-              </Text>
-
-              {/* Fila Fecha */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.outline + '20' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
-                    <MaterialCommunityIcons name="calendar-month-outline" size={18} color={theme.colors.primary} />
-                  </View>
-                  <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Fecha</Text>
+              <Pressable
+                onPress={() => setIsOptionalDetailsExpanded(!isOptionalDetailsExpanded)}
+                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <MaterialCommunityIcons name="tune-variant" size={18} color={theme.colors.primary} />
+                  <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                    Detalles opcionales
+                  </Text>
                 </View>
-
-                {Platform.OS === 'web' ? (
-                  <input
-                    type="date"
-                    value={transactionDate}
-                    onChange={(e) => setTransactionDate(e.target.value)}
-                    style={{ ...webStyles.dateInput, paddingVertical: 4, paddingHorizontal: 8, fontSize: 13 }}
-                    disabled={isLoading}
-                  />
-                ) : (
-                  <Pressable onPress={() => setShowDatePicker(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '600' }]}>
-                      {transactionDate}
-                    </Text>
-                    <MaterialCommunityIcons name="chevron-right" size={18} color={theme.customColors.textSecondary} />
-                  </Pressable>
-                )}
-              </View>
-
-              {/* Fila Notas / Descripción */}
-              <View style={{ paddingVertical: 8, borderBottomWidth: canBePrivate ? 1 : 0, borderBottomColor: theme.colors.outline + '20' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                  <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
-                    <MaterialCommunityIcons name="comment-text-outline" size={18} color={theme.colors.primary} />
-                  </View>
-                  <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Notas</Text>
-                </View>
-                <TextInput
-                  placeholder="Añadir nota opcional"
-                  value={description}
-                  onChangeText={(text) => {
-                    setDescription(text);
-                    handlePredictiveCategorization(text);
-                  }}
-                  mode="outlined"
-                  dense
-                  style={{ backgroundColor: theme.colors.background }}
-                  disabled={isLoading}
+                <MaterialCommunityIcons
+                  name={isOptionalDetailsExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color={theme.customColors.textSecondary}
                 />
-              </View>
+              </Pressable>
 
-              {/* Fila Ocultar del resto de la familia (Privado) */}
-              {canBePrivate && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
-                    <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
-                      <MaterialCommunityIcons name="eye-off-outline" size={18} color={theme.colors.primary} />
+              {isOptionalDetailsExpanded && (
+                <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.outline + '20' }}>
+                  {/* Fila Fecha */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: theme.colors.outline + '20' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
+                        <MaterialCommunityIcons name="calendar-month-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Fecha</Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>
-                        Ocultar del resto de la familia
-                      </Text>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
-                        Solo tú podrás ver este movimiento
-                      </Text>
-                    </View>
+
+                    {Platform.OS === 'web' ? (
+                      <input
+                        type="date"
+                        value={transactionDate}
+                        onChange={(e) => setTransactionDate(e.target.value)}
+                        style={{ ...webStyles.dateInput, paddingVertical: 4, paddingHorizontal: 8, fontSize: 13 }}
+                        disabled={isLoading}
+                      />
+                    ) : (
+                      <Pressable onPress={() => setShowDatePicker(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '600' }]}>
+                          {transactionDate}
+                        </Text>
+                        <MaterialCommunityIcons name="chevron-right" size={18} color={theme.customColors.textSecondary} />
+                      </Pressable>
+                    )}
                   </View>
-                  <Switch value={isPrivate} onValueChange={setIsPrivate} disabled={isLoading} color={theme.colors.primary} />
+
+                  {/* Fila Notas / Descripción */}
+                  <View style={{ paddingVertical: 8, borderBottomWidth: canBePrivate ? 1 : 0, borderBottomColor: theme.colors.outline + '20' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
+                        <MaterialCommunityIcons name="comment-text-outline" size={18} color={theme.colors.primary} />
+                      </View>
+                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Notas</Text>
+                    </View>
+                    <TextInput
+                      placeholder="Añadir nota opcional"
+                      value={description}
+                      onChangeText={(text) => {
+                        setDescription(text);
+                        handlePredictiveCategorization(text);
+                      }}
+                      mode="outlined"
+                      dense
+                      style={{ backgroundColor: theme.colors.background }}
+                      disabled={isLoading}
+                    />
+                  </View>
+
+                  {/* Fila Ocultar del resto de la familia (Privado) */}
+                  {canBePrivate && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
+                          <MaterialCommunityIcons name="eye-off-outline" size={18} color={theme.colors.primary} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>
+                            Ocultar del resto de la familia
+                          </Text>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                            Solo tú podrás ver este movimiento
+                          </Text>
+                        </View>
+                      </View>
+                      <Switch value={isPrivate} onValueChange={setIsPrivate} disabled={isLoading} color={theme.colors.primary} />
+                    </View>
+                  )}
                 </View>
               )}
             </Surface>
@@ -1608,6 +1632,8 @@ export default function NewTransactionScreen() {
             parseFloat(amount) <= 0 ||
             (mode === 'quick' ? !selectedParentCategoryId : !accountId)
           }
+          buttonColor={theme.colors.primary}
+          textColor="#FFFFFF"
           style={styles.floatingPrimaryBtn}
           labelStyle={{ fontSize: 16, fontWeight: '700', paddingVertical: 2 }}
         >
@@ -1713,6 +1739,24 @@ export default function NewTransactionScreen() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      {/* Selector nativo de fecha para Android / iOS */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={new Date(transactionDate + 'T00:00:00')}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+            setShowDatePicker(false);
+            if (selectedDate) {
+              const year = selectedDate.getFullYear();
+              const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+              const day = String(selectedDate.getDate()).padStart(2, '0');
+              setTransactionDate(`${year}-${month}-${day}`);
+            }
+          }}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -1885,17 +1929,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   quickAmountDisplay: {
-    paddingVertical: 20,
+    paddingVertical: 14,
     borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   quickChipsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 16,
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 2,
   },
   quickChip: {
     borderRadius: 20,
@@ -1904,13 +1947,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 24,
+    rowGap: 10,
+    marginBottom: 16,
   },
   categoryCard: {
-    width: '23%',
-    paddingVertical: 12,
-    paddingHorizontal: 4,
+    width: '23.5%',
+    paddingVertical: 8,
+    paddingHorizontal: 2,
     borderRadius: 16,
     borderWidth: 1,
     justifyContent: 'center',

@@ -402,11 +402,13 @@ export class GeminiFlashProvider implements AIProvider {
       2. Resalta SIEMPRE en **negrita** todas las cifras numéricas, montos en dinero, nombres de categorías y conceptos críticos (ej: **$ 2.251.000 COP**, **Mercado**, **Gastos Hormiga**).
       3. Utiliza viñetas con emojis contextuales en cada punto clave (ej: 📊 **Estado actual:** ..., 💡 **Consejo clave:** ..., ⚠️ **Atención:** ...).
       4. Sugiere 2 a 3 acciones interactivas cortas e intuitivas como frases de respuesta (ej: "Ver presupuestos", "Registrar un gasto", "Revisar facturas").
+      5. SI Y SOLO SI el usuario manifiesta la intención de registrar o anotar un gasto, ingreso o transferencia (ej: "Mercado con Vale por 15000", "Anota 50 mil en gasolina", "Gasto de 20mil con Bancolombia"), incluye en el JSON el objeto "pendingAction" con los campos "type": "create_transaction" y "payload" (con amount, transactionType, suggestedCategoryName, suggestedAccountName, description, transactionDate). En "answer", indica brevemente que has generado la tarjeta de pre-confirmación borrador.
 
       Devuelve ÚNICAMENTE un objeto JSON estructurado con este esquema exacto, sin bloques markdown:
       {
         "answer": "Tu respuesta en texto estructurado con viñetas y negritas en español.",
-        "suggestedActions": ["Acción sugerida 1", "Acción sugerida 2"]
+        "suggestedActions": ["Acción sugerida 1", "Acción sugerida 2"],
+        "pendingAction": null // O el objeto pendingAction si aplica
       }
     `;
 
@@ -434,6 +436,9 @@ export class GeminiFlashProvider implements AIProvider {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents,
+        generationConfig: {
+          responseMimeType: 'application/json',
+        },
       })
     });
 
@@ -448,19 +453,38 @@ export class GeminiFlashProvider implements AIProvider {
       throw new Error('La API de Gemini no retornó un texto válido.');
     }
 
-    let cleanText = rawText.trim();
-    if (cleanText.startsWith('```')) {
-      cleanText = cleanText
-        .replace(/^```json\s*/i, '')
-        .replace(/```$/, '')
-        .trim();
+    let cleanText = rawText.trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+
+    // Extraer la subcadena JSON delimitada por { y }
+    const firstBrace = cleanText.indexOf('{');
+    const lastBrace = cleanText.lastIndexOf('}');
+
+    let parsed: any = null;
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        const jsonStr = cleanText.substring(firstBrace, lastBrace + 1);
+        parsed = JSON.parse(jsonStr);
+      } catch (e) {
+        console.warn('[Gemini Q&A] Falló el parseo de la subcadena JSON:', e);
+      }
     }
 
-    const parsed = JSON.parse(cleanText);
+    if (!parsed) {
+      // Fallback seguro: si Gemini devolvió texto plano fuera del esquema JSON
+      return {
+        answer: rawText,
+        suggestedActions: ['Registrar un gasto', 'Ver presupuestos', 'Consultar saldo'],
+      };
+    }
 
     return {
-      answer: parsed.answer,
+      answer: parsed.answer || rawText,
       suggestedActions: parsed.suggestedActions || [],
+      pendingAction: parsed.pendingAction || undefined,
       data: parsed.data || {},
     };
   }

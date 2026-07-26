@@ -1,22 +1,20 @@
 /**
- * ZenMoney — Servicio de Alertas de Facturas por Vencer (Solo Hoy a las 2:00 PM)
+ * ZenMoney — Servicio de Alertas de Facturas por Vencer (Hoy a las 2:00 PM)
  *
- * Programa alertas locales agrupadas para notificar al usuario sobre sus facturas
- * pendientes únicamente el día exacto de su vencimiento a las 2:00 PM.
+ * Programa o dispara notificaciones nativas para facturas que vencen el día de hoy
+ * fijando la hora a las 2:00 PM (14:00 hrs).
  */
 
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
 import { BudgetAlertService } from './BudgetAlertService';
 
 const SCHEDULED_BILL_KEYS = 'zenmoney:scheduled_bill_notification_ids';
-const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 let Notifications: typeof import('expo-notifications') | null = null;
 
-if (!isExpoGo && Platform.OS !== 'web') {
+if (Platform.OS !== 'web') {
   try {
     Notifications = require('expo-notifications');
   } catch (err) {
@@ -26,58 +24,62 @@ if (!isExpoGo && Platform.OS !== 'web') {
 
 export class BillAlertService {
   /**
-   * Programa una notificación consolidada para hoy a las 2:00 PM si hay facturas pendientes.
-   * Cancela la programación previa antes de programar la nueva.
+   * Programa o notifica facturas que vencen HOY a las 2:00 PM (14:00 hrs).
    */
   static async scheduleBillAlerts(): Promise<void> {
-    if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
+    if (Platform.OS === 'web' || !Notifications) return;
 
     try {
-      // 1. Cancelar cualquier alerta de facturas programada anteriormente para evitar duplicados
       await this.cancelExistingAlerts();
 
-      // 2. Solicitar permisos de notificación nativa
       const permissionsGranted = await BudgetAlertService.requestPermissions();
       if (!permissionsGranted) return;
 
-      // 3. Consultar transacciones pendientes (facturas)
       const transactionRepo = new SupabaseTransactionRepository();
       const pendingTxs = await transactionRepo.getAll({ status: 'pending' });
 
       if (pendingTxs.length === 0) return;
 
-      const todayStr = new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${day}`;
 
-      // 4. Filtrar solo las facturas que vencen HOY
-      const todayBills = pendingTxs.filter(tx => tx.transactionDate === todayStr);
+      // Filtrar facturas con vencimiento HOY
+      const todayBills = pendingTxs.filter(tx => {
+        const dueDate = tx.aiMetadata?.dueDate || tx.transactionDate;
+        return dueDate === todayStr && tx.amount > 0;
+      });
 
       if (todayBills.length === 0) return;
 
-      // 5. Verificar si la hora actual es antes de las 2:00 PM (14:00)
-      const now = new Date();
-      if (now.getHours() >= 14) {
-        return;
-      }
-
-      // 6. Preparar contenido consolidado
       const count = todayBills.length;
       const totalAmount = todayBills.reduce((sum, tx) => sum + Number(tx.amount), 0);
-      const amountFormatted = totalAmount.toLocaleString('es-CO');
+      const amountFormatted = Math.round(totalAmount).toLocaleString('es-CO');
 
       let title = '';
       let body = '';
 
       if (count === 1) {
         const tx = todayBills[0];
-        title = '🧾 Factura pendiente para hoy';
-        body = `Tienes pendiente: "${tx.description || 'Sin descripción'}" por $${Number(tx.amount).toLocaleString('es-CO')} COP.`;
+        title = '🚨 Factura por vencer hoy';
+        body = `Hoy vence tu factura de "${tx.description || 'Sin descripción'}" por $${Math.round(Number(tx.amount)).toLocaleString('es-CO')} COP. ¡Págala a tiempo!`;
       } else {
-        title = '🧾 Facturas pendientes para hoy';
-        body = `Tienes ${count} facturas por pagar hoy que suman un total de $${amountFormatted} COP.`;
+        title = '🚨 Facturas por vencer hoy';
+        body = `Tienes ${count} facturas por pagar hoy que suman $${amountFormatted} COP. ¡Evita recargos y revísalas a tiempo!`;
       }
 
-      // 7. Definir gatillo: 2:00 PM de hoy
-      const triggerDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0, 0);
+      // Definir la hora de disparo: Hoy a las 2:00 PM (14:00)
+      const targetTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0, 0);
+
+      let trigger: any;
+      if (now.getHours() >= 14) {
+        // Si ya pasaron las 2:00 PM del día actual, notificar inmediatamente
+        trigger = { seconds: 2, type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL };
+      } else {
+        trigger = targetTime;
+      }
 
       const id = await Notifications.scheduleNotificationAsync({
         content: {
@@ -86,32 +88,30 @@ export class BillAlertService {
           sound: true,
           data: { screen: 'bills' },
         },
-        trigger: triggerDate as any,
+        trigger,
       });
 
       await AsyncStorage.setItem(SCHEDULED_BILL_KEYS, JSON.stringify([id]));
+      console.log(`[BillAlertService] Alerta de facturas programada para hoy a las 2:00 PM (${id})`);
     } catch (err) {
       console.warn('[BillAlertService] Error al programar alerta de facturas para hoy:', err);
     }
   }
 
-  /**
-   * Cancela todas las notificaciones de facturas previamente programadas.
-   */
   static async cancelExistingAlerts(): Promise<void> {
-    if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
+    if (Platform.OS === 'web' || !Notifications) return;
 
     try {
-      const stored = await AsyncStorage.getItem(SCHEDULED_BILL_KEYS);
-      if (stored) {
-        const ids: string[] = JSON.parse(stored);
-        await Promise.all(
-          ids.map(id => Notifications!.cancelScheduledNotificationAsync(id).catch(() => {}))
-        );
+      const existing = await AsyncStorage.getItem(SCHEDULED_BILL_KEYS);
+      if (existing) {
+        const ids: string[] = JSON.parse(existing);
+        for (const id of ids) {
+          await Notifications.cancelScheduledNotificationAsync(id);
+        }
         await AsyncStorage.removeItem(SCHEDULED_BILL_KEYS);
       }
-    } catch (err) {
-      console.warn('[BillAlertService] Error al cancelar alertas de facturas previas:', err);
+    } catch {
+      // Ignorar si no existen previas
     }
   }
 }
