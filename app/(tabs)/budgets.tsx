@@ -8,7 +8,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-native';
-import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface } from 'react-native-paper';
+import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface, SegmentedButtons } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
 import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
@@ -40,6 +40,7 @@ interface BudgetTreeItem {
   color: string;
   hasDirectBudget: boolean;
   budget?: Budget;
+  parentDirectSpent: number;
   amountLimit: number;
   spent: number;
   remaining: number;
@@ -81,6 +82,8 @@ export default function BudgetsScreen() {
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [limitAmount, setLimitAmount] = useState('');
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
+  const [selectedScope, setSelectedScope] = useState<'family' | 'individual'>('family');
+  const [selectedScopeFilter, setSelectedScopeFilter] = useState<'all' | 'family' | 'individual'>('all');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [budgetStartMode, setBudgetStartMode] = useState<'current' | 'future'>('current');
   const [futureMonthOffset, setFutureMonthOffset] = useState<number>(1); // 1 to 12 months ahead
@@ -99,24 +102,31 @@ export default function BudgetsScreen() {
         setSelectedCategoryId(loadedCats[0].id);
       }
 
-      // 2. Cargar presupuestos y propagar si es necesario
+      // 2. Cargar presupuestos con Regla de Privacidad:
+      // Solo cargar presupuestos compartidos familiares O presupuestos personales del usuario actual
+      const { userProfile } = require('@/src/infrastructure/auth/authStore').useAuthStore.getState();
+      const currentUserId = userProfile?.id;
+
       const allBudgets = await budgetRepo.getAll();
+      const privacyBudgets = allBudgets.filter(b => 
+        b.scope === 'family' || !b.ownerUserId || b.ownerUserId === currentUserId
+      );
+
       const monthlyBudgets: Budget[] = [];
       const targetValue = selectedYear * 12 + selectedMonth;
-      const pastBudgets = allBudgets.filter(b => (b.year * 12 + b.month) <= targetValue);
+      const pastBudgets = privacyBudgets.filter(b => (b.year * 12 + b.month) <= targetValue);
       
-      const latestByCategory: Record<string, { budget: Budget, value: number }> = {};
+      const latestByKey: Record<string, { budget: Budget, value: number }> = {};
       for (const b of pastBudgets) {
         const bValue = b.year * 12 + b.month;
-        if (!latestByCategory[b.categoryId] || latestByCategory[b.categoryId].value < bValue) {
-          latestByCategory[b.categoryId] = { budget: b, value: bValue };
+        const key = `${b.categoryId}_${b.scope || 'family'}_${b.ownerUserId || 'family'}`;
+        if (!latestByKey[key] || latestByKey[key].value < bValue) {
+          latestByKey[key] = { budget: b, value: bValue };
         }
       }
 
-      for (const catId in latestByCategory) {
-        // Clonación en memoria: simplemente agregamos el presupuesto histórico al mes actual
-        // visualmente. Si el usuario lo edita, se guardará como un registro explícito.
-        monthlyBudgets.push(latestByCategory[catId].budget);
+      for (const key in latestByKey) {
+        monthlyBudgets.push(latestByKey[key].budget);
       }
 
       // 3. Cargar transacciones del mes
@@ -132,17 +142,29 @@ export default function BudgetsScreen() {
         status: 'confirmed'
       });
 
-      const getDirectSpent = (catId: string) => {
+      const getDirectSpent = (catId: string, budget?: Budget) => {
         return monthlyExpenses
-          .filter(tx => tx.categoryId === catId)
+          .filter(tx => {
+            if (tx.categoryId !== catId) return false;
+            if (budget && budget.scope === 'individual' && budget.ownerUserId) {
+              return tx.createdByUserId === budget.ownerUserId;
+            }
+            return true;
+          })
           .reduce((sum, tx) => sum + Number(tx.amount), 0);
       };
 
-      const getCategoryAndSubcategoriesSpent = (catId: string) => {
+      const getCategoryAndSubcategoriesSpent = (catId: string, budget?: Budget) => {
         const subCatIds = loadedCats.filter(c => c.parentCategoryId === catId).map(c => c.id);
         const targetIds = [catId, ...subCatIds];
         return monthlyExpenses
-          .filter(tx => tx.categoryId && targetIds.includes(tx.categoryId))
+          .filter(tx => {
+            if (!tx.categoryId || !targetIds.includes(tx.categoryId)) return false;
+            if (budget && budget.scope === 'individual' && budget.ownerUserId) {
+              return tx.createdByUserId === budget.ownerUserId;
+            }
+            return true;
+          })
           .reduce((sum, tx) => sum + Number(tx.amount), 0);
       };
 
@@ -151,7 +173,7 @@ export default function BudgetsScreen() {
         const cat = loadedCats.find(c => c.id === budget.categoryId);
         const isSubcategory = !!cat?.parentCategoryId;
         const parentId = isSubcategory ? cat!.parentCategoryId! : budget.categoryId;
-        const spent = getDirectSpent(budget.categoryId);
+        const spent = getDirectSpent(budget.categoryId, budget);
         
         return {
           budget,
@@ -163,18 +185,18 @@ export default function BudgetsScreen() {
       });
 
       const parentGroups: Record<string, {
-        parentBudget?: typeof rawProgress[0];
+        parentBudgets: typeof rawProgress[0][];
         subBudgets: typeof rawProgress[0][];
       }> = {};
 
       for (const p of rawProgress) {
         if (!parentGroups[p.parentId]) {
-          parentGroups[p.parentId] = { subBudgets: [] };
+          parentGroups[p.parentId] = { parentBudgets: [], subBudgets: [] };
         }
         if (p.isSubcategory) {
           parentGroups[p.parentId].subBudgets.push(p);
         } else {
-          parentGroups[p.parentId].parentBudget = p;
+          parentGroups[p.parentId].parentBudgets.push(p);
         }
       }
 
@@ -185,28 +207,21 @@ export default function BudgetsScreen() {
         const icon = parentCat ? parentCat.icon : 'tag';
         const color = parentCat ? parentCat.color : '#9E9E9E';
 
+        const parentBudgetItem = group.parentBudgets[0];
+
         let amountLimit = 0;
         let spent = 0;
-        let hasDirectBudget = false;
-        let budgetId = '';
+        let hasDirectBudget = group.parentBudgets.length > 0;
+        let budgetId = parentBudgetItem?.budget.id || `virtual-${parentId}`;
 
         if (group.subBudgets.length > 0) {
-          // Límite consolidado de subcategorías
           amountLimit = group.subBudgets.reduce((sum, s) => sum + s.budget.amountLimit, 0);
-          
-          // Gasto consolidado: gasto directo del padre + gasto de sus subcategorías
-          const parentDirectSpent = group.parentBudget ? group.parentBudget.spent : getDirectSpent(parentId);
+          const parentDirectSpent = parentBudgetItem ? parentBudgetItem.spent : 0;
           spent = group.subBudgets.reduce((sum, s) => sum + s.spent, 0) + parentDirectSpent;
-          
-          hasDirectBudget = !!group.parentBudget;
-          budgetId = group.parentBudget?.budget.id || `virtual-${parentId}`;
         } else {
-          // Solo se definió presupuesto en la categoría padre
-          const p = group.parentBudget!;
-          amountLimit = p.budget.amountLimit;
-          spent = getCategoryAndSubcategoriesSpent(parentId);
-          hasDirectBudget = true;
-          budgetId = p.budget.id;
+          const p = parentBudgetItem!;
+          amountLimit = p ? p.budget.amountLimit : 0;
+          spent = p ? getCategoryAndSubcategoriesSpent(parentId, p.budget) : 0;
         }
 
         const remaining = amountLimit - spent;
@@ -246,6 +261,8 @@ export default function BudgetsScreen() {
           };
         }).sort((a, b) => b.percentage - a.percentage);
 
+        const parentDirectSpent = parentBudgetItem ? parentBudgetItem.spent : 0;
+
         return {
           id: budgetId,
           categoryId: parentId,
@@ -253,7 +270,8 @@ export default function BudgetsScreen() {
           icon,
           color,
           hasDirectBudget,
-          budget: group.parentBudget?.budget,
+          budget: parentBudgetItem?.budget,
+          parentDirectSpent,
           amountLimit,
           spent,
           remaining,
@@ -291,6 +309,7 @@ export default function BudgetsScreen() {
       setSelectedCategoryId(categories[0].id);
     }
     setLimitAmount('');
+    setSelectedScope('family');
     setEditingBudget(null);
     setErrorMsg(null);
     setBudgetStartMode('current');
@@ -301,6 +320,7 @@ export default function BudgetsScreen() {
   const openEditDialog = (budget: Budget) => {
     setSelectedCategoryId(budget.categoryId);
     setLimitAmount(budget.amountLimit.toString());
+    setSelectedScope(budget.scope || 'family');
     setEditingBudget(budget);
     setErrorMsg(null);
     setBudgetStartMode('current');
@@ -332,39 +352,45 @@ export default function BudgetsScreen() {
         targetYear = rawYear;
       }
 
+      const { userProfile } = require('@/src/infrastructure/auth/authStore').useAuthStore.getState();
+      const currentUserId = userProfile?.id;
+      const ownerUserId = selectedScope === 'individual' ? currentUserId : null;
+
       if (editingBudget && budgetStartMode === 'current') {
-        // Verificar si es un presupuesto clonado en memoria (de un mes anterior)
         if (editingBudget.year === targetYear && editingBudget.month === targetMonth) {
-          // Actualizar el presupuesto actual explícito
           await budgetRepo.update(editingBudget.id, {
             amountLimit: limitNum,
+            scope: selectedScope,
+            ownerUserId,
           });
         } else {
-          // Es un clon en memoria, lo creamos explícitamente para este mes
           await budgetRepo.create({
             categoryId: selectedCategoryId,
             amountLimit: limitNum,
             year: targetYear,
             month: targetMonth,
+            scope: selectedScope,
+            ownerUserId,
           });
         }
       } else {
-        // Verificar si la categoría ya tiene presupuesto en ese mes destino
         const existingTargetBudgets = await budgetRepo.getByMonth(targetYear, targetMonth);
-        const exists = existingTargetBudgets.find(b => b.categoryId === selectedCategoryId);
+        const exists = existingTargetBudgets.find(b => b.categoryId === selectedCategoryId && b.scope === selectedScope && b.ownerUserId === ownerUserId);
         
         if (exists) {
-          // Si existe explícitamente en el mes futuro, lo actualizamos
           await budgetRepo.update(exists.id, {
-             amountLimit: limitNum
+             amountLimit: limitNum,
+             scope: selectedScope,
+             ownerUserId,
           });
         } else {
-          // Crear como nuevo límite desde el mes destino
           await budgetRepo.create({
             categoryId: selectedCategoryId,
             amountLimit: limitNum,
             year: targetYear,
             month: targetMonth,
+            scope: selectedScope,
+            ownerUserId,
           });
         }
       }
@@ -404,9 +430,57 @@ export default function BudgetsScreen() {
     return cat ? { name: cat.name, icon: cat.icon, color: cat.color } : { name: 'Desconocido', icon: 'tag', color: '#9E9E9E' };
   };
 
-  // Cálculos consolidados globales (Visualización HomeBudget style)
-  const totalBudgeted = budgetsProgress.reduce((sum, bp) => sum + bp.amountLimit, 0);
-  const totalSpent = budgetsProgress.reduce((sum, bp) => sum + bp.spent, 0);
+  // Helper para verificar si un ítem o subcategoría coincide con el filtro activo
+  const matchesScopeFilter = (bp: BudgetTreeItem) => {
+    if (selectedScopeFilter === 'all') return true;
+    if (selectedScopeFilter === 'family') {
+      const isParentFamily = bp.hasDirectBudget && (bp.budget?.scope === 'family' || !bp.budget?.ownerUserId);
+      const hasFamilyChild = bp.children.some(c => c.budget.scope === 'family' || !c.budget.ownerUserId);
+      return isParentFamily || hasFamilyChild;
+    }
+    if (selectedScopeFilter === 'individual') {
+      const isParentIndividual = bp.hasDirectBudget && bp.budget?.scope === 'individual';
+      const hasIndividualChild = bp.children.some(c => c.budget.scope === 'individual');
+      return isParentIndividual || hasIndividualChild;
+    }
+    return true;
+  };
+
+  // Cálculos consolidados globales dinámicos según el filtro activo (HomeBudget style)
+  const calculateScopeTotals = () => {
+    let totalLimit = 0;
+    let totalSpentVal = 0;
+
+    const filteredTree = budgetsProgress.filter(matchesScopeFilter);
+
+    for (const bp of filteredTree) {
+      const visibleChildren = bp.children.filter(child => {
+        if (selectedScopeFilter === 'family') return child.budget.scope === 'family' || !child.budget.ownerUserId;
+        if (selectedScopeFilter === 'individual') return child.budget.scope === 'individual';
+        return true;
+      });
+
+      const isParentMatching = selectedScopeFilter === 'all' ||
+        (selectedScopeFilter === 'family' && bp.hasDirectBudget && (bp.budget?.scope === 'family' || !bp.budget?.ownerUserId)) ||
+        (selectedScopeFilter === 'individual' && bp.hasDirectBudget && bp.budget?.scope === 'individual');
+
+      if (visibleChildren.length > 0 && selectedScopeFilter !== 'all') {
+        totalLimit += visibleChildren.reduce((sum, c) => sum + c.amountLimit, 0);
+        totalSpentVal += visibleChildren.reduce((sum, c) => sum + c.spent, 0);
+        if (isParentMatching && bp.budget) {
+          totalLimit += bp.budget.amountLimit;
+          totalSpentVal += bp.parentDirectSpent;
+        }
+      } else {
+        totalLimit += bp.amountLimit;
+        totalSpentVal += bp.spent;
+      }
+    }
+
+    return { totalLimit, totalSpentVal };
+  };
+
+  const { totalLimit: totalBudgeted, totalSpentVal: totalSpent } = calculateScopeTotals();
   const availableBudget = totalBudgeted - totalSpent;
   const globalPercentage = totalBudgeted > 0 ? (totalSpent / totalBudgeted) * 100 : 0;
 
@@ -438,7 +512,7 @@ export default function BudgetsScreen() {
         {/* ─── TARJETA CONSOLIDADA: RESUMEN DEL PRESUPUESTO ───────────────────────── */}
         <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
           <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600', marginBottom: 6 }]}>
-            Resumen del presupuesto
+            Resumen del presupuesto {selectedScopeFilter === 'individual' ? '(🔒 Mis Personales)' : selectedScopeFilter === 'family' ? '(🌐 Compartidos)' : '(📊 Todos)'}
           </Text>
           
           <Text style={[theme.typography.amountLarge, { color: availableBudget >= 0 ? '#059669' : '#DC2626', fontSize: 32, fontWeight: '800' }]}>
@@ -481,33 +555,93 @@ export default function BudgetsScreen() {
           </View>
         </Surface>
 
-        {/* ─── SECCIÓN: PRESUPUESTO POR CATEGORÍAS ────────────────────────────── */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 }}>
-          <Text style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}>
-            Presupuesto por categorías
-          </Text>
+        {/* ─── SECCIÓN: PRESUPUESTO POR CATEGORÍAS Y FILTRO DE ÁMBITO ──────────── */}
+        <View style={{ marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingHorizontal: 4 }}>
+            <Text style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}>
+              Presupuesto por categorías
+            </Text>
+          </View>
+          <SegmentedButtons
+            value={selectedScopeFilter}
+            onValueChange={(val: string) => setSelectedScopeFilter(val as any)}
+            buttons={[
+              { value: 'all', label: '📊 Todos', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'family', label: '🌐 Compartidos', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'individual', label: '🔒 Personales', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+            ]}
+            density="small"
+          />
         </View>
 
-        {budgetsProgress.length === 0 ? (
-          <EmptyState
-            icon="chart-arc"
-            title="Sin presupuestos"
-            description="Configura límites mensuales para llevar un control estricto de tus gastos."
-            actionLabel="Configurar Primer Límite"
-            onAction={openCreateDialog}
-          />
-        ) : (
-          <View style={{ gap: 12, marginBottom: 80 }}>
-            {budgetsProgress.map(bp => {
-              const isExpanded = expandedCategories[bp.categoryId] || false;
-              
-              // Determinar color de etiqueta % consumido y barra
-              let statusColor = '#059669'; // Verde
-              if (bp.status === 'exceeded') {
-                statusColor = '#DC2626'; // Rojo
-              } else if (bp.status === 'warning') {
-                statusColor = '#D97706'; // Naranja
-              }
+        {/* Helper de coincidencia de ámbito considerando subcategorías hijas */}
+        {(() => {
+          const matchesScopeFilter = (bp: typeof budgetsProgress[0]) => {
+            if (selectedScopeFilter === 'all') return true;
+            if (selectedScopeFilter === 'family') {
+              const isParentFamily = bp.hasDirectBudget && (bp.budget?.scope === 'family' || !bp.budget?.ownerUserId);
+              const hasFamilyChild = bp.children.some(c => c.budget.scope === 'family' || !c.budget.ownerUserId);
+              return isParentFamily || hasFamilyChild;
+            }
+            if (selectedScopeFilter === 'individual') {
+              const isParentIndividual = bp.hasDirectBudget && bp.budget?.scope === 'individual';
+              const hasIndividualChild = bp.children.some(c => c.budget.scope === 'individual');
+              return isParentIndividual || hasIndividualChild;
+            }
+            return true;
+          };
+
+          const filteredTree = budgetsProgress.filter(matchesScopeFilter);
+
+          if (filteredTree.length === 0) {
+            return (
+              <EmptyState
+                icon="chart-arc"
+                title="Sin presupuestos en este filtro"
+                description="No hay presupuestos configurados para el filtro seleccionado."
+                actionLabel="Configurar Límite"
+                onAction={openCreateDialog}
+              />
+            );
+          }
+
+          return (
+            <View style={{ gap: 12, marginBottom: 80 }}>
+              {filteredTree.map(bp => {
+                const visibleChildren = bp.children.filter(child => {
+                  if (selectedScopeFilter === 'family') return child.budget.scope === 'family' || !child.budget.ownerUserId;
+                  if (selectedScopeFilter === 'individual') return child.budget.scope === 'individual';
+                  return true;
+                });
+
+                const hasChildren = visibleChildren.length > 0;
+                // Si estamos en un filtro específico, expandir automáticamente para mostrar las subcategorías
+                const isExpanded = expandedCategories[bp.categoryId] !== undefined 
+                  ? expandedCategories[bp.categoryId] 
+                  : (selectedScopeFilter !== 'all' && hasChildren);
+
+                const isParentMatching = selectedScopeFilter === 'all' || 
+                  (selectedScopeFilter === 'family' && bp.hasDirectBudget && (bp.budget?.scope === 'family' || !bp.budget?.ownerUserId)) ||
+                  (selectedScopeFilter === 'individual' && bp.hasDirectBudget && bp.budget?.scope === 'individual');
+
+                let displayLimit = bp.amountLimit;
+                let displaySpent = bp.spent;
+
+                if (hasChildren && selectedScopeFilter !== 'all') {
+                  displayLimit = visibleChildren.reduce((sum, c) => sum + c.amountLimit, 0);
+                  const parentDirectSpent = isParentMatching && bp.budget ? bp.parentDirectSpent : 0;
+                  displaySpent = visibleChildren.reduce((sum, c) => sum + c.spent, 0) + parentDirectSpent;
+                  if (isParentMatching && bp.budget) {
+                    displayLimit += bp.budget.amountLimit;
+                  }
+                }
+
+                const displayRemaining = displayLimit - displaySpent;
+                const displayPercentage = displayLimit > 0 ? Math.round((displaySpent / displayLimit) * 100) : 0;
+
+                let statusColor = '#059669';
+                if (displayPercentage >= 100) statusColor = '#DC2626';
+                else if (displayPercentage >= 80) statusColor = '#D97706';
 
               return (
                 <Surface
@@ -536,9 +670,18 @@ export default function BudgetsScreen() {
                         </View>
                         
                         <View style={{ flex: 1 }}>
-                          <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]} numberOfLines={1}>
-                            {bp.name}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]} numberOfLines={1}>
+                              {bp.name}
+                            </Text>
+                            {bp.budget && (
+                              <View style={{ backgroundColor: bp.budget.scope === 'individual' ? '#05966915' : theme.colors.primaryContainer + '40', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ fontSize: 9, fontWeight: '700', color: bp.budget.scope === 'individual' ? '#059669' : theme.colors.primary }}>
+                                  {bp.budget.scope === 'individual' ? '🔒 Personal' : '🌐 Familiar'}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                           <Text style={[theme.typography.caption, { fontWeight: '700', color: statusColor, marginTop: 1, fontSize: 11 }]}>
                             {bp.percentage}% consumido
                           </Text>
@@ -549,14 +692,14 @@ export default function BudgetsScreen() {
                       <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 6 }}>
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
-                            $ {Math.round(bp.spent).toLocaleString('es-CO')}
+                            $ {Math.round(displaySpent).toLocaleString('es-CO')}
                           </Text>
                           <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
-                            de $ {Math.round(bp.amountLimit).toLocaleString('es-CO')}
+                            de $ {Math.round(displayLimit).toLocaleString('es-CO')}
                           </Text>
                         </View>
 
-                        {bp.hasDirectBudget && bp.budget && (
+                        {bp.hasDirectBudget && bp.budget && isParentMatching && (
                           <IconButton
                             icon="pencil-outline"
                             size={18}
@@ -565,7 +708,7 @@ export default function BudgetsScreen() {
                             onPress={() => openEditDialog(bp.budget!)}
                           />
                         )}
-                        {bp.children.length > 0 && (
+                        {hasChildren && (
                           <IconButton
                             icon={isExpanded ? 'chevron-up' : 'chevron-down'}
                             size={18}
@@ -578,22 +721,22 @@ export default function BudgetsScreen() {
                     </View>
 
                     {/* Barra de progreso */}
-                    <CustomProgressBar progress={bp.percentage / 100} color={statusColor} />
+                    <CustomProgressBar progress={displayPercentage / 100} color={statusColor} />
 
                     {/* Footer de remanente */}
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 }}>
-                      <Text style={[theme.typography.caption, { fontWeight: '600', color: bp.remaining < 0 ? '#DC2626' : '#059669', fontSize: 11 }]}>
-                        {bp.remaining < 0 
-                          ? `Excedido por $ ${Math.abs(bp.remaining).toLocaleString('es-CO')}` 
-                          : `Restan $ ${bp.remaining.toLocaleString('es-CO')}`}
+                      <Text style={[theme.typography.caption, { fontWeight: '600', color: displayRemaining < 0 ? '#DC2626' : '#059669', fontSize: 11 }]}>
+                        {displayRemaining < 0 
+                          ? `Excedido por $ ${Math.abs(displayRemaining).toLocaleString('es-CO')}` 
+                          : `Restan $ ${displayRemaining.toLocaleString('es-CO')}`}
                       </Text>
                     </View>
                   </Pressable>
 
                   {/* Subcategorías anidadas cuando está expandido */}
-                  {isExpanded && bp.children.length > 0 && (
+                  {isExpanded && hasChildren && (
                     <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.outline + '15', gap: 8 }}>
-                      {bp.children.map(child => {
+                      {visibleChildren.map(child => {
                         let childStatusColor = '#059669';
                         if (child.status === 'exceeded') childStatusColor = '#DC2626';
                         else if (child.status === 'warning') childStatusColor = '#D97706';
@@ -630,7 +773,8 @@ export default function BudgetsScreen() {
               );
             })}
           </View>
-        )}
+        );
+      })()}
       </ScrollView>
 
       {/* Botón Flotante FAB "+ Nuevo límite" (Verde Esmeralda del mockup) */}
@@ -683,6 +827,21 @@ export default function BudgetsScreen() {
               mode="outlined"
               keyboardType="numeric"
               style={styles.dialogInput}
+            />
+
+            {/* Selector de Ámbito / Visibilidad */}
+            <Text style={[styles.dialogLabel, theme.typography.caption, { marginTop: 16 }]}>
+              Visibilidad y Ámbito
+            </Text>
+            <SegmentedButtons
+              value={selectedScope}
+              onValueChange={(val: string) => setSelectedScope(val as 'family' | 'individual')}
+              buttons={[
+                { value: 'family', label: '🌐 Familiar', icon: 'account-group-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                { value: 'individual', label: '🔒 Personal (Privado)', icon: 'lock-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              ]}
+              density="small"
+              style={{ marginBottom: 12 }}
             />
 
             <View style={{ marginTop: 24 }}>

@@ -25,13 +25,18 @@ export class CalculateBudgetProgress {
     const lastDay = new Date(budget.year, budget.month, 0).getDate();
     const endDate = `${budget.year}-${String(budget.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    const transactions = await this.transactionRepository.getAll({
+    let transactions = await this.transactionRepository.getAll({
       categoryId: budget.categoryId,
       type: 'expense',
       startDate,
       endDate,
       status: 'confirmed',
     });
+
+    // Regla de Negocio: Si el presupuesto es individual/personal, solo sumar los gastos de ese usuario
+    if (budget.scope === 'individual' && budget.ownerUserId) {
+      transactions = transactions.filter(tx => tx.createdByUserId === budget.ownerUserId);
+    }
 
     const spent = transactions.reduce((acc, tx) => acc + Number(tx.amount), 0);
     const remaining = Number(budget.amountLimit) - spent;

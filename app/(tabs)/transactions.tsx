@@ -304,8 +304,6 @@ export default function TransactionsScreen() {
     });
   };
 
-  // ─── HELPER DE CATEGORÍAS DE 2 NIVELES ────────────────────────────────
-
   const getCategoryDisplayInfo = (categoryId: string | null) => {
     const defaultVal = { name: 'Sin clasificar', icon: 'help-circle', color: '#9E9E9E' };
     if (!categoryId) return defaultVal;
@@ -313,21 +311,24 @@ export default function TransactionsScreen() {
     const cat = categories.find(c => c.id === categoryId);
     if (!cat) return defaultVal;
 
-    // Si tiene categoría padre, construimos la visualización de 2 niveles: "Padre • Hijo"
+    // Si tiene categoría padre, heredamos el icono de la categoría superior
     if (cat.parentCategoryId) {
       const parent = categories.find(c => c.id === cat.parentCategoryId);
       if (parent) {
+        const isGenericIcon = !cat.icon || ['tag', 'tag-outline', 'label', 'label-outline', 'bookmark-outline', 'shape-outline'].includes(cat.icon);
+        const finalIcon = isGenericIcon ? (parent.icon || 'tag-outline') : cat.icon;
+
         return {
           name: `${parent.name} • ${cat.name}`,
-          icon: cat.icon || parent.icon,
-          color: parent.color,
+          icon: finalIcon,
+          color: parent.color || cat.color,
         };
       }
     }
 
     return {
       name: cat.name,
-      icon: cat.icon,
+      icon: cat.icon || 'tag-outline',
       color: cat.color,
     };
   };

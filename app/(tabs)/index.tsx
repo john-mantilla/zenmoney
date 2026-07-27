@@ -287,7 +287,23 @@ export default function DashboardScreen() {
     const defaultCat = { name: 'Sin clasificar', icon: 'help-circle', color: '#9E9E9E' };
     if (!categoryId) return defaultCat;
     const cat = categories.find(c => c.id === categoryId);
-    return cat ? { name: cat.name, icon: cat.icon, color: cat.color } : defaultCat;
+    if (!cat) return defaultCat;
+
+    if (cat.parentCategoryId) {
+      const parent = categories.find(c => c.id === cat.parentCategoryId);
+      if (parent) {
+        const isGenericIcon = !cat.icon || ['tag', 'tag-outline', 'label', 'label-outline', 'bookmark-outline', 'shape-outline'].includes(cat.icon);
+        const finalIcon = isGenericIcon ? (parent.icon || 'tag-outline') : cat.icon;
+
+        return {
+          name: `${parent.name} • ${cat.name}`,
+          icon: finalIcon,
+          color: parent.color || cat.color,
+        };
+      }
+    }
+
+    return { name: cat.name, icon: cat.icon || 'tag-outline', color: cat.color };
   };
 
   const getAccountName = (accountId: string) => {

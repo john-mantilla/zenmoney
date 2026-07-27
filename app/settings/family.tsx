@@ -3,13 +3,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, List, IconButton, Appbar, Divider, SegmentedButtons, HelperText } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, List, IconButton, Appbar, Divider, SegmentedButtons, HelperText, Chip, Surface } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { supabase } from '@/src/infrastructure/supabase/client';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 interface FamilyMember {
   id: string;
@@ -37,18 +38,28 @@ export default function SettingsFamilyScreen() {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Estados de edición del nombre del grupo (autogenerado al registrarse, renombrable aquí)
+  // Estados de edición del nombre del grupo
   const [isEditingGroupName, setIsEditingGroupName] = useState(false);
   const [groupNameInput, setGroupNameInput] = useState('');
   const [savingGroupName, setSavingGroupName] = useState(false);
   const [groupNameError, setGroupNameError] = useState<string | null>(null);
 
-  // Estados de diálogo
-  const [isDialogVisible, setIsDialogVisible] = useState(false);
+  // Estados de diálogo para Invitar
+  const [isInviteDialogVisible, setIsInviteDialogVisible] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor');
   const [sendingInvite, setSendingInvite] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+
+  // Estados de diálogo para Desvincular Miembro
+  const [targetMemberToRemove, setTargetMemberToRemove] = useState<FamilyMember | null>(null);
+  const [isRemoveMemberDialogVisible, setIsRemoveMemberDialogVisible] = useState(false);
+  const [removingMember, setRemovingMember] = useState(false);
+
+  // Estados de diálogo para Cancelar / Eliminar Invitación
+  const [targetInviteToCancel, setTargetInviteToCancel] = useState<Invitation | null>(null);
+  const [isCancelInviteDialogVisible, setIsCancelInviteDialogVisible] = useState(false);
+  const [cancellingInvite, setCancellingInvite] = useState(false);
 
   const loadData = async () => {
     if (!userProfile?.familyGroupId) return;
@@ -63,7 +74,7 @@ export default function SettingsFamilyScreen() {
       if (!memErr && members) {
         setFamilyMembers(members.map(m => ({
           id: m.id,
-          displayName: m.display_name,
+          displayName: m.display_name || m.email.split('@')[0],
           email: m.email,
           role: m.role as any
         })));
@@ -97,6 +108,7 @@ export default function SettingsFamilyScreen() {
     }, [userProfile])
   );
 
+  // ─── ACCIÓN: ENVIAR INVITACIÓN ─────────────────────────────────────────────
   const handleSendInvitation = async () => {
     if (!inviteEmail.trim() || !userProfile) return;
     setSendingInvite(true);
@@ -130,7 +142,7 @@ export default function SettingsFamilyScreen() {
         });
 
       if (error) throw error;
-      setIsDialogVisible(false);
+      setIsInviteDialogVisible(false);
       setInviteEmail('');
       loadData();
     } catch (err) {
@@ -140,19 +152,99 @@ export default function SettingsFamilyScreen() {
     }
   };
 
-  const handleCancelInvitation = async (inviteId: string) => {
+  // ─── ACCIÓN: CAMBIAR ROL DE UN MIEMBRO ────────────────────────────────────
+  const handleChangeMemberRole = async (member: FamilyMember, newRole: 'editor' | 'viewer') => {
+    if (member.role === newRole) return;
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ role: newRole })
+        .eq('id', member.id);
+
+      if (error) throw error;
+      loadData();
+    } catch (err) {
+      console.error('[Change Member Role Error]:', err);
+    }
+  };
+
+  // ─── ACCIÓN: DESVINCULAR MIEMBRO DEL GRUPO ───────────────────────────────
+  const openRemoveMemberDialog = (member: FamilyMember) => {
+    setTargetMemberToRemove(member);
+    setIsRemoveMemberDialogVisible(true);
+  };
+
+  const handleConfirmRemoveMember = async () => {
+    if (!targetMemberToRemove || !userProfile) return;
+    setRemovingMember(true);
+
+    try {
+      // 1. Crear un nuevo grupo familiar personal para el usuario expulsado
+      const { data: newGroup, error: grpErr } = await supabase
+        .from('family_groups')
+        .insert({ name: `Familia de ${targetMemberToRemove.displayName}` })
+        .select()
+        .single();
+
+      if (grpErr) throw grpErr;
+
+      // 2. Mover el perfil del usuario a su nuevo grupo como admin
+      const { error: profErr } = await supabase
+        .from('user_profiles')
+        .update({
+          family_group_id: newGroup.id,
+          role: 'admin'
+        })
+        .eq('id', targetMemberToRemove.id);
+
+      if (profErr) throw profErr;
+
+      // 3. Mover sus cuentas marcadas como privadas a su nuevo grupo
+      await supabase
+        .from('accounts')
+        .update({ family_group_id: newGroup.id })
+        .eq('created_by_user_id', targetMemberToRemove.id)
+        .eq('is_private', true);
+
+      setIsRemoveMemberDialogVisible(false);
+      setTargetMemberToRemove(null);
+      loadData();
+    } catch (err) {
+      console.error('[Remove Member Error]:', err);
+      Alert.alert('Error', 'No se pudo desvincular al miembro. Inténtalo de nuevo.');
+    } finally {
+      setRemovingMember(false);
+    }
+  };
+
+  // ─── ACCIÓN: CANCELAR / ELIMINAR INVITACIÓN ────────────────────────────────
+  const openCancelInviteDialog = (invite: Invitation) => {
+    setTargetInviteToCancel(invite);
+    setIsCancelInviteDialogVisible(true);
+  };
+
+  const handleConfirmCancelInvite = async () => {
+    if (!targetInviteToCancel) return;
+    setCancellingInvite(true);
+
     try {
       const { error } = await supabase
         .from('family_invitations')
         .delete()
-        .eq('id', inviteId);
+        .eq('id', targetInviteToCancel.id);
+
       if (error) throw error;
+      setIsCancelInviteDialogVisible(false);
+      setTargetInviteToCancel(null);
       loadData();
     } catch (err) {
-      console.error('Error al cancelar invitación:', err);
+      console.error('[Cancel Invitation Error]:', err);
+    } finally {
+      setCancellingInvite(false);
     }
   };
 
+  // ─── RENOMBRAR GRUPO FAMILIAR ─────────────────────────────────────────────
   const openEditGroupName = () => {
     setGroupNameInput(familyGroup?.name || '');
     setGroupNameError(null);
@@ -180,6 +272,8 @@ export default function SettingsFamilyScreen() {
     }
   };
 
+  const isAdmin = userProfile?.role === 'admin';
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
@@ -188,6 +282,7 @@ export default function SettingsFamilyScreen() {
       </Appbar.Header>
 
       <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
+        {/* Card Nombre del Grupo */}
         <Card style={styles.card}>
           <Card.Content>
             {isEditingGroupName ? (
@@ -225,7 +320,7 @@ export default function SettingsFamilyScreen() {
                   </Text>
                   <Text style={theme.typography.h4}>{familyGroup?.name || 'Mi grupo familiar'}</Text>
                 </View>
-                {userProfile?.role === 'admin' && (
+                {isAdmin && (
                   <IconButton icon="pencil-outline" size={20} onPress={openEditGroupName} />
                 )}
               </View>
@@ -233,14 +328,15 @@ export default function SettingsFamilyScreen() {
           </Card.Content>
         </Card>
 
-        {userProfile?.role === 'admin' && (
+        {/* Botón Invitar (Solo Admin) */}
+        {isAdmin && (
           <Button
             mode="contained"
             icon="account-plus"
-            onPress={() => { setInviteError(null); setIsDialogVisible(true); }}
+            onPress={() => { setInviteError(null); setIsInviteDialogVisible(true); }}
             style={styles.addBtn}
           >
-            Invitar Miembro
+            Invitar Nuevo Miembro
           </Button>
         )}
 
@@ -248,49 +344,154 @@ export default function SettingsFamilyScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 24 }} />
         ) : (
           <View>
+            {/* ─── SECCIÓN 1: MIEMBROS DE LA FAMILIA ───────────────────────────── */}
             <Card style={styles.card}>
-              <Card.Title title="Miembros de la Familia" />
-              <Card.Content>
-                {familyMembers.map(member => (
-                  <List.Item
-                    key={member.id}
-                    title={member.displayName}
-                    description={member.email}
-                    left={props => <List.Icon {...props} icon="account" color={theme.colors.primary} />}
-                    right={() => (
-                      <View style={{ justifyContent: 'center' }}>
-                        <Text style={{ fontWeight: 'bold', color: member.role === 'admin' ? theme.colors.error : theme.colors.primary }}>
-                          {member.role.toUpperCase()}
-                        </Text>
+              <Card.Title title="Miembros del Grupo Familiar" subtitle={`${familyMembers.length} integrante(s)`} />
+              <Card.Content style={{ gap: 8 }}>
+                {familyMembers.map(member => {
+                  const isCurrentUser = member.id === userProfile?.id;
+                  const memberIsAdmin = member.role === 'admin';
+
+                  return (
+                    <Surface
+                      key={member.id}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        backgroundColor: theme.colors.surfaceVariant + '30',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                        <MaterialCommunityIcons
+                          name={memberIsAdmin ? 'shield-account' : 'account-outline'}
+                          size={28}
+                          color={memberIsAdmin ? theme.colors.error : theme.colors.primary}
+                          style={{ marginRight: 10 }}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[theme.typography.body, { fontWeight: '700' }]} numberOfLines={1}>
+                              {member.displayName}
+                            </Text>
+                            {isCurrentUser && (
+                              <Chip compact style={{ height: 20 }}>Tú</Chip>
+                            )}
+                          </View>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]} numberOfLines={1}>
+                            {member.email}
+                          </Text>
+                        </View>
                       </View>
-                    )}
-                  />
-                ))}
+
+                      {/* Selector de Rol o Acción de Desvincular */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        {isAdmin && !isCurrentUser ? (
+                          <>
+                            {/* Selector rápido de rol (Editor vs Visor) */}
+                            <Chip
+                              compact
+                              icon={member.role === 'editor' ? 'pencil' : 'eye'}
+                              onPress={() => handleChangeMemberRole(member, member.role === 'editor' ? 'viewer' : 'editor')}
+                              style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                            >
+                              {member.role === 'editor' ? 'Editor' : 'Visor'}
+                            </Chip>
+
+                            {/* Botón Desvincular Miembro */}
+                            <IconButton
+                              icon="account-remove-outline"
+                              iconColor={theme.colors.error}
+                              size={20}
+                              onPress={() => openRemoveMemberDialog(member)}
+                            />
+                          </>
+                        ) : (
+                          <Chip
+                            compact
+                            style={{
+                              backgroundColor: memberIsAdmin ? theme.colors.errorContainer : theme.colors.primaryContainer + '40'
+                            }}
+                          >
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: memberIsAdmin ? theme.colors.error : theme.colors.primary }}>
+                              {member.role.toUpperCase()}
+                            </Text>
+                          </Chip>
+                        )}
+                      </View>
+                    </Surface>
+                  );
+                })}
               </Card.Content>
             </Card>
 
+            {/* ─── SECCIÓN 2: INVITACIONES PENDIENTES E HISTORIAL ────────────── */}
             {invitations.length > 0 && (
               <Card style={styles.card}>
-                <Card.Title title="Invitaciones Pendientes" />
-                <Card.Content>
-                  {invitations.map(invite => (
-                    <List.Item
-                      key={invite.id}
-                      title={invite.invitedEmail}
-                      description={`Rol: ${invite.role.toUpperCase()} • Estado: ${invite.status.toUpperCase()}`}
-                      left={props => <List.Icon {...props} icon="email-outline" color={theme.colors.outline} />}
-                      right={() => (
-                        userProfile?.role === 'admin' && invite.status === 'pending' ? (
-                          <IconButton
-                            icon="close"
-                            iconColor={theme.colors.error}
-                            size={18}
-                            onPress={() => handleCancelInvitation(invite.id)}
+                <Card.Title title="Invitaciones Enviadas" subtitle={`${invitations.length} en total`} />
+                <Card.Content style={{ gap: 8 }}>
+                  {invitations.map(invite => {
+                    let statusColor = '#D97706'; // Naranja pendiente
+                    let statusText = 'Pendiente';
+                    if (invite.status === 'accepted') {
+                      statusColor = '#059669'; // Verde
+                      statusText = 'Aceptada';
+                    } else if (invite.status === 'rejected') {
+                      statusColor = '#DC2626'; // Rojo
+                      statusText = 'Rechazada';
+                    }
+
+                    return (
+                      <Surface
+                        key={invite.id}
+                        style={{
+                          padding: 12,
+                          borderRadius: 12,
+                          backgroundColor: theme.colors.surfaceVariant + '20',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                          <MaterialCommunityIcons
+                            name="email-outline"
+                            size={24}
+                            color={theme.customColors.textSecondary}
+                            style={{ marginRight: 10 }}
                           />
-                        ) : null
-                      )}
-                    />
-                  ))}
+                          <View style={{ flex: 1 }}>
+                            <Text style={[theme.typography.body, { fontWeight: '600' }]} numberOfLines={1}>
+                              {invite.invitedEmail}
+                            </Text>
+                            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                              Rol: {invite.role.toUpperCase()}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={{ backgroundColor: statusColor + '15', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: statusColor }}>
+                              {statusText}
+                            </Text>
+                          </View>
+
+                          {/* Botón Cancelar / Eliminar Invitación (Solo Admin) */}
+                          {isAdmin && (
+                            <IconButton
+                              icon="close-circle-outline"
+                              iconColor={theme.colors.error}
+                              size={20}
+                              onPress={() => openCancelInviteDialog(invite)}
+                            />
+                          )}
+                        </View>
+                      </Surface>
+                    );
+                  })}
                 </Card.Content>
               </Card>
             )}
@@ -298,9 +499,10 @@ export default function SettingsFamilyScreen() {
         )}
       </ScrollView>
 
-      {/* ─── PORTAL DIÁLOGO: INVITAR MIEMBRO ───────────────────────────── */}
+      {/* ─── PORTAL DIÁLOGOS ───────────────────────────────────────────── */}
       <Portal>
-        <Dialog visible={isDialogVisible} onDismiss={() => setIsDialogVisible(false)}>
+        {/* DIÁLOGO 1: INVITAR MIEMBRO */}
+        <Dialog visible={isInviteDialogVisible} onDismiss={() => setIsInviteDialogVisible(false)}>
           <Dialog.Title>Invitar miembro a la familia</Dialog.Title>
           <Dialog.Content>
             {inviteError && (
@@ -333,7 +535,7 @@ export default function SettingsFamilyScreen() {
           </Dialog.Content>
           <Dialog.Actions>
             <Button
-              onPress={() => setIsDialogVisible(false)}
+              onPress={() => setIsInviteDialogVisible(false)}
               textColor={theme.customColors.textSecondary}
               disabled={sendingInvite}
             >
@@ -347,6 +549,70 @@ export default function SettingsFamilyScreen() {
               style={{ marginLeft: 8 }}
             >
               Enviar Invitación
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* DIÁLOGO 2: DESVINCULAR MIEMBRO */}
+        <Dialog visible={isRemoveMemberDialogVisible} onDismiss={() => !removingMember && setIsRemoveMemberDialogVisible(false)}>
+          <Dialog.Title style={{ color: theme.colors.error }}>Desvincular Miembro</Dialog.Title>
+          <Dialog.Content>
+            <Text style={[theme.typography.body, { marginBottom: 12 }]}>
+              ¿Estás seguro de que deseas desvincular a <Text style={{ fontWeight: '700' }}>{targetMemberToRemove?.displayName}</Text> ({targetMemberToRemove?.email}) del grupo <Text style={{ fontWeight: '700' }}>"{familyGroup?.name}"</Text>?
+            </Text>
+            
+            <View style={{ backgroundColor: theme.colors.errorContainer + '30', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.error + '40' }}>
+              <Text style={{ fontSize: 11, color: theme.colors.onSurface, lineHeight: 16 }}>
+                💡 <Text style={{ fontWeight: '700' }}>Integridad Contable:</Text> Sus gastos y registros realizados en cuentas compartidas de la familia se conservarán en el historial del grupo para mantener el balance contable intacto.
+              </Text>
+            </View>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => setIsRemoveMemberDialogVisible(false)}
+              textColor={theme.customColors.textSecondary}
+              disabled={removingMember}
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={theme.colors.error}
+              onPress={handleConfirmRemoveMember}
+              loading={removingMember}
+              disabled={removingMember}
+              style={{ marginLeft: 8 }}
+            >
+              Desvincular Miembro
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* DIÁLOGO 3: CANCELAR / ELIMINAR INVITACIÓN */}
+        <Dialog visible={isCancelInviteDialogVisible} onDismiss={() => !cancellingInvite && setIsCancelInviteDialogVisible(false)}>
+          <Dialog.Title>Cancelar Invitación</Dialog.Title>
+          <Dialog.Content>
+            <Text style={theme.typography.body}>
+              ¿Deseas revocar la invitación enviada a <Text style={{ fontWeight: '700' }}>{targetInviteToCancel?.invitedEmail}</Text>?
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button
+              onPress={() => setIsCancelInviteDialogVisible(false)}
+              textColor={theme.customColors.textSecondary}
+              disabled={cancellingInvite}
+            >
+              No, Mantener
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={theme.colors.error}
+              onPress={handleConfirmCancelInvite}
+              loading={cancellingInvite}
+              disabled={cancellingInvite}
+              style={{ marginLeft: 8 }}
+            >
+              Sí, Cancelar Invitación
             </Button>
           </Dialog.Actions>
         </Dialog>
