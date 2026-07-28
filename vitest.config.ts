@@ -9,16 +9,21 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/domain/**/*.test.ts', 'src/shared/**/*.test.ts'],
+    include: ['src/domain/**/*.test.ts', 'src/data/**/*.test.ts', 'src/infrastructure/**/*.test.ts', 'src/shared/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['src/domain/**/*.ts'],
-      exclude: ['src/domain/**/index.ts', 'src/domain/**/*.test.ts'],
+      include: ['src/domain/**/*.ts', 'src/data/models/Mapper.ts'],
+      exclude: [
+        'src/domain/**/index.ts',
+        'src/domain/**/*.test.ts',
+        'src/domain/entities/**/*.ts',
+        'src/domain/repositories/**/*.ts',
+      ],
       thresholds: {
-        statements: 70,
-        branches: 70,
-        functions: 70,
-        lines: 70,
+        statements: 80,
+        branches: 80,
+        functions: 80,
+        lines: 80,
       },
     },
   },

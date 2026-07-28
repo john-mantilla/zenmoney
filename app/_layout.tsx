@@ -30,6 +30,9 @@ import { AppAlertProvider } from '@/src/presentation/services/AppAlert';
 import { LocalDatabase } from '@/src/data/local/LocalDatabase';
 import NetInfo from '@react-native-community/netinfo';
 import { SyncService } from '@/src/infrastructure/services/SyncService';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/src/infrastructure/state/queryClient';
+import { AppErrorBoundary } from '@/src/presentation/components';
 
 // Ocultar advertencias inocuas de React Web para librerías nativas de gráficos
 if (Platform.OS === 'web') {
@@ -188,20 +191,24 @@ function RootLayoutNav() {
   const currentTheme = colorScheme === 'dark' ? darkTheme : lightTheme;
 
   return (
-    <PaperProvider theme={currentTheme}>
-      <AppAlertProvider />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="assistant"
-          options={{
-            presentation: 'modal',
-            animation: 'slide_from_bottom',
-          }}
-        />
-      </Stack>
-    </PaperProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <PaperProvider theme={currentTheme}>
+          <AppAlertProvider />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="assistant"
+              options={{
+                presentation: 'modal',
+                animation: 'slide_from_bottom',
+              }}
+            />
+          </Stack>
+        </PaperProvider>
+      </QueryClientProvider>
+    </AppErrorBoundary>
   );
 }
 

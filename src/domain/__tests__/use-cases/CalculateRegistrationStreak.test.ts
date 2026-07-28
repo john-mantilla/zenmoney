@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CalculateRegistrationStreak } from './CalculateRegistrationStreak';
+import { CalculateRegistrationStreak } from '../../usecases/CalculateRegistrationStreak';
 
 describe('CalculateRegistrationStreak', () => {
   it('cuenta la racha activa incluyendo el día de hoy', () => {
@@ -15,7 +15,7 @@ describe('CalculateRegistrationStreak', () => {
   });
 
   it('la racha se detiene en el primer día sin registro', () => {
-    const dates = ['2026-07-13', '2026-07-12', '2026-07-09']; // hueco el 10 y 11
+    const dates = ['2026-07-13', '2026-07-12', '2026-07-09'];
     const streak = new CalculateRegistrationStreak().execute(dates, '2026-07-13');
     expect(streak).toBe(2);
   });

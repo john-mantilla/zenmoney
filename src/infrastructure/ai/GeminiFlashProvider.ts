@@ -34,13 +34,14 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 3, de
 export class GeminiFlashProvider implements AIProvider {
   readonly name = 'Google Gemini Flash Hybrid Provider';
 
-  private getApiKey(): string {
+  private getApiKey(): string | null {
     const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
     if (!key) {
-      throw new Error(
-        'Clave API de Gemini no configurada. ' +
-        'Por favor agrega EXPO_PUBLIC_GEMINI_API_KEY a tu archivo .env'
+      console.warn(
+        '[Gemini Client] No se detectó EXPO_PUBLIC_GEMINI_API_KEY en cliente. ' +
+        'El procesamiento se realiza de forma segura mediante Supabase Edge Functions (server-side).'
       );
+      return null;
     }
     return key;
   }
@@ -102,6 +103,12 @@ export class GeminiFlashProvider implements AIProvider {
 
     // ─── 2. FALLBACK: LLAMADA DIRECTA DESDE EL CLIENTE (CLIENT-SIDE) ───
     const apiKey = this.getApiKey();
+    if (!apiKey) {
+      throw new Error(
+        'No se pudo conectar con el servicio de IA. ' +
+        'Por favor verifica la conexión con Supabase Edge Functions.'
+      );
+    }
 
     const prompt = `
       Analiza la frase de transacción en español y extrae los detalles en formato JSON estricto.
@@ -250,6 +257,12 @@ export class GeminiFlashProvider implements AIProvider {
 
     // ─── 2. FALLBACK: LLAMADA DIRECTA DESDE EL CLIENTE (CLIENT-SIDE) ───
     const apiKey = this.getApiKey();
+    if (!apiKey) {
+      throw new Error(
+        'No se pudo conectar con el servicio de lectura de recibos. ' +
+        'Por favor verifica la conexión con Supabase Edge Functions.'
+      );
+    }
 
     const prompt = `
       Analiza la imagen de un recibo o factura de compra y extrae los detalles en formato JSON estricto.

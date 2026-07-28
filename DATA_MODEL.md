@@ -206,29 +206,35 @@ Creados para acelerar consultas comunes de visualización y filtrado:
 
 ---
 
-## 4. Políticas de Row-Level Security (RLS)
-La base de datos tiene RLS habilitado en todas las tablas. Se apoya en dos funciones seguras (`SECURITY DEFINER`):
+## 4. Políticas de Row-Level Security (RLS) & Auditoría Multi-Tenant
+
+La base de datos cuenta con **RLS habilitado en el 100% de las tablas** y reforzado mediante la migración [`00011_rls_audit_and_hardening.sql`](file:///d:/Documentos/Iniciativas/FinanzasPersonales/zenmoney/supabase/migrations/00011_rls_audit_and_hardening.sql). Se apoya en tres funciones seguras (`SECURITY DEFINER`):
+- `public.get_user_profile_id()`: Retorna el `id` del perfil de usuario del usuario autenticado.
 - `public.get_user_family_group_id()`: Retorna el `family_group_id` del usuario autenticado leyendo su perfil.
 - `public.get_user_role()`: Retorna el rol del usuario autenticado (`admin`, `editor`, `viewer`).
 
-### Resumen de Políticas de Acceso
+### Resumen de Matriz de Auditoría de Políticas de Acceso
 
-| Tabla | Operación | Regla de Acceso (Políticas) |
+| Tabla | Operación | Regla de Acceso (Políticas RLS Reforzadas) |
 |---|---|---|
 | `family_groups` | `SELECT` | `id = get_user_family_group_id()` |
 | | `INSERT` | Cualquier usuario autenticado (durante el registro) |
 | | `UPDATE` | Miembro con rol `'admin'` únicamente |
 | `user_profiles` | `SELECT` | `family_group_id = get_user_family_group_id()` |
-| | `INSERT` | Si el `auth_user_id` coincide con el suyo (registro propio) u otro administrador del grupo familiar |
+| | `INSERT` | Si el `auth_user_id` coincide con el suyo o administrador del grupo familiar |
 | | `UPDATE` | Miembros con rol `'admin'` |
-| `accounts` | `ALL` | `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` (`SELECT` permitido a `viewer`) |
-| `categories` | `SELECT` | `is_system = true OR family_group_id = get_user_family_group_id()` |
-| | `INSERT/UPD/DEL` | `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` |
-| `transactions` | `ALL` | `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` (`SELECT` permitido a `viewer`) |
+| `accounts` | `SELECT` | `family_group_id = get_user_family_group_id() AND (is_private = false OR created_by_user_id = get_user_profile_id())` |
+| | `INSERT/UPD/DEL`| `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` |
+| `categories` | `SELECT` | `family_group_id IS NULL OR family_group_id = get_user_family_group_id()` |
+| | `INSERT/UPD/DEL`| `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` |
+| `transactions` | `SELECT` | `family_group_id = get_user_family_group_id() AND (is_private = false OR created_by_user_id = get_user_profile_id())` |
+| | `INSERT/UPD/DEL`| `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` |
 | `recurring_rules`| `ALL` | `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` (`SELECT` permitido a `viewer`) |
 | `budgets` | `ALL` | `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` (`SELECT` permitido a `viewer`) |
 | `savings_goals` | `ALL` | `family_group_id = get_user_family_group_id() AND get_user_role() IN ('admin', 'editor')` (`SELECT` permitido a `viewer`) |
-| `notification_prefs` | `ALL` | `user_id` de la fila debe corresponder al perfil del usuario autenticado |
+| `assistant_messages` | `ALL` | `user_id = get_user_profile_id()` (Aislamiento total por usuario, no compartido con familia) |
+| `family_invitations` | `ALL` | `family_group_id = get_user_family_group_id() AND get_user_role() = 'admin'` |
+| `audit_logs` | `SELECT` | `family_group_id = get_user_family_group_id()` (Lectura inmutable para el hogar; `INSERT/UPD/DEL` bloqueados públicamente) |
 
 ---
 

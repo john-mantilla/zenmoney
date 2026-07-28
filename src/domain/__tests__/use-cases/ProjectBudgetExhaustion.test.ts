@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ProjectBudgetExhaustion } from './ProjectBudgetExhaustion';
-import { Budget, BudgetProgress } from '../entities/Budget';
+import { ProjectBudgetExhaustion } from '../../usecases/ProjectBudgetExhaustion';
+import { Budget, BudgetProgress } from '../../entities/Budget';
 
 function makeProgress(overrides: Partial<BudgetProgress> = {}): BudgetProgress {
   const budget: Budget = {
@@ -26,8 +26,6 @@ function makeProgress(overrides: Partial<BudgetProgress> = {}): BudgetProgress {
 
 describe('ProjectBudgetExhaustion', () => {
   it('proyecta que se agotará antes de fin de mes si el ritmo actual lo supera', () => {
-    // Gastados 200.000 en 10 días -> 20.000/día. Quedan 60.000 -> 3 días para agotarse.
-    // Quedan 8 días de mes -> se agotará ANTES de fin de mes (3 <= 8).
     const progress = makeProgress({ spent: 200000, remaining: 60000 });
     const result = new ProjectBudgetExhaustion().execute(progress, 10, 8);
     expect(result.willExceedBeforeMonthEnd).toBe(true);
@@ -35,15 +33,13 @@ describe('ProjectBudgetExhaustion', () => {
   });
 
   it('no proyecta agotamiento si el ritmo actual alcanza para todo el mes', () => {
-    // Gastados 60.000 en 10 días -> 6.000/día. Quedan 240.000 -> 40 días para agotarse.
-    // Quedan 20 días de mes -> NO se agota antes de fin de mes.
     const progress = makeProgress({ spent: 60000, remaining: 240000 });
     const result = new ProjectBudgetExhaustion().execute(progress, 10, 20);
     expect(result.willExceedBeforeMonthEnd).toBe(false);
     expect(result.daysUntilExceeded).toBeNull();
   });
 
-  it('no proyecta nada si el presupuesto ya está excedido (lo cubre la alerta de 100%)', () => {
+  it('no proyecta nada si el presupuesto ya está excedido', () => {
     const progress = makeProgress({ status: 'exceeded', spent: 350000, remaining: -50000 });
     const result = new ProjectBudgetExhaustion().execute(progress, 15, 15);
     expect(result.willExceedBeforeMonthEnd).toBe(false);

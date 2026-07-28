@@ -1,15 +1,11 @@
 /**
  * ZenMoney — Pruebas: CalculateAccountBalance
- *
- * Verifica la lógica contable central: un gasto SIEMPRE debe disminuir el
- * disponible de una cuenta estándar (efectivo/banco/inversión) y SIEMPRE
- * debe aumentar la deuda de una cuenta de deuda (tarjeta/crédito/hipoteca).
  */
 import { describe, it, expect } from 'vitest';
-import { CalculateAccountBalance } from './CalculateAccountBalance';
-import { Account } from '../entities/Account';
-import { Transaction } from '../entities/Transaction';
-import { TransactionRepository, TransactionFilters } from '../repositories/TransactionRepository';
+import { CalculateAccountBalance } from '../../usecases/CalculateAccountBalance';
+import { Account } from '../../entities/Account';
+import { Transaction } from '../../entities/Transaction';
+import { TransactionRepository, TransactionFilters } from '../../repositories/TransactionRepository';
 
 function makeAccount(overrides: Partial<Account> = {}): Account {
   return {
@@ -53,8 +49,6 @@ function makeTx(overrides: Partial<Transaction> = {}): Transaction {
   };
 }
 
-/** Repositorio falso que replica el filtro real de Supabase: accountId hace match
- *  por accountId de origen O transferToAccountId de destino, y respeta status. */
 class FakeTransactionRepository implements TransactionRepository {
   constructor(private all: Transaction[]) {}
 
@@ -137,7 +131,7 @@ describe('CalculateAccountBalance — cuentas estándar (efectivo/banco/inversi�
     expect(balance).toBe(100000);
   });
 
-  it('gastos consecutivos siguen disminuyendo el disponible (no se invierte con el signo)', async () => {
+  it('gastos consecutivos siguen disminuyendo el disponible', async () => {
     const account = makeAccount({ type: 'cash', initialBalance: 50000 });
     const repo = new FakeTransactionRepository([
       makeTx({ id: 'tx-a', type: 'expense', amount: 20000, accountId: account.id }),

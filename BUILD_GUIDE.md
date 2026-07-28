@@ -109,17 +109,46 @@ Al completarse, EAS retorna:
 
 ```json
 {
+  "cli": {
+    "version": ">= 15.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "development"
+    },
+    "staging": {
+      "distribution": "internal",
+      "channel": "staging",
+      "android": { "buildType": "apk" }
+    },
     "preview": {
       "distribution": "internal",
-      "android": {
-        "buildType": "apk"  // ← Genera APK (no bundle)
-      }
+      "channel": "preview",
+      "android": { "buildType": "apk" }
     },
-    "production": { }
+    "production": {
+      "channel": "production",
+      "autoIncrement": true
+    }
   }
 }
 ```
+
+### Plantillas de Variables de Entorno
+
+- **`.env.example`**: Plantilla base con la lista de claves necesarias (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_GEMINI_API_KEY`, `SENTRY_DSN`, `LOG_LEVEL`).
+- **`.env.staging`**: Variables orientadas al entorno de pruebas.
+- **`.env.production`**: Variables para la versión final distribuida en tiendas.
+
+### Optimización del Bundler Metro (`metro.config.js`)
+
+Se habilitaron las siguientes optimizaciones en Metro Bundler:
+- `unstable_allowRequireContext: true`: Resolución eficiente de módulos dinámicos en Expo Router.
+- `unstable_enablePackageExports: true`: Habilita exports condicionales (tree-shaking de dependencias).
+- Cabeceras COOP/COEP y extensión `.wasm` para el soporte offline con `expo-sqlite` en navegadores Web.
 
 **Nota:** `appVersionSource: "remote"` en `eas.json` hace que el **version code** se incremente automáticamente en cada build.
 

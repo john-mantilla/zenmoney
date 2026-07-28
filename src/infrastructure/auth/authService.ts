@@ -199,10 +199,47 @@ export class AuthService {
   }
 
   /**
-   * Cierra la sesión del usuario.
+   * Cierra la sesión del usuario en el dispositivo actual.
    */
   static async signOut(): Promise<void> {
     const { error } = await supabase.auth.signOut();
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Cierra la sesión e invalida los tokens en TODOS los dispositivos activos.
+   */
+  static async signOutAllDevices(): Promise<void> {
+    const { error } = await supabase.auth.signOut({ scope: 'global' });
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Inicia el flujo de autenticación SSO con Google.
+   */
+  static async signInWithGoogle(): Promise<void> {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: typeof window !== 'undefined' ? window.location.origin : 'zenmoney://auth/callback',
+      },
+    });
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  /**
+   * Vincula la identidad de Google a una cuenta existente autenticada.
+   */
+  static async linkGoogleAccount(): Promise<void> {
+    const { error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+    });
     if (error) {
       throw new Error(error.message);
     }

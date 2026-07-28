@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MatchCategorizationRule } from './MatchCategorizationRule';
-import { CategorizationRule } from '../entities/CategorizationRule';
+import { MatchCategorizationRule } from '../../usecases/MatchCategorizationRule';
+import { CategorizationRule } from '../../entities/CategorizationRule';
 
 function makeRule(overrides: Partial<CategorizationRule> = {}): CategorizationRule {
   return {

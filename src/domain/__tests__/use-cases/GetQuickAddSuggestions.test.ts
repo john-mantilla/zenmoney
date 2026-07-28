@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { GetQuickAddSuggestions } from './GetQuickAddSuggestions';
-import { Transaction } from '../entities/Transaction';
-import { TransactionRepository, TransactionFilters } from '../repositories/TransactionRepository';
+import { GetQuickAddSuggestions } from '../../usecases/GetQuickAddSuggestions';
+import { Transaction } from '../../entities/Transaction';
+import { TransactionRepository, TransactionFilters } from '../../repositories/TransactionRepository';
 
 function makeTx(overrides: Partial<Transaction> = {}): Transaction {
   return {
@@ -30,8 +30,6 @@ function makeTx(overrides: Partial<Transaction> = {}): Transaction {
   };
 }
 
-/** Repositorio falso: ya devuelve las transacciones en el orden que pide la
- *  UI real (más reciente primero), como hace Supabase con el "order by". */
 class FakeTransactionRepository implements TransactionRepository {
   constructor(private ordered: Transaction[]) {}
   async getAll(_filters?: TransactionFilters): Promise<Transaction[]> {
@@ -59,7 +57,7 @@ describe('GetQuickAddSuggestions', () => {
     const repo = new FakeTransactionRepository([
       makeTx({ id: 't1', accountId: 'acc-1', merchantName: 'Éxito' }),
       makeTx({ id: 't2', accountId: 'acc-1', merchantName: 'Uber' }),
-      makeTx({ id: 't3', accountId: 'acc-1', merchantName: 'éxito' }), // duplicado (case-insensitive)
+      makeTx({ id: 't3', accountId: 'acc-1', merchantName: 'éxito' }),
       makeTx({ id: 't4', accountId: 'acc-2', merchantName: 'Netflix' }),
     ]);
     const result = await new GetQuickAddSuggestions(repo).execute();

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DetectRegistrationGap } from './DetectRegistrationGap';
-import { Transaction } from '../entities/Transaction';
+import { DetectRegistrationGap } from '../../usecases/DetectRegistrationGap';
+import { Transaction } from '../../entities/Transaction';
 
 function makeTx(overrides: Partial<Transaction> = {}): Transaction {
   return {
@@ -37,20 +37,17 @@ describe('DetectRegistrationGap', () => {
   });
 
   it('detecta un vacío cuando el usuario registra casi a diario y lleva varios días sin nada', () => {
-    // Historial: gasto casi todos los días durante los últimos 20 días -> ritmo esperado ~1 día
     const txs = Array.from({ length: 20 }, (_, i) => {
       const d = new Date('2026-07-05T00:00:00');
       d.setDate(d.getDate() - i);
       return makeTx({ id: `tx-${i}`, transactionDate: d.toISOString().split('T')[0] });
     });
-    // Hoy es 2026-07-13: han pasado 8 días desde el último gasto (2026-07-05)
     const result = new DetectRegistrationGap().execute(txs, '2026-07-13');
     expect(result.hasGap).toBe(true);
     expect(result.daysSinceLastTransaction).toBe(8);
   });
 
   it('no alerta si el usuario registra esporádicamente y el vacío actual es normal para su ritmo', () => {
-    // Historial: un gasto cada ~10 días -> ritmo esperado alto, no debería alarmarse por unos pocos días
     const txs = [
       makeTx({ id: 'tx-1', transactionDate: '2026-06-15' }),
       makeTx({ id: 'tx-2', transactionDate: '2026-06-25' }),
@@ -68,7 +65,6 @@ describe('DetectRegistrationGap', () => {
       ...Array.from({ length: 6 }, (_, i) => makeTx({ id: `tx-old-${i}`, transactionDate: `2026-06-0${i + 1}` })),
     ];
     const result = new DetectRegistrationGap().execute(txs, '2026-07-13');
-    // La última CONFIRMADA es de junio, no la pending de julio
     expect(result.daysSinceLastTransaction).toBeGreaterThan(30);
   });
 });

@@ -512,7 +512,7 @@ export default function BudgetsScreen() {
         {/* ─── TARJETA CONSOLIDADA: RESUMEN DEL PRESUPUESTO ───────────────────────── */}
         <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
           <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600', marginBottom: 6 }]}>
-            Resumen del presupuesto {selectedScopeFilter === 'individual' ? '(🔒 Mis Personales)' : selectedScopeFilter === 'family' ? '(🌐 Compartidos)' : '(📊 Todos)'}
+            Resumen del presupuesto {selectedScopeFilter === 'individual' ? '(Mis Personales)' : selectedScopeFilter === 'family' ? '(Compartidos)' : '(Todos)'}
           </Text>
           
           <Text style={[theme.typography.amountLarge, { color: availableBudget >= 0 ? '#059669' : '#DC2626', fontSize: 32, fontWeight: '800' }]}>
@@ -566,9 +566,9 @@ export default function BudgetsScreen() {
             value={selectedScopeFilter}
             onValueChange={(val: string) => setSelectedScopeFilter(val as any)}
             buttons={[
-              { value: 'all', label: '📊 Todos', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-              { value: 'family', label: '🌐 Compartidos', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-              { value: 'individual', label: '🔒 Personales', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'all', label: 'Todos', icon: 'chart-arc', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'family', label: 'Compartidos', icon: 'account-group-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+              { value: 'individual', label: 'Personales', icon: 'lock-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
             ]}
             density="small"
           />
@@ -837,8 +837,8 @@ export default function BudgetsScreen() {
               value={selectedScope}
               onValueChange={(val: string) => setSelectedScope(val as 'family' | 'individual')}
               buttons={[
-                { value: 'family', label: '🌐 Familiar', icon: 'account-group-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-                { value: 'individual', label: '🔒 Personal (Privado)', icon: 'lock-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                { value: 'family', label: 'Familiar', icon: 'account-group-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
+                { value: 'individual', label: 'Personal (Privado)', icon: 'lock-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
               ]}
               density="small"
               style={{ marginBottom: 12 }}

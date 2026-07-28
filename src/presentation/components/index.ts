@@ -15,6 +15,7 @@ export * from './ExpenseDonut';
 export * from './CustomNumpad';
 export * from './VoicePulseWave';
 export * from './CategoryBottomSheet';
+export * from './AppErrorBoundary';
 
 
 

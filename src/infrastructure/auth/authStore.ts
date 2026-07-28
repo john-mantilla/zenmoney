@@ -28,6 +28,9 @@ interface AuthActions {
     familyGroupName?: string,
   ) => Promise<boolean>;
   signOut: () => Promise<void>;
+  signOutAllDevices: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  linkGoogleAccount: () => Promise<boolean>;
   setUserProfile: (profile: UserProfile) => void;
   setFamilyGroup: (group: FamilyGroup) => void;
   setHasAccounts: (has: boolean) => void;
@@ -174,6 +177,50 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       set({ error: err instanceof Error ? err.message : 'Error al cerrar sesión' });
     } finally {
       set({ isLoading: false });
+    }
+  },
+
+  signOutAllDevices: async () => {
+    set({ isLoading: true });
+    try {
+      await AuthService.signOutAllDevices();
+      set({
+        isAuthenticated: false,
+        userProfile: null,
+        familyGroup: null,
+        error: null,
+      });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Error al cerrar sesión en todos los dispositivos' });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  signInWithGoogle: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      await AuthService.signInWithGoogle();
+    } catch (err) {
+      set({
+        isLoading: false,
+        error: err instanceof Error ? err.message : 'Error al iniciar sesión con Google',
+      });
+    }
+  },
+
+  linkGoogleAccount: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      await AuthService.linkGoogleAccount();
+      set({ isLoading: false });
+      return true;
+    } catch (err) {
+      set({
+        isLoading: false,
+        error: err instanceof Error ? err.message : 'Error al vincular la cuenta de Google',
+      });
+      return false;
     }
   },
 

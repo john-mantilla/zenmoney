@@ -3,7 +3,7 @@
  */
 
 export type TransactionType = 'income' | 'expense' | 'transfer';
-export type TransactionStatus = 'confirmed' | 'pending';
+export type TransactionStatus = 'confirmed' | 'pending' | 'archived';
 export type InputMethod = 'manual' | 'voice' | 'nlq' | 'email' | 'photo';
 
 export interface AIMetadata {

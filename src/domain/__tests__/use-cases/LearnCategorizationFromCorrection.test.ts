@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { LearnCategorizationFromCorrection } from './LearnCategorizationFromCorrection';
-import { CategorizationRule, CreateCategorizationRuleInput } from '../entities/CategorizationRule';
-import { CategorizationRuleRepository } from '../repositories/CategorizationRuleRepository';
+import { LearnCategorizationFromCorrection } from '../../usecases/LearnCategorizationFromCorrection';
+import { CategorizationRule, CreateCategorizationRuleInput } from '../../entities/CategorizationRule';
+import { CategorizationRuleRepository } from '../../repositories/CategorizationRuleRepository';
 
 function makeRule(overrides: Partial<CategorizationRule> = {}): CategorizationRule {
   return {

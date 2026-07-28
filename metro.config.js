@@ -2,10 +2,21 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
-// Add 'wasm' to the asset extensions
+// 1. Soporte para archivos Wasm (requerido por expo-sqlite)
 config.resolver.assetExts.push('wasm');
 
-// Add COEP and COOP headers to support SharedArrayBuffer in expo-sqlite web
+// 2. Optimizaciones de resolución y tree-shaking para Expo Router
+config.transformer = {
+  ...config.transformer,
+  unstable_allowRequireContext: true,
+};
+
+config.resolver = {
+  ...config.resolver,
+  unstable_enablePackageExports: true,
+};
+
+// 3. Cabeceras COEP y COOP para soporte de SharedArrayBuffer en expo-sqlite Web
 config.server = {
   ...config.server,
   enhanceMiddleware: (middleware) => {
