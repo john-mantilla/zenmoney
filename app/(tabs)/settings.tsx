@@ -162,6 +162,47 @@ export default function SettingsScreen() {
           />
         </Surface>
 
+        {/* ─── TARJETA DE SEGURIDAD Y SESIONES ──────────────────────────── */}
+        <Text style={[styles.sectionHeader, theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+          SEGURIDAD Y CUENTA
+        </Text>
+
+        <Surface style={[styles.menuCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '25' }]}>
+          <List.Item
+            title="Vincular Cuenta de Google"
+            titleStyle={{ fontWeight: '600', color: theme.colors.onSurface }}
+            description="Permite inicio de sesión con 1 click usando Google SSO"
+            descriptionStyle={{ color: theme.customColors.textSecondary, fontSize: 12 }}
+            left={props => (
+              <View style={[styles.iconCircle, { backgroundColor: '#EA433515' }]}>
+                <MaterialCommunityIcons name="google" size={20} color="#EA4335" />
+              </View>
+            )}
+            onPress={async () => {
+              const success = await useAuthStore.getState().linkGoogleAccount();
+              if (success) {
+                alert('Cuenta de Google vinculada exitosamente.');
+              }
+            }}
+            style={styles.menuItem}
+          />
+          <Divider style={{ backgroundColor: theme.colors.outline + '15' }} />
+
+          <List.Item
+            title="Cerrar Sesión en Todos los Dispositivos"
+            titleStyle={{ fontWeight: '600', color: theme.colors.error }}
+            description="Invalida el acceso en celulares o equipos remotos"
+            descriptionStyle={{ color: theme.customColors.textSecondary, fontSize: 12 }}
+            left={props => (
+              <View style={[styles.iconCircle, { backgroundColor: '#DC262615' }]}>
+                <MaterialCommunityIcons name="shield-lock-outline" size={20} color="#DC2626" />
+              </View>
+            )}
+            onPress={useAuthStore.getState().signOutAllDevices}
+            style={styles.menuItem}
+          />
+        </Surface>
+
         {/* ─── TARJETA DE ESTADO DE SINCRONIZACIÓN SUPABASE ──────────────── */}
         <Surface style={[styles.syncCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '20' }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -184,7 +225,7 @@ export default function SettingsScreen() {
           style={styles.signOutButton}
           textColor={theme.colors.error}
         >
-          Cerrar Sesión
+          Cerrar Sesión (Este Dispositivo)
         </Button>
 
         <Text style={styles.versionText}>

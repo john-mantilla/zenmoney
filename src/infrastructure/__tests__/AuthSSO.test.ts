@@ -26,6 +26,7 @@ describe('AuthService — SSO & Global Session Revocation', () => {
     await AuthService.linkGoogleAccount();
     expect(supabase.auth.linkIdentity).toHaveBeenCalledWith({
       provider: 'google',
+      options: expect.objectContaining({ redirectTo: expect.any(String) }),
     });
   });
 

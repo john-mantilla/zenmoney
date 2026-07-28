@@ -102,6 +102,24 @@ export default function LoginScreen() {
             Iniciar Sesión
           </Button>
 
+          <View style={styles.dividerContainer}>
+            <View style={[styles.dividerLine, { backgroundColor: theme.colors.outlineVariant || '#E0E0E0' }]} />
+            <Text style={[styles.dividerText, { color: theme.customColors.textSecondary }]}>O</Text>
+            <View style={[styles.dividerLine, { backgroundColor: theme.colors.outlineVariant || '#E0E0E0' }]} />
+          </View>
+
+          <Button
+            mode="outlined"
+            onPress={useAuthStore.getState().signInWithGoogle}
+            loading={isLoading}
+            disabled={isLoading}
+            icon="google"
+            style={styles.googleButton}
+            labelStyle={{ fontWeight: '600' }}
+          >
+            Continuar con Google
+          </Button>
+
           <View style={styles.footer}>
             <Text style={[theme.typography.bodySmall, { color: theme.customColors.textSecondary }]}>
               ¿No tienes una cuenta familiar?{' '}
@@ -155,6 +173,25 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 4,
     marginTop: 8,
+  },
+  dividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  googleButton: {
+    borderRadius: 8,
+    paddingVertical: 2,
+    borderColor: '#CCCCCC',
   },
   footer: {
     flexDirection: 'row',

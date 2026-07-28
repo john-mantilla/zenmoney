@@ -222,7 +222,7 @@ export class AuthService {
    * Inicia el flujo de autenticación SSO con Google.
    */
   static async signInWithGoogle(): Promise<void> {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: typeof window !== 'undefined' ? window.location.origin : 'zenmoney://auth/callback',
@@ -231,17 +231,26 @@ export class AuthService {
     if (error) {
       throw new Error(error.message);
     }
+    if (data?.url && typeof window !== 'undefined') {
+      window.location.href = data.url;
+    }
   }
 
   /**
    * Vincula la identidad de Google a una cuenta existente autenticada.
    */
   static async linkGoogleAccount(): Promise<void> {
-    const { error } = await supabase.auth.linkIdentity({
+    const { data, error } = await supabase.auth.linkIdentity({
       provider: 'google',
+      options: {
+        redirectTo: typeof window !== 'undefined' ? window.location.origin : 'zenmoney://auth/callback',
+      },
     });
     if (error) {
       throw new Error(error.message);
+    }
+    if (data?.url && typeof window !== 'undefined') {
+      window.location.href = data.url;
     }
   }
 }
