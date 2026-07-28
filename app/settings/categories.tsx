@@ -1,14 +1,14 @@
 /**
- * ZenMoney — Gestión de Categorías y Subcategorías (Modular)
+ * ZenMoney — Gestión de Categorías y Subcategorías (Modular & Adaptativo)
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, List, IconButton, Appbar } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, Appbar } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
-import { Category } from '@/src/domain/entities/Category';
+import { Category, inferCategoryBudgetRole } from '@/src/domain/entities/Category';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -21,9 +21,13 @@ export default function SettingsCategoriesScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Acordeones abiertos
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+
   // Estados de diálogo
   const [isDialogVisible, setIsDialogVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newBudgetRole, setNewBudgetRole] = useState<'needs' | 'wants' | 'savings' | 'charity' | 'income' | 'ignore'>('needs');
   const [parentCategoryIdForNew, setParentCategoryIdForNew] = useState<string>('');
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
@@ -51,6 +55,8 @@ export default function SettingsCategoriesScreen() {
   const handleOpenEditDialog = (category: Category) => {
     setEditingCategory(category);
     setNewCategoryName(category.name);
+    const inferred = inferCategoryBudgetRole(category.name, undefined, category.budgetRole);
+    setNewBudgetRole(inferred);
     setParentCategoryIdForNew(category.parentCategoryId || '');
     setIsDialogVisible(true);
   };
@@ -62,6 +68,7 @@ export default function SettingsCategoriesScreen() {
       if (editingCategory) {
         await categoryRepo.update(editingCategory.id, {
           name: newCategoryName.trim(),
+          budgetRole: newBudgetRole,
         });
       } else {
         await categoryRepo.create({
@@ -69,6 +76,7 @@ export default function SettingsCategoriesScreen() {
           icon: parentCategoryIdForNew ? 'tag' : 'folder-outline',
           color: theme.colors.primary,
           parentCategoryId: parentCategoryIdForNew || undefined,
+          budgetRole: newBudgetRole,
           isPrivate: false,
         });
       }
@@ -92,10 +100,33 @@ export default function SettingsCategoriesScreen() {
     }
   };
 
-  const parentCategories = categories.filter(c => !c.parentCategoryId);
-  
+  const toggleAccordion = (id: string) => {
+    setExpandedCats((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const parentCategories = categories.filter((c) => !c.parentCategoryId);
+
   const getSubcategories = (parentId: string) => {
-    return categories.filter(c => c.parentCategoryId === parentId);
+    return categories.filter((c) => c.parentCategoryId === parentId);
+  };
+
+  const getRoleLabel = (role?: string, name?: string, parentName?: string) => {
+    const effectiveRole = name ? inferCategoryBudgetRole(name, parentName, role as any) : role || 'needs';
+    switch (effectiveRole) {
+      case 'wants':
+        return { label: '🟡 Deseo', color: '#D97706', bg: '#D9770615' };
+      case 'savings':
+        return { label: '🔵 Ahorro', color: '#2563EB', bg: '#2563EB15' };
+      case 'charity':
+        return { label: '🟢 Caridad', color: '#059669', bg: '#05966915' };
+      case 'income':
+        return { label: '🟢 Ingreso', color: '#10B981', bg: '#10B98115' };
+      case 'ignore':
+        return { label: '⚪ Ignorar', color: '#6B7280', bg: '#6B728015' };
+      case 'needs':
+      default:
+        return { label: '🔴 Necesidad', color: '#E11D48', bg: '#E11D4815' };
+    }
   };
 
   return (
@@ -109,7 +140,13 @@ export default function SettingsCategoriesScreen() {
         <Button
           mode="contained"
           icon="plus"
-          onPress={() => { setParentCategoryIdForNew(''); setEditingCategory(null); setNewCategoryName(''); setIsDialogVisible(true); }}
+          onPress={() => {
+            setParentCategoryIdForNew('');
+            setEditingCategory(null);
+            setNewCategoryName('');
+            setNewBudgetRole('needs');
+            setIsDialogVisible(true);
+          }}
           style={styles.addBtn}
         >
           Nueva Categoría
@@ -119,89 +156,136 @@ export default function SettingsCategoriesScreen() {
           <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginTop: 24 }} />
         ) : (
           <Card style={styles.card}>
-            <Card.Content>
+            <Card.Content style={{ paddingHorizontal: 0, paddingVertical: 0 }}>
               {parentCategories.length === 0 ? (
                 <Text style={{ textAlign: 'center', opacity: 0.6, paddingVertical: 24 }}>
                   No tienes categorías configuradas.
                 </Text>
               ) : (
-                parentCategories.map(parentCat => {
+                parentCategories.map((parentCat) => {
                   const subs = getSubcategories(parentCat.id);
+                  const pBadge = getRoleLabel(parentCat.budgetRole, parentCat.name);
+                  const isExpanded = !!expandedCats[parentCat.id];
+
                   return (
-                    <List.Accordion
-                      key={parentCat.id}
-                      title={parentCat.name}
-                      description={`${subs.length} subcategorías`}
-                      left={props => (
-                        <List.Icon
-                          {...props}
-                          icon={parentCat.icon || 'tag'}
-                          color={theme.colors.primary}
-                        />
-                      )}
-                      right={({ isExpanded }) => (
-                        <View style={styles.accordionRightRow}>
-                          {!parentCat.isSystem && (
-                            <>
-                              <IconButton
-                                icon="pencil-outline"
-                                iconColor={theme.colors.primary}
-                                size={18}
-                                onPress={() => handleOpenEditDialog(parentCat)}
-                              />
-                              <IconButton
-                                icon="trash-can-outline"
-                                iconColor={theme.colors.error}
-                                size={18}
-                                onPress={() => handleDeleteCategory(parentCat.id)}
-                              />
-                            </>
-                          )}
+                    <View key={parentCat.id} style={styles.accordionContainer}>
+                      {/* Cabecera de Categoría Principal */}
+                      <View style={styles.accordionHeaderRow}>
+                        <TouchableOpacity
+                          style={styles.accordionTitleArea}
+                          onPress={() => toggleAccordion(parentCat.id)}
+                        >
                           <MaterialCommunityIcons
-                            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                            size={20}
-                            color={theme.customColors.textSecondary}
+                            name={(parentCat.icon as any) || 'tag'}
+                            size={22}
+                            color={theme.colors.primary}
+                            style={{ marginRight: 12 }}
                           />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontWeight: '700', fontSize: 14, color: theme.colors.onSurface }}>
+                              {parentCat.name}
+                            </Text>
+                            <Text style={{ fontSize: 11, color: theme.customColors.textSecondary, marginTop: 2 }}>
+                              {subs.length} subcategorías
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+
+                        {/* Botones de Acción */}
+                        <View style={styles.accordionRightRow}>
+                          <TouchableOpacity
+                            style={[styles.badgeChip, { backgroundColor: pBadge.bg }]}
+                            onPress={() => handleOpenEditDialog(parentCat)}
+                          >
+                            <Text style={{ color: pBadge.color, fontSize: 11, fontWeight: '700' }}>
+                              {pBadge.label}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={{ padding: 6, marginRight: 2 }}
+                            onPress={() => handleOpenEditDialog(parentCat)}
+                          >
+                            <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.primary} />
+                          </TouchableOpacity>
+
+                          {!parentCat.isSystem && (
+                            <TouchableOpacity
+                              style={{ padding: 6, marginRight: 2 }}
+                              onPress={() => handleDeleteCategory(parentCat.id)}
+                            >
+                              <MaterialCommunityIcons name="trash-can-outline" size={18} color={theme.colors.error} />
+                            </TouchableOpacity>
+                          )}
+
+                          <TouchableOpacity style={{ padding: 6 }} onPress={() => toggleAccordion(parentCat.id)}>
+                            <MaterialCommunityIcons
+                              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                              size={20}
+                              color={theme.customColors.textSecondary}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+
+                      {/* Lista de Subcategorías */}
+                      {isExpanded && (
+                        <View style={styles.subContainer}>
+                          <TouchableOpacity
+                            style={styles.addSubRow}
+                            onPress={() => {
+                              setParentCategoryIdForNew(parentCat.id);
+                              setEditingCategory(null);
+                              setNewCategoryName('');
+                              setNewBudgetRole(parentCat.budgetRole || 'needs');
+                              setIsDialogVisible(true);
+                            }}
+                          >
+                            <MaterialCommunityIcons name="plus" size={18} color={theme.colors.primary} style={{ marginRight: 8 }} />
+                            <Text style={{ color: theme.colors.primary, fontStyle: 'italic', fontSize: 13, fontWeight: '600' }}>
+                              Añadir Subcategoría...
+                            </Text>
+                          </TouchableOpacity>
+
+                          {subs.map((subCat) => {
+                            const sBadge = getRoleLabel(subCat.budgetRole, subCat.name, parentCat.name);
+                            return (
+                              <View key={subCat.id} style={styles.subCatRow}>
+                                <Text style={{ flex: 1, fontSize: 13, color: theme.colors.onSurface, fontWeight: '500' }}>
+                                  {subCat.name}
+                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                  <TouchableOpacity
+                                    style={[styles.badgeChip, { backgroundColor: sBadge.bg, height: 24, paddingHorizontal: 8 }]}
+                                    onPress={() => handleOpenEditDialog(subCat)}
+                                  >
+                                    <Text style={{ color: sBadge.color, fontSize: 10, fontWeight: '700' }}>
+                                      {sBadge.label}
+                                    </Text>
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    style={{ padding: 6, marginRight: 2 }}
+                                    onPress={() => handleOpenEditDialog(subCat)}
+                                  >
+                                    <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.primary} />
+                                  </TouchableOpacity>
+
+                                  {!subCat.isSystem && (
+                                    <TouchableOpacity
+                                      style={{ padding: 6 }}
+                                      onPress={() => handleDeleteCategory(subCat.id)}
+                                    >
+                                      <MaterialCommunityIcons name="close-circle-outline" size={18} color={theme.colors.error} />
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                              </View>
+                            );
+                          })}
                         </View>
                       )}
-                      style={styles.accordionHeader}
-                    >
-                      <List.Item
-                        title="Añadir Subcategoría..."
-                        titleStyle={{ color: theme.colors.primary, fontStyle: 'italic' }}
-                        left={props => <List.Icon {...props} icon="plus" color={theme.colors.primary} />}
-                        onPress={() => {
-                          setParentCategoryIdForNew(parentCat.id);
-                          setEditingCategory(null);
-                          setNewCategoryName('');
-                          setIsDialogVisible(true);
-                        }}
-                        style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
-                      />
-                      {subs.map(subCat => (
-                        <List.Item
-                          key={subCat.id}
-                          title={subCat.name}
-                          right={() => (!subCat.isSystem ? (
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <IconButton
-                                icon="pencil-outline"
-                                iconColor={theme.colors.primary}
-                                size={18}
-                                onPress={() => handleOpenEditDialog(subCat)}
-                              />
-                              <IconButton
-                                icon="close-circle-outline"
-                                iconColor={theme.colors.error}
-                                size={18}
-                                onPress={() => handleDeleteCategory(subCat.id)}
-                              />
-                            </View>
-                          ) : null)}
-                          style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
-                        />
-                      ))}
-                    </List.Accordion>
+                    </View>
                   );
                 })
               )}
@@ -214,22 +298,49 @@ export default function SettingsCategoriesScreen() {
       <Portal>
         <Dialog visible={isDialogVisible} onDismiss={() => setIsDialogVisible(false)}>
           <Dialog.Title>
-            {editingCategory 
-              ? 'Editar Nombre' 
-              : (parentCategoryIdForNew ? 'Nueva Subcategoría' : 'Nueva Categoría Principal')}
+            {editingCategory
+              ? 'Editar Categoría'
+              : parentCategoryIdForNew
+              ? 'Nueva Subcategoría'
+              : 'Nueva Categoría Principal'}
           </Dialog.Title>
           <Dialog.Content>
             <TextInput
-              label="Nombre de la categoría (ej: Entretenimiento)"
+              label="Nombre (ej: Restaurantes, Sushi)"
               value={newCategoryName}
               onChangeText={setNewCategoryName}
               mode="outlined"
               style={styles.dialogInput}
               disabled={savingCategory}
             />
+
+            {/* Selector de Pilar 50/30/20 */}
+            <Text style={{ fontWeight: '700', fontSize: 12, marginTop: 8, marginBottom: 6, color: theme.colors.onSurface }}>
+              Pilar Presupuestal (Metodología Financial)
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+              {[
+                { role: 'needs', label: '🔴 Necesidad' },
+                { role: 'wants', label: '🟡 Deseo' },
+                { role: 'savings', label: '🔵 Ahorro' },
+                { role: 'income', label: '🟢 Ingreso' },
+              ].map((item) => (
+                <Button
+                  key={item.role}
+                  mode={newBudgetRole === item.role ? 'contained' : 'outlined'}
+                  compact
+                  onPress={() => setNewBudgetRole(item.role as any)}
+                  style={{ borderRadius: 8, marginBottom: 4 }}
+                  labelStyle={{ fontSize: 11 }}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </View>
+
             {!!parentCategoryIdForNew && !editingCategory && (
               <Text style={{ fontStyle: 'italic', opacity: 0.7, fontSize: 12 }}>
-                Se creará dentro de: {categories.find(c => c.id === parentCategoryIdForNew)?.name}
+                Se creará dentro de: {categories.find((c) => c.id === parentCategoryIdForNew)?.name}
               </Text>
             )}
           </Dialog.Content>
@@ -246,7 +357,8 @@ export default function SettingsCategoriesScreen() {
               onPress={handleSaveCategory}
               loading={savingCategory}
               disabled={savingCategory || !newCategoryName.trim()}
-              style={{ marginLeft: 8 }}>
+              style={{ marginLeft: 8 }}
+            >
               Guardar
             </Button>
           </Dialog.Actions>
@@ -272,19 +384,55 @@ const styles = StyleSheet.create({
     elevation: 1,
     overflow: 'hidden',
   },
-  accordionHeader: {
-    backgroundColor: '#FFFFFF',
+  accordionContainer: {
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.03)',
+    borderBottomColor: 'rgba(0,0,0,0.04)',
+  },
+  accordionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  accordionTitleArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   accordionRightRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  accordionItem: {
+  badgeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  subContainer: {
+    backgroundColor: 'rgba(0,0,0,0.02)',
     paddingLeft: 24,
+    paddingRight: 16,
+    paddingBottom: 8,
+  },
+  addSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.02)',
+    borderBottomColor: 'rgba(0,0,0,0.03)',
+  },
+  subCatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.03)',
   },
   dialogInput: {
     marginBottom: 12,

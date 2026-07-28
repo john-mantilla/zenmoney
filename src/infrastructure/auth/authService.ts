@@ -8,6 +8,12 @@
 import { supabase } from '../supabase/client';
 import { UserProfile, FamilyGroup } from '@domain/entities/User';
 import { Mapper } from '@data/models/Mapper';
+import * as WebBrowser from 'expo-web-browser';
+import { Platform } from 'react-native';
+
+if (Platform.OS === 'web' && typeof window !== 'undefined') {
+  WebBrowser.maybeCompleteAuthSession();
+}
 
 export class AuthService {
   
@@ -171,13 +177,41 @@ export class AuthService {
     }
 
     // Cargar perfil
-    const { data: dbProfile, error: profileError } = await supabase
+    let { data: dbProfile } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('auth_user_id', session.user.id)
-      .single();
+      .maybeSingle();
 
-    if (profileError || !dbProfile) {
+    // Si es un usuario nuevo de Google SSO sin perfil aún, creamos su grupo familiar y perfil automáticamente
+    if (!dbProfile && session.user.email) {
+      const displayName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
+      const familyGroupName = `Familia de ${displayName}`;
+
+      const { data: newFam } = await supabase
+        .from('family_groups')
+        .insert({ name: familyGroupName, currency_default: 'COP' })
+        .select('*')
+        .single();
+
+      if (newFam) {
+        const { data: newProf } = await supabase
+          .from('user_profiles')
+          .insert({
+            auth_user_id: session.user.id,
+            family_group_id: newFam.id,
+            display_name: displayName,
+            email: session.user.email.trim().toLowerCase(),
+            role: 'admin',
+          })
+          .select('*')
+          .single();
+
+        dbProfile = newProf;
+      }
+    }
+
+    if (!dbProfile) {
       return null;
     }
 
@@ -192,9 +226,14 @@ export class AuthService {
       return null;
     }
 
+    const providers = session.user.app_metadata?.providers || [];
+    const identities = session.user.identities || [];
+    const isGoogleLinked = providers.includes('google') || identities.some((i: any) => i.provider === 'google');
+
     return {
       userProfile: Mapper.toDomainUserProfile(dbProfile),
       familyGroup: Mapper.toDomainFamilyGroup(dbFamilyGroup),
+      isGoogleLinked,
     };
   }
 
@@ -222,17 +261,29 @@ export class AuthService {
    * Inicia el flujo de autenticación SSO con Google.
    */
   static async signInWithGoogle(): Promise<void> {
+    const isWeb = Platform.OS === 'web';
+    const redirectUrl = isWeb
+      ? (typeof window !== 'undefined' && window.location ? window.location.origin : '')
+      : 'zenmoney://auth/callback';
+
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: typeof window !== 'undefined' ? window.location.origin : 'zenmoney://auth/callback',
+        redirectTo: redirectUrl,
+        skipBrowserRedirect: !isWeb,
       },
     });
+
     if (error) {
       throw new Error(error.message);
     }
-    if (data?.url && typeof window !== 'undefined') {
-      window.location.href = data.url;
+
+    if (data?.url) {
+      if (isWeb && typeof window !== 'undefined') {
+        window.location.href = data.url;
+      } else {
+        await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      }
     }
   }
 
@@ -240,17 +291,28 @@ export class AuthService {
    * Vincula la identidad de Google a una cuenta existente autenticada.
    */
   static async linkGoogleAccount(): Promise<void> {
+    const isWeb = Platform.OS === 'web';
+    const redirectUrl = isWeb
+      ? (typeof window !== 'undefined' && window.location ? window.location.origin : '')
+      : 'zenmoney://auth/callback';
+
     const { data, error } = await supabase.auth.linkIdentity({
       provider: 'google',
       options: {
-        redirectTo: typeof window !== 'undefined' ? window.location.origin : 'zenmoney://auth/callback',
+        redirectTo: redirectUrl,
       },
     });
+
     if (error) {
       throw new Error(error.message);
     }
-    if (data?.url && typeof window !== 'undefined') {
-      window.location.href = data.url;
+
+    if (data?.url) {
+      if (isWeb && typeof window !== 'undefined') {
+        window.location.href = data.url;
+      } else {
+        await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+      }
     }
   }
 }

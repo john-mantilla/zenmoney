@@ -16,6 +16,7 @@ interface AuthState {
   familyGroup: FamilyGroup | null;
   error: string | null;
   hasAccounts: boolean;
+  isGoogleLinked: boolean;
 }
 
 interface AuthActions {
@@ -47,6 +48,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   familyGroup: null,
   error: null,
   hasAccounts: false,
+  isGoogleLinked: false,
 
   initialize: async () => {
     set({ isLoading: true });
@@ -64,9 +66,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           userProfile: sessionData.userProfile,
           familyGroup: sessionData.familyGroup,
           hasAccounts: has,
+          isGoogleLinked: sessionData.isGoogleLinked,
         });
       } else {
-        set({ isAuthenticated: false, userProfile: null, familyGroup: null, hasAccounts: false });
+        set({ isAuthenticated: false, userProfile: null, familyGroup: null, hasAccounts: false, isGoogleLinked: false });
       }
     } catch (err) {
       console.error('[ZenMoney Auth Store Init Error]:', err);
@@ -101,6 +104,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             userProfile: sessionData.userProfile,
             familyGroup: sessionData.familyGroup,
             hasAccounts: has,
+            isGoogleLinked: sessionData.isGoogleLinked,
           });
         }
       }

@@ -19,7 +19,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 export default function SettingsScreen() {
   const theme = useAppTheme();
   const router = useRouter();
-  const { userProfile, familyGroup, signOut, isLoading: authLoading } = useAuthStore();
+  const { userProfile, familyGroup, signOut, isLoading: authLoading, isGoogleLinked } = useAuthStore();
 
   // Estados de métricas dinámicas
   const [accountsCount, setAccountsCount] = useState<number | null>(null);
@@ -168,24 +168,41 @@ export default function SettingsScreen() {
         </Text>
 
         <Surface style={[styles.menuCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '25' }]}>
-          <List.Item
-            title="Vincular Cuenta de Google"
-            titleStyle={{ fontWeight: '600', color: theme.colors.onSurface }}
-            description="Permite inicio de sesión con 1 click usando Google SSO"
-            descriptionStyle={{ color: theme.customColors.textSecondary, fontSize: 12 }}
-            left={props => (
-              <View style={[styles.iconCircle, { backgroundColor: '#EA433515' }]}>
-                <MaterialCommunityIcons name="google" size={20} color="#EA4335" />
-              </View>
-            )}
-            onPress={async () => {
-              const success = await useAuthStore.getState().linkGoogleAccount();
-              if (success) {
-                alert('Cuenta de Google vinculada exitosamente.');
-              }
-            }}
-            style={styles.menuItem}
-          />
+          {isGoogleLinked ? (
+            <List.Item
+              title="Cuenta de Google Vinculada"
+              titleStyle={{ fontWeight: '600', color: theme.colors.onSurface }}
+              description="Tu cuenta está asociada con Google SSO para acceso rápido"
+              descriptionStyle={{ color: theme.customColors.textSecondary, fontSize: 12 }}
+              left={props => (
+                <View style={[styles.iconCircle, { backgroundColor: '#05966915' }]}>
+                  <MaterialCommunityIcons name="google" size={20} color="#059669" />
+                </View>
+              )}
+              right={props => (
+                <View style={{ justifyContent: 'center', paddingRight: 8 }}>
+                  <MaterialCommunityIcons name="check-circle" size={22} color="#059669" />
+                </View>
+              )}
+              style={styles.menuItem}
+            />
+          ) : (
+            <List.Item
+              title="Vincular Cuenta de Google"
+              titleStyle={{ fontWeight: '600', color: theme.colors.onSurface }}
+              description="Permite inicio de sesión con 1 click usando Google SSO"
+              descriptionStyle={{ color: theme.customColors.textSecondary, fontSize: 12 }}
+              left={props => (
+                <View style={[styles.iconCircle, { backgroundColor: '#EA433515' }]}>
+                  <MaterialCommunityIcons name="google" size={20} color="#EA4335" />
+                </View>
+              )}
+              onPress={async () => {
+                await useAuthStore.getState().linkGoogleAccount();
+              }}
+              style={styles.menuItem}
+            />
+          )}
           <Divider style={{ backgroundColor: theme.colors.outline + '15' }} />
 
           <List.Item

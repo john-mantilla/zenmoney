@@ -24,6 +24,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "permissions": [
+        "android.permission.RECORD_AUDIO",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -95,10 +96,16 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "9f009e75-b690-4bbc-bd54-20d0271fc43e"
-      },
-      "router": {}
+        "projectId": "2f41c208-1d46-4d19-bf74-ab21ee91818b"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2f41c208-1d46-4d19-bf74-ab21ee91818b"
     }
   }
 }

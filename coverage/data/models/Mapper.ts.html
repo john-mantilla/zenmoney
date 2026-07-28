@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">75.55% </span>
+                <span class="strong">73.91% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>34/45</span>
+                <span class='fraction'>34/46</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">85.16% </span>
+                <span class="strong">83.87% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>178/209</span>
+                <span class='fraction'>182/217</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>17/17</span>
+                <span class='fraction'>18/18</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">75.55% </span>
+                <span class="strong">73.91% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>34/45</span>
+                <span class='fraction'>34/46</span>
             </div>
         
             
@@ -426,7 +426,25 @@
 <a name='L361'></a><a href='#L361'>361</a>
 <a name='L362'></a><a href='#L362'>362</a>
 <a name='L363'></a><a href='#L363'>363</a>
-<a name='L364'></a><a href='#L364'>364</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L364'></a><a href='#L364'>364</a>
+<a name='L365'></a><a href='#L365'>365</a>
+<a name='L366'></a><a href='#L366'>366</a>
+<a name='L367'></a><a href='#L367'>367</a>
+<a name='L368'></a><a href='#L368'>368</a>
+<a name='L369'></a><a href='#L369'>369</a>
+<a name='L370'></a><a href='#L370'>370</a>
+<a name='L371'></a><a href='#L371'>371</a>
+<a name='L372'></a><a href='#L372'>372</a>
+<a name='L373'></a><a href='#L373'>373</a>
+<a name='L374'></a><a href='#L374'>374</a>
+<a name='L375'></a><a href='#L375'>375</a>
+<a name='L376'></a><a href='#L376'>376</a>
+<a name='L377'></a><a href='#L377'>377</a>
+<a name='L378'></a><a href='#L378'>378</a>
+<a name='L379'></a><a href='#L379'>379</a>
+<a name='L380'></a><a href='#L380'>380</a>
+<a name='L381'></a><a href='#L381'>381</a>
+<a name='L382'></a><a href='#L382'>382</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -525,7 +543,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -779,6 +799,22 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -881,6 +917,7 @@ export class Mapper {
       icon: row.icon,
       color: row.color,
       parentCategoryId: row.parent_category_id,
+      budgetRole: row.budget_role || 'needs',
       isSystem: row.is_system,
       isPrivate: row.is_private,
       createdAt: row.created_at,
@@ -895,6 +932,7 @@ export class Mapper {
       ...(entity.icon &amp;&amp; { icon: entity.icon }),
       ...(entity.color &amp;&amp; { color: entity.color }),
       ...(entity.parentCategoryId !== undefined &amp;&amp; { parent_category_id: entity.parentCategoryId || null }),
+      ...(entity.budgetRole &amp;&amp; { budget_role: entity.budgetRole }),
       ...(entity.isSystem !== undefined &amp;&amp; { is_system: entity.isSystem }),
       ...(entity.isPrivate !== undefined &amp;&amp; { is_private: entity.isPrivate }),
     };
@@ -1151,6 +1189,22 @@ export class Mapper {
       createdAt: row.created_at,
     };
   }
+&nbsp;
+  // ─── Financial Methodologies ──────────────────────────────────────────
+&nbsp;
+  static toDomainFinancialMethodology(row: any): import('@domain/entities/FinancialMethodology').FinancialMethodology {
+<span class="cstat-no" title="statement not covered" >    return {</span>
+      id: row.id,
+      familyGroupId: row.family_group_id,
+      name: row.name,
+      code: row.code,
+      description: row.description,
+      isPreset: row.is_preset === true,
+      targets: typeof row.targets === 'string' ? JSON.parse(row.targets) : (row.targets || {}),
+      isActive: row.is_active === true,
+      createdAt: row.created_at,
+    };
+  }
 }
 &nbsp;</pre></td></tr></table></pre>
 
@@ -1159,7 +1213,7 @@ export class Mapper {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-28T16:33:09.197Z
+                at 2026-07-28T21:58:08.804Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

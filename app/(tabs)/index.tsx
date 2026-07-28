@@ -28,6 +28,7 @@ import { Category } from '@/src/domain/entities/Category';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { AnomalyDetectorService } from '@/src/infrastructure/services/AnomalyDetectorService';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
+import { FinancialHealthModal } from '@/src/presentation/components/FinancialHealthModal';
 import { useRouter, useFocusEffect } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -46,6 +47,7 @@ export default function DashboardScreen() {
   const [loanAccounts, setLoanAccounts] = useState<Account[]>([]);
   const [allAccounts, setAllAccounts] = useState<Account[]>([]);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [monthTransactions, setMonthTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [familyMembers, setFamilyMembers] = useState<Record<string, string>>({});
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -58,8 +60,9 @@ export default function DashboardScreen() {
   const [registrationStreak, setRegistrationStreak] = useState(0);
   const [registrationGapDays, setRegistrationGapDays] = useState<number | null>(null);
   
-  // Alertas Inteligentes
+  // Alertas Inteligentes & Modal de Salud Financiera 50/30/20
   const [smartAlerts, setSmartAlerts] = useState<string[]>([]);
+  const [healthModalVisible, setHealthModalVisible] = useState(false);
 
   // Estados de control de colapsables (Acordeones - Colapsados por defecto para una vista compacta)
   const [liquidExpanded, setLiquidExpanded] = useState(false);
@@ -223,6 +226,7 @@ export default function DashboardScreen() {
       if (userProfile) {
         filteredTxs = loadedTransactions.filter(tx => !tx.isPrivate || tx.createdByUserId === userProfile.id);
       }
+      setMonthTransactions(filteredTxs);
       setRecentTransactions(filteredTxs.slice(0, 3));
 
       // 3b. Facturas electrónicas recibidas por correo, aún sin confirmar como gasto
@@ -405,7 +409,7 @@ export default function DashboardScreen() {
           expenses={monthlyExpenses}
           currency="COP"
           label="DISPONIBLE LÍQUIDO"
-          onPressAnalysis={() => router.push('/analytics')}
+          onPressAnalysis={() => setHealthModalVisible(true)}
         />
 
         {/* Aviso de posible vacío en el registro: lleva más días de lo habitual sin anotar nada */}
@@ -858,6 +862,14 @@ export default function DashboardScreen() {
             </Button>
           </Dialog.Actions>
         </Dialog>
+
+        {/* Modal de Salud Financiera & Framework de Metodologías (50/30/20, 70/20/10, FIRE) */}
+        <FinancialHealthModal
+          visible={healthModalVisible}
+          onDismiss={() => setHealthModalVisible(false)}
+          transactions={monthTransactions}
+          categories={categories}
+        />
       </Portal>
     </View>
   );

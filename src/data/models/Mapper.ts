@@ -7,7 +7,7 @@
 
 import { Transaction, AIMetadata } from '@domain/entities/Transaction';
 import { Account, AccountType } from '@domain/entities/Account';
-import { Category } from '@domain/entities/Category';
+import { Category, inferCategoryBudgetRole } from '@domain/entities/Category';
 import { Budget } from '@domain/entities/Budget';
 import { UserProfile, FamilyGroup } from '@domain/entities/User';
 import { RecurringRule } from '@domain/entities/RecurringRule';
@@ -90,6 +90,7 @@ export class Mapper {
       icon: row.icon,
       color: row.color,
       parentCategoryId: row.parent_category_id,
+      budgetRole: inferCategoryBudgetRole(row.name, undefined, row.budget_role),
       isSystem: row.is_system,
       isPrivate: row.is_private,
       createdAt: row.created_at,
@@ -104,6 +105,7 @@ export class Mapper {
       ...(entity.icon && { icon: entity.icon }),
       ...(entity.color && { color: entity.color }),
       ...(entity.parentCategoryId !== undefined && { parent_category_id: entity.parentCategoryId || null }),
+      ...(entity.budgetRole && { budget_role: entity.budgetRole }),
       ...(entity.isSystem !== undefined && { is_system: entity.isSystem }),
       ...(entity.isPrivate !== undefined && { is_private: entity.isPrivate }),
     };
@@ -357,6 +359,22 @@ export class Mapper {
       sender: row.sender,
       content: row.content,
       suggestedActions: row.suggested_actions || [],
+      createdAt: row.created_at,
+    };
+  }
+
+  // ─── Financial Methodologies ──────────────────────────────────────────
+
+  static toDomainFinancialMethodology(row: any): import('@domain/entities/FinancialMethodology').FinancialMethodology {
+    return {
+      id: row.id,
+      familyGroupId: row.family_group_id,
+      name: row.name,
+      code: row.code,
+      description: row.description,
+      isPreset: row.is_preset === true,
+      targets: typeof row.targets === 'string' ? JSON.parse(row.targets) : (row.targets || {}),
+      isActive: row.is_active === true,
       createdAt: row.created_at,
     };
   }

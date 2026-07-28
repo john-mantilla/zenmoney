@@ -2,6 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { AuthService } from '../auth/authService';
 import { supabase } from '../supabase/client';
 
+vi.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: vi.fn(),
+  openAuthSessionAsync: vi.fn().mockResolvedValue({ type: 'success' }),
+}));
+
+vi.mock('react-native', () => ({
+  Platform: { OS: 'web' },
+}));
+
 vi.mock('../supabase/client', () => ({
   supabase: {
     auth: {
