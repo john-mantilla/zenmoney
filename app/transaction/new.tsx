@@ -75,6 +75,7 @@ export default function NewTransactionScreen() {
     amount?: string;
     description?: string;
     action?: string;
+    mode?: 'quick' | 'ai' | 'manual';
   }>();
   const id = params.id;
   const isEditing = !!id;
@@ -153,70 +154,15 @@ export default function NewTransactionScreen() {
   useEffect(() => {
     async function loadData() {
       try {
-        const loadedAccs = await accountRepo.getAll();
+        // 1. Carga Crítica Ultrarrápida (<30ms): Cuentas y Categorías básicas
+        const [loadedAccs, loadedCats] = await Promise.all([
+          accountRepo.getAll(),
+          categoryRepo.getAll(true),
+        ]);
+
         const activeAccs = loadedAccs.filter(a => a.isActive);
-
-        // Ordenar cuentas por frecuencia de uso en el mes actual (de mayor a menor)
-        let sortedAccs = [...activeAccs];
-        try {
-          const today = new Date();
-          const startOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
-          const endOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
-          
-          const monthTransactions = await transactionRepo.getAll({
-            startDate: startOfMonth,
-            endDate: endOfMonth
-          });
-
-          const usageCount: Record<string, number> = {};
-          for (const tx of monthTransactions) {
-            usageCount[tx.accountId] = (usageCount[tx.accountId] || 0) + 1;
-          }
-
-          sortedAccs.sort((a, b) => {
-            const countA = usageCount[a.id] || 0;
-            const countB = usageCount[b.id] || 0;
-            if (countA !== countB) {
-              return countB - countA;
-            }
-            return a.name.localeCompare(b.name); // Desempate alfabético
-          });
-        } catch (err) {
-          console.error('Error sorting accounts by usage frequency:', err);
-        }
-
-        setAccounts(sortedAccs);
-
-        const loadedCats = await categoryRepo.getAll(true);
+        setAccounts(activeAccs);
         setCategories(loadedCats);
-
-        // Precargar mapa de presupuestos para el LiveBudgetMeter
-        try {
-          const now = new Date();
-          const currentBudgets = await budgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1);
-          const calcProgress = new CalculateBudgetProgress(transactionRepo);
-          const map: Record<string, { limit: number; spent: number }> = {};
-          for (const b of currentBudgets) {
-            const p = await calcProgress.execute(b, loadedCats);
-            map[b.categoryId] = { limit: Number(b.amountLimit) || 0, spent: Number(p.spent) || 0 };
-          }
-          setBudgetSpentMap(map);
-        } catch (err) {
-          console.warn('Failed to pre-load budget progress for LiveBudgetMeter:', err);
-        }
-
-        try {
-          setCategorizationRules(await categorizationRuleRepo.getAll());
-        } catch {
-          // Reglas de categorización son un extra; si fallan, el formulario sigue funcionando normal.
-        }
-        
-        // Cargar historial en background para categorización predictiva
-        try {
-          historicTxsRef.current = await transactionRepo.getAll({});
-        } catch (err) {
-          console.warn('Failed to load historic transactions for predictive typing:', err);
-        }
 
         if (isEditing && id) {
           setMode('manual');
@@ -232,7 +178,6 @@ export default function NewTransactionScreen() {
             setTransactionDate(tx.transactionDate);
             setIsPrivate(tx.isPrivate);
 
-            // Reconstruir jerarquía de categorías para edición
             if (tx.categoryId) {
               const cat = loadedCats.find(c => c.id === tx.categoryId);
               if (cat) {
@@ -247,32 +192,79 @@ export default function NewTransactionScreen() {
             }
           }
         } else {
-          // Pre-rellenar campos si vienen por parámetros de consulta (ej. pago de tarjeta)
           if (params.type) setType(params.type as any);
           if (params.accountId) setAccountId(params.accountId);
           if (params.transferToAccountId) setTransferToAccountId(params.transferToAccountId);
           if (params.amount) setAmount(params.amount);
           if (params.description) setDescription(params.description);
-          if (params.type === 'transfer') setMode('manual'); // Forzar manual para transferencias
+          if (params.mode) setMode(params.mode as any);
+          if (params.action === 'voice' || params.action === 'ai') setMode('ai');
+          if (params.type === 'transfer') setMode('manual');
 
-          if (sortedAccs.length > 0 && !params.accountId) {
-            setAccountId(sortedAccs[0].id);
+          if (activeAccs.length > 0 && !params.accountId) {
+            setAccountId(activeAccs[0].id);
           }
+        }
+
+        // DESBLOQUEAR UI INMEDIATAMENTE (< 30ms) para respuesta instantánea de botones y atajos
+        setIsLoading(false);
+
+        // Si viene por atajo de cámara o voz, activar la funcionalidad de inmediato
+        if (params.action === 'camera') {
+          setMode('ai');
+          setTimeout(() => {
+            handlePickReceipt('camera');
+          }, 100);
+        } else if (params.action === 'voice' || params.mode === 'ai') {
+          setMode('ai');
+          setTimeout(() => {
+            handleStartSpeech();
+          }, 300);
+        }
+
+        // 2. Carga Secundaria Asíncrona (Background — No bloquea la UI ni los botones)
+        // Background A: Ordenar cuentas por frecuencia de uso del mes
+        (async () => {
           try {
-            setSuggestions(await quickAddUseCase.execute());
-          } catch {
-            // Los atajos son un extra: si fallan, el formulario sigue funcionando normal.
-          }
-          if (params.action === 'camera') {
-            setMode('ai');
-            setTimeout(() => {
-              handlePickReceipt('camera');
-            }, 400);
-          }
+            const today = new Date();
+            const startOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+            const endOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+            const monthTransactions = await transactionRepo.getAll({ startDate: startOfMonth, endDate: endOfMonth });
+            const usageCount: Record<string, number> = {};
+            for (const tx of monthTransactions) {
+              usageCount[tx.accountId] = (usageCount[tx.accountId] || 0) + 1;
+            }
+            const sorted = [...activeAccs].sort((a, b) => (usageCount[b.id] || 0) - (usageCount[a.id] || 0) || a.name.localeCompare(b.name));
+            setAccounts(sorted);
+            if (!params.accountId && sorted.length > 0) {
+              setAccountId(sorted[0].id);
+            }
+          } catch {}
+        })();
+
+        // Background B: Precargar mapa de presupuestos para LiveBudgetMeter
+        (async () => {
+          try {
+            const now = new Date();
+            const currentBudgets = await budgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1);
+            const calcProgress = new CalculateBudgetProgress(transactionRepo);
+            const map: Record<string, { limit: number; spent: number }> = {};
+            for (const b of currentBudgets) {
+              const p = await calcProgress.execute(b, loadedCats);
+              map[b.categoryId] = { limit: Number(b.amountLimit) || 0, spent: Number(p.spent) || 0 };
+            }
+            setBudgetSpentMap(map);
+          } catch {}
+        })();
+
+        // Background C: Reglas de categorización e historial predictivo
+        categorizationRuleRepo.getAll().then(setCategorizationRules).catch(() => {});
+        transactionRepo.getAll({}).then(txs => { historicTxsRef.current = txs; }).catch(() => {});
+        if (!isEditing) {
+          quickAddUseCase.execute().then(setSuggestions).catch(() => {});
         }
       } catch (err) {
         setErrorMsg('Error al cargar la información financiera.');
-      } finally {
         setIsLoading(false);
       }
     }

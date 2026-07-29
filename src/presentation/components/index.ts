@@ -18,6 +18,8 @@ export * from './CategoryBottomSheet';
 export * from './AppErrorBoundary';
 export * from './LiveBudgetMeter';
 export * from './MicroCelebrationModal';
+export * from './SmartBudgetSuggestionCard';
+export * from './ChallengeCard';
 
 
 

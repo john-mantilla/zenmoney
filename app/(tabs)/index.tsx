@@ -11,7 +11,7 @@ import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, 
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
-import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
+import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard } from '@/src/presentation/components';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -20,6 +20,9 @@ import { GetFinancialSummary } from '@/src/domain/usecases/GetFinancialSummary';
 import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountBalance';
 import { DetectRegistrationGap } from '@/src/domain/usecases/DetectRegistrationGap';
 import { CalculateRegistrationStreak } from '@/src/domain/usecases/CalculateRegistrationStreak';
+import { Evaluate7DayChallenge } from '@/src/domain/usecases/Evaluate7DayChallenge';
+import { Challenge } from '@/src/domain/entities/Challenge';
+import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 import { RegistrationReminderService } from '@/src/infrastructure/services/RegistrationReminderService';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
 import { Account } from '@/src/domain/entities/Account';
@@ -43,6 +46,7 @@ export default function DashboardScreen() {
   
   // Agrupaciones de cuentas
   const [liquidAccounts, setLiquidAccounts] = useState<Account[]>([]);
+  const [investmentAccounts, setInvestmentAccounts] = useState<Account[]>([]);
   const [creditCards, setCreditCards] = useState<Account[]>([]);
   const [loanAccounts, setLoanAccounts] = useState<Account[]>([]);
   const [allAccounts, setAllAccounts] = useState<Account[]>([]);
@@ -59,6 +63,7 @@ export default function DashboardScreen() {
   const [pendingEmailInvoices, setPendingEmailInvoices] = useState(0);
   const [registrationStreak, setRegistrationStreak] = useState(0);
   const [registrationGapDays, setRegistrationGapDays] = useState<number | null>(null);
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
   
   // Alertas Inteligentes & Modal de Salud Financiera 50/30/20
   const [smartAlerts, setSmartAlerts] = useState<string[]>([]);
@@ -66,6 +71,7 @@ export default function DashboardScreen() {
 
   // Estados de control de colapsables (Acordeones - Colapsados por defecto para una vista compacta)
   const [liquidExpanded, setLiquidExpanded] = useState(false);
+  const [investmentsExpanded, setInvestmentsExpanded] = useState(false);
   const [creditExpanded, setCreditExpanded] = useState(false);
   const [loansExpanded, setLoansExpanded] = useState(false);
   const [selectedAccountForAction, setSelectedAccountForAction] = useState<Account | null>(null);
@@ -186,23 +192,26 @@ export default function DashboardScreen() {
         }
       }
 
-      // 1. Clasificación en 3 pilares financieros
-      // Cuentas líquidas disponibles
-      const liquid = activeAccounts.filter(acc => ['cash', 'bank', 'investment'].includes(acc.type));
+      // 1. Clasificación en 4 pilares financieros
+      // Cuentas de Dinero Disponible (bancos y efectivo operativo)
+      const liquid = activeAccounts.filter(acc => ['cash', 'bank'].includes(acc.type));
+      // Inversiones y Patrimonio (CDTs, fiduciarias, acciones)
+      const investments = activeAccounts.filter(acc => acc.type === 'investment');
       // Tarjetas de crédito (deuda a corto plazo)
       const cards = activeAccounts.filter(acc => acc.type === 'credit_card');
       // Créditos y obligaciones (deuda a largo plazo: hipotecas, préstamos)
       const loans = activeAccounts.filter(acc => ['loan', 'mortgage'].includes(acc.type));
       
       setLiquidAccounts(liquid);
+      setInvestmentAccounts(investments);
       setCreditCards(cards);
       setLoanAccounts(loans);
 
-      // Calcular Liquidez Consolidada: Dinero Líquido - Deuda Tarjetas
+      // Calcular Liquidez Consolidada Operativa: Dinero Líquido Operativo - Deuda Tarjetas
       const liquidSum = liquid.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
       const cardsSum = cards.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
       
-      // Saldo consolidado diario: Disponible - Tarjeta
+      // Saldo disponible operativo diario: Disponible Operativo - Tarjeta
       setTotalBalance(liquidSum - cardsSum);
 
       // 2. Cargar categorías para mapping
@@ -249,6 +258,18 @@ export default function DashboardScreen() {
 
         const gapResult = gapUseCase.execute(ownTx, todayStr);
         setRegistrationGapDays(gapResult.hasGap ? gapResult.daysSinceLastTransaction : null);
+
+        // Evaluar Micro-Desafío de 7 Días (IA o Estándar)
+        const challengeRepo = new HybridChallengeRepository();
+        const customChallenges = await challengeRepo.getAll();
+        const activeCustom = customChallenges.find((c) => c.status === 'active');
+
+        if (activeCustom) {
+          setChallenge(activeCustom);
+        } else {
+          const challengeData = Evaluate7DayChallenge.execute(ownTx, todayStr, userProfile.id);
+          setChallenge(challengeData);
+        }
 
         RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
         BillAlertService.scheduleBillAlerts().catch(() => {});
@@ -325,6 +346,7 @@ export default function DashboardScreen() {
 
   // Cálculos acumulados de categorías de cuentas para mostrar en el header de los acordeones
   const totalLiquidSum = liquidAccounts.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
+  const totalInvestmentsSum = investmentAccounts.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
   const totalCardsSum = creditCards.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
   const totalLoansSum = loanAccounts.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
 
@@ -356,6 +378,12 @@ export default function DashboardScreen() {
             iconColor={theme.colors.primary}
             size={24}
             onPress={() => router.push('/assistant')}
+          />
+          <IconButton
+            icon="trophy-outline"
+            iconColor={theme.colors.primary}
+            size={24}
+            onPress={() => router.push('/coach')}
           />
         </View>
       </View>
@@ -619,7 +647,63 @@ export default function DashboardScreen() {
               })}
             </List.Accordion>
           )}
+
+          {/* 4. Inversiones y Patrimonio */}
+          {investmentAccounts.length > 0 && (
+            <List.Accordion
+              title="Inversiones y Patrimonio"
+              description={`${investmentAccounts.length} ${investmentAccounts.length === 1 ? 'cuenta de capital' : 'cuentas de capital'}`}
+              expanded={investmentsExpanded}
+              onPress={() => setInvestmentsExpanded(!investmentsExpanded)}
+              left={props => <List.Icon {...props} icon="chart-line" color="#059669" />}
+              right={() => (
+                <AmountDisplay amount={totalInvestmentsSum} size="sm" type="income" style={styles.headerAmount} />
+              )}
+              style={[styles.accordionHeader, { backgroundColor: theme.colors.surface, marginTop: 8 }]}
+            >
+              {investmentAccounts.map(account => {
+                const brand = getAccountBrandInfo(account);
+                return (
+                  <List.Item
+                    key={account.id}
+                    title={account.name}
+                    description={
+                      'Inversión / CDT / Fiduciaria' + (account.isPrivate ? ' • 🙈 Privada' : '')
+                    }
+                    onPress={() => setSelectedAccountForAction(account)}
+                    left={() => (
+                      <View
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 19,
+                          backgroundColor: brand.color || '#059669',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginLeft: 8,
+                          alignSelf: 'center',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <MaterialCommunityIcons name={(brand.icon as any) || 'trending-up'} size={20} color="#FFFFFF" />
+                      </View>
+                    )}
+                    right={() => (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <AmountDisplay amount={account.initialBalance} size="sm" type="income" style={styles.itemAmount} />
+                        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
+                      </View>
+                    )}
+                    style={[styles.accordionItem, { backgroundColor: theme.colors.surfaceVariant }]}
+                  />
+                );
+              })}
+            </List.Accordion>
+          )}
         </View>
+
+        {/* ─── SECCIÓN MICRO-DESAFÍO DE 7 DÍAS ───────────────────────────── */}
+        {challenge && <ChallengeCard challenge={challenge} />}
 
         {/* ─── SECCIÓN ACCIONES RÁPIDAS (1 sola fila compacta de 3 botones) ── */}
         <View style={{ marginTop: 16, marginBottom: 8 }}>
@@ -655,7 +739,7 @@ export default function DashboardScreen() {
             {/* 2. Dictar por Voz */}
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'ai' } })}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'ai', action: 'voice' } })}
               style={{
                 flex: 1,
                 backgroundColor: theme.colors.surface,

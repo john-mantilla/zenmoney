@@ -48,6 +48,16 @@ export interface PendingActionPayload {
   transactionDate?: string;
 }
 
+export interface ChallengePendingActionPayload {
+  title: string;
+  description: string;
+  icon?: string;
+  categoryTargetName?: string;
+  maxAllowedAmount?: number;
+  durationDays?: number;
+  rewardBadgeTitle: string;
+}
+
 /** Result of querying financial data using natural language */
 export interface NLQQueryResult {
   /** Human-readable answer to the question */
@@ -58,8 +68,8 @@ export interface NLQQueryResult {
   suggestedActions?: string[];
   /** Acciones pendientes requeridas por confirmación del usuario (Human-in-the-Loop) */
   pendingAction?: {
-    type: 'create_transaction';
-    payload: PendingActionPayload;
+    type: 'create_transaction' | 'create_challenge';
+    payload: PendingActionPayload | ChallengePendingActionPayload | any;
   };
 }
 

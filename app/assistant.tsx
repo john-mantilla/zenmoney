@@ -24,6 +24,8 @@ import { FinancialContext, ConversationTurn } from '@/src/infrastructure/ai/AIPr
 import { Account } from '@/src/domain/entities/Account';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { BudgetProgress } from '@/src/domain/entities/Budget';
+import { Challenge } from '@/src/domain/entities/Challenge';
+import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 import { AnomalyDetectorService } from '@/src/infrastructure/services/AnomalyDetectorService';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,16 +47,8 @@ function makeWelcomeMessage(displayName?: string): Message {
 }
 
 export interface MessagePendingAction {
-  type: 'create_transaction';
-  payload: {
-    amount: number;
-    transactionType?: 'expense' | 'income' | 'transfer';
-    suggestedCategoryName?: string;
-    suggestedAccountName?: string;
-    description?: string;
-    merchantName?: string;
-    transactionDate?: string;
-  };
+  type: 'create_transaction' | 'create_challenge';
+  payload: any;
   status: 'pending' | 'confirmed' | 'cancelled';
 }
 
@@ -346,6 +340,51 @@ export default function AssistantScreen() {
   const handleConfirmPendingAction = async (messageId: string, action: MessagePendingAction) => {
     if (!financialContext) return;
 
+    if (action.type === 'create_challenge') {
+      try {
+        const payload = action.payload;
+        const challengeRepo = new HybridChallengeRepository();
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const newChallenge: Challenge = {
+          id: `challenge-ai-${Date.now()}`,
+          type: 'streak_7_days',
+          title: payload.title || 'Desafío Adaptativo 7 Días',
+          description: payload.description || 'Mantén tu disciplina durante los próximos 7 días.',
+          icon: payload.icon || 'trophy',
+          targetDays: 7,
+          completedDays: 1,
+          days: Array.from({ length: 7 }, (_, i) => ({
+            dayNumber: i + 1,
+            date: new Date(Date.now() + (i - 6) * 86400000).toISOString().split('T')[0],
+            isCompleted: i === 6,
+            isToday: i === 6,
+          })),
+          startDate: todayStr,
+          endDate: new Date(Date.now() + 6 * 86400000).toISOString().split('T')[0],
+          status: 'active',
+          rewardBadgeTitle: payload.rewardBadgeTitle || '🏆 Héroe Financiero',
+        };
+
+        await challengeRepo.create(newChallenge);
+
+        setMessages(prev =>
+          prev.map(m => (m.id === messageId && m.pendingAction ? { ...m, pendingAction: { ...m.pendingAction, status: 'confirmed' } } : m))
+        );
+
+        const confirmMessage: Message = {
+          id: Date.now().toString(),
+          sender: 'ai',
+          text: `🏆 **¡Desafío Aceptado con Éxito!**\nActivaste el reto **"${newChallenge.title}"**. Puedes hacerle seguimiento diario desde tu **Entrenador Financiero** 🏆 en el menú superior. ¡A ganar la insignia **${newChallenge.rewardBadgeTitle}**!`,
+          createdAt: new Date(),
+        };
+        setMessages(prev => [...prev, confirmMessage]);
+      } catch (err) {
+        AppAlert.alert('Error', err instanceof Error ? err.message : 'No se pudo activar el desafío.');
+      }
+      return;
+    }
+
     try {
       const payload = action.payload;
 
@@ -555,69 +594,126 @@ export default function AssistantScreen() {
               {isAi && item.pendingAction && (
                 <Card style={[styles.draftCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.primary + '50' }]}>
                   <Card.Content style={{ padding: 12 }}>
-                    <View style={styles.draftCardHeader}>
-                      <MaterialCommunityIcons 
-                        name={item.pendingAction.status === 'confirmed' ? 'check-circle' : item.pendingAction.status === 'cancelled' ? 'close-circle' : 'file-document-edit-outline'} 
-                        size={22} 
-                        color={item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : theme.colors.primary} 
-                      />
-                      <Text style={[styles.draftCardTitle, { color: item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : theme.colors.primary }]}>
-                        {item.pendingAction.status === 'confirmed'
-                          ? 'Gasto Registrado con Éxito'
-                          : item.pendingAction.status === 'cancelled'
-                          ? 'Acción Descartada'
-                          : 'Pre-Registro de Gasto (Borrador)'}
-                      </Text>
-                    </View>
+                    {item.pendingAction.type === 'create_challenge' ? (
+                      <>
+                        <View style={styles.draftCardHeader}>
+                          <MaterialCommunityIcons
+                            name={item.pendingAction.status === 'confirmed' ? 'trophy' : item.pendingAction.status === 'cancelled' ? 'close-circle' : 'trophy-outline'}
+                            size={22}
+                            color={item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : '#F97316'}
+                          />
+                          <Text style={[styles.draftCardTitle, { color: item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : '#F97316' }]}>
+                            {item.pendingAction.status === 'confirmed'
+                              ? '¡Desafío Activado!'
+                              : item.pendingAction.status === 'cancelled'
+                              ? 'Desafío Omitido'
+                              : 'Propuesta de Desafío 7 Días'}
+                          </Text>
+                        </View>
 
-                    <View style={styles.draftRow}>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Monto:</Text>
-                      <Text style={[theme.typography.body, { fontWeight: '800', color: theme.colors.onSurface }]}>
-                        $ {Number(item.pendingAction.payload.amount).toLocaleString('es-CO')} COP
-                      </Text>
-                    </View>
+                        <View style={styles.draftRow}>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Reto:</Text>
+                          <Text style={[theme.typography.body, { fontWeight: '800', color: theme.colors.onSurface }]}>
+                            {item.pendingAction.payload.title || 'Desafío de 7 Días'}
+                          </Text>
+                        </View>
 
-                    <View style={styles.draftRow}>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Categoría:</Text>
-                      <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.primary }]}>
-                        {item.pendingAction.payload.suggestedCategoryName || 'Mercado'}
-                      </Text>
-                    </View>
+                        <View style={styles.draftRow}>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Insignia:</Text>
+                          <Text style={[theme.typography.body, { fontWeight: '700', color: '#F97316' }]}>
+                            {item.pendingAction.payload.rewardBadgeTitle || '🏆 Insignia Especial'}
+                          </Text>
+                        </View>
 
-                    <View style={styles.draftRow}>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Cuenta Origen:</Text>
-                      <Text style={[theme.typography.body, { fontWeight: '600', color: theme.colors.onSurface }]}>
-                        {item.pendingAction.payload.suggestedAccountName || 'Cuenta principal'}
-                      </Text>
-                    </View>
+                        {item.pendingAction.status === 'pending' && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
+                            <Button
+                              mode="contained"
+                              icon="trophy-outline"
+                              onPress={() => handleConfirmPendingAction(item.id, item.pendingAction!)}
+                              style={{ flex: 1, borderRadius: 10, backgroundColor: '#F97316' }}
+                              labelStyle={{ fontSize: 11, fontWeight: '700' }}
+                            >
+                              ¡Aceptar Desafío de 7 Días!
+                            </Button>
+                            <IconButton
+                              icon="close-circle-outline"
+                              mode="outlined"
+                              iconColor={theme.colors.error}
+                              size={18}
+                              onPress={() => handleCancelPendingAction(item.id)}
+                              style={{ margin: 0 }}
+                            />
+                          </View>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.draftCardHeader}>
+                          <MaterialCommunityIcons 
+                            name={item.pendingAction.status === 'confirmed' ? 'check-circle' : item.pendingAction.status === 'cancelled' ? 'close-circle' : 'file-document-edit-outline'} 
+                            size={22} 
+                            color={item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : theme.colors.primary} 
+                          />
+                          <Text style={[styles.draftCardTitle, { color: item.pendingAction.status === 'confirmed' ? '#059669' : item.pendingAction.status === 'cancelled' ? theme.colors.error : theme.colors.primary }]}>
+                            {item.pendingAction.status === 'confirmed'
+                              ? 'Gasto Registrado con Éxito'
+                              : item.pendingAction.status === 'cancelled'
+                              ? 'Acción Descartada'
+                              : 'Pre-Registro de Gasto (Borrador)'}
+                          </Text>
+                        </View>
 
-                    {item.pendingAction.status === 'pending' && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
-                        <Button
-                          mode="contained"
-                          icon="check-circle-outline"
-                          onPress={() => handleConfirmPendingAction(item.id, item.pendingAction!)}
-                          style={{ flex: 1, borderRadius: 10, backgroundColor: theme.colors.primary }}
-                          labelStyle={{ fontSize: 11, fontWeight: '700' }}
-                        >
-                          Confirmar y Guardar
-                        </Button>
-                        <IconButton
-                          icon="pencil-outline"
-                          mode="outlined"
-                          size={18}
-                          onPress={() => handleAdjustPendingAction(item.pendingAction!)}
-                          style={{ margin: 0 }}
-                        />
-                        <IconButton
-                          icon="close-circle-outline"
-                          mode="outlined"
-                          iconColor={theme.colors.error}
-                          size={18}
-                          onPress={() => handleCancelPendingAction(item.id)}
-                          style={{ margin: 0 }}
-                        />
-                      </View>
+                        <View style={styles.draftRow}>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Monto:</Text>
+                          <Text style={[theme.typography.body, { fontWeight: '800', color: theme.colors.onSurface }]}>
+                            $ {Number(item.pendingAction.payload.amount).toLocaleString('es-CO')} COP
+                          </Text>
+                        </View>
+
+                        <View style={styles.draftRow}>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Categoría:</Text>
+                          <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.primary }]}>
+                            {item.pendingAction.payload.suggestedCategoryName || 'Mercado'}
+                          </Text>
+                        </View>
+
+                        <View style={styles.draftRow}>
+                          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Cuenta Origen:</Text>
+                          <Text style={[theme.typography.body, { fontWeight: '600', color: theme.colors.onSurface }]}>
+                            {item.pendingAction.payload.suggestedAccountName || 'Cuenta principal'}
+                          </Text>
+                        </View>
+
+                        {item.pendingAction.status === 'pending' && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>
+                            <Button
+                              mode="contained"
+                              icon="check-circle-outline"
+                              onPress={() => handleConfirmPendingAction(item.id, item.pendingAction!)}
+                              style={{ flex: 1, borderRadius: 10, backgroundColor: theme.colors.primary }}
+                              labelStyle={{ fontSize: 11, fontWeight: '700' }}
+                            >
+                              Confirmar y Guardar
+                            </Button>
+                            <IconButton
+                              icon="pencil-outline"
+                              mode="outlined"
+                              size={18}
+                              onPress={() => handleAdjustPendingAction(item.pendingAction!)}
+                              style={{ margin: 0 }}
+                            />
+                            <IconButton
+                              icon="close-circle-outline"
+                              mode="outlined"
+                              iconColor={theme.colors.error}
+                              size={18}
+                              onPress={() => handleCancelPendingAction(item.id)}
+                              style={{ margin: 0 }}
+                            />
+                          </View>
+                        )}
+                      </>
                     )}
                   </Card.Content>
                 </Card>

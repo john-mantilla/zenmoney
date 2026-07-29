@@ -11,12 +11,14 @@ import { View, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-n
 import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface, SegmentedButtons } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
-import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
+import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar, SmartBudgetSuggestionCard } from '@/src/presentation/components';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
+import { SuggestRealisticBudget, RealisticBudgetSuggestion } from '@/src/domain/usecases/SuggestRealisticBudget';
 import { Budget, BudgetProgress } from '@/src/domain/entities/Budget';
 import { Category } from '@/src/domain/entities/Category';
+import { Transaction } from '@/src/domain/entities/Transaction';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useFocusEffect } from 'expo-router';
 
@@ -65,6 +67,9 @@ export default function BudgetsScreen() {
   const [budgetsProgress, setBudgetsProgress] = useState<BudgetTreeItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const [historicTxs, setHistoricTxs] = useState<Transaction[]>([]);
+  const [calibrationSuggestions, setCalibrationSuggestions] = useState<RealisticBudgetSuggestion[]>([]);
+  const [dismissedCalibrations, setDismissedCalibrations] = useState<Record<string, boolean>>({});
 
   const toggleExpand = (catId: string) => {
     setExpandedCategories(prev => ({
@@ -280,6 +285,26 @@ export default function BudgetsScreen() {
           children,
         };
       });
+
+      // 6. Cargar historial completo para calibración inteligente de presupuestos
+      const allHistory = await transactionRepo.getAll({ status: 'confirmed' });
+      setHistoricTxs(allHistory);
+
+      const suggestions: RealisticBudgetSuggestion[] = [];
+      for (const item of treeItems) {
+        if (item.percentage >= 100 && item.amountLimit > 0) {
+          const sug = SuggestRealisticBudget.execute(
+            item.categoryId,
+            item.amountLimit,
+            allHistory,
+            loadedCats,
+            selectedYear,
+            selectedMonth
+          );
+          if (sug) suggestions.push(sug);
+        }
+      }
+      setCalibrationSuggestions(suggestions);
 
       // Ordenar por consumo consolidado (de mayor a menor)
       setBudgetsProgress(treeItems.sort((a, b) => b.percentage - a.percentage));
@@ -509,6 +534,27 @@ export default function BudgetsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
+        {/* Banner(s) de Calibración Inteligente de Presupuesto */}
+        {calibrationSuggestions.map((sug) => {
+          if (dismissedCalibrations[sug.categoryId]) return null;
+          return (
+            <SmartBudgetSuggestionCard
+              key={sug.categoryId}
+              suggestion={sug}
+              onApplySuggestion={async (newAmount) => {
+                const targetItem = budgetsProgress.find((bp) => bp.categoryId === sug.categoryId);
+                if (targetItem?.budget) {
+                  await budgetRepo.update(targetItem.budget.id, { amountLimit: newAmount });
+                  loadData(true);
+                }
+              }}
+              onDismiss={() => {
+                setDismissedCalibrations((prev) => ({ ...prev, [sug.categoryId]: true }));
+              }}
+            />
+          );
+        })}
+
         {/* ─── TARJETA CONSOLIDADA: RESUMEN DEL PRESUPUESTO ───────────────────────── */}
         <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
           <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600', marginBottom: 6 }]}>
@@ -828,6 +874,30 @@ export default function BudgetsScreen() {
               keyboardType="numeric"
               style={styles.dialogInput}
             />
+
+            {/* Sugerencia Inteligente en Tiempo Real al escribir el presupuesto */}
+            {(() => {
+              const numVal = parseFloat(limitAmount) || 0;
+              if (selectedCategoryId && numVal > 0) {
+                const realTimeSug = SuggestRealisticBudget.execute(
+                  selectedCategoryId,
+                  numVal,
+                  historicTxs,
+                  categories,
+                  selectedYear,
+                  selectedMonth
+                );
+                if (realTimeSug) {
+                  return (
+                    <SmartBudgetSuggestionCard
+                      suggestion={realTimeSug}
+                      onApplySuggestion={(newVal) => setLimitAmount(String(newVal))}
+                    />
+                  );
+                }
+              }
+              return null;
+            })()}
 
             {/* Selector de Ámbito / Visibilidad */}
             <Text style={[styles.dialogLabel, theme.typography.caption, { marginTop: 16 }]}>
