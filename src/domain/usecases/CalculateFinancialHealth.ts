@@ -7,6 +7,7 @@
 
 import { Transaction } from '../entities/Transaction';
 import { Category, inferCategoryBudgetRole } from '../entities/Category';
+import { Account } from '../entities/Account';
 import {
   FinancialMethodology,
   FinancialHealthBreakdown,
@@ -19,11 +20,16 @@ export class CalculateFinancialHealth {
   static execute(
     transactions: Transaction[],
     categories: Category[],
-    methodology: FinancialMethodology
+    methodology: FinancialMethodology,
+    accounts: Account[] = []
   ): FinancialHealthBreakdown {
     // Mapa de categorías para resolución jerárquica
     const fullCatMap = new Map<string, Category>();
     categories.forEach((cat) => fullCatMap.set(cat.id, cat));
+
+    // Mapa de cuentas para evaluar transferencias hacia/desde inversión
+    const accountMap = new Map<string, Account>();
+    accounts.forEach((acc) => accountMap.set(acc.id, acc));
 
     const resolveRole = (catId: string | null): BudgetRole => {
       if (!catId) return 'needs';
@@ -57,18 +63,33 @@ export class CalculateFinancialHealth {
         if (role !== 'ignore' && role !== 'income') {
           actualAmounts[role] = (actualAmounts[role] || 0) + tx.amount;
         }
+      } else if (tx.type === 'transfer') {
+        const sourceAccount = accountMap.get(tx.accountId);
+        const targetAccount = tx.transferToAccountId ? accountMap.get(tx.transferToAccountId) : undefined;
+
+        const isTargetInvestment = targetAccount?.type === 'investment';
+        const isSourceInvestment = sourceAccount?.type === 'investment';
+
+        if (isTargetInvestment && !isSourceInvestment) {
+          // Transferencia hacia cuenta de inversión (Ahorro/Inversión activo)
+          actualAmounts.savings += tx.amount;
+        } else if (isSourceInvestment && !isTargetInvestment) {
+          // Retiro de cuenta de inversión hacia cuenta operativa (Desinversión)
+          actualAmounts.savings = Math.max(0, actualAmounts.savings - tx.amount);
+        }
       }
     });
 
-    // La torta del consumo desglosado suma el 100% del gasto analizado
+    // La base de análisis es el Ingreso Total del mes (Elizabeth Warren 50/30/20 standard).
+    // Si no se registraron ingresos en el mes (totalIncome === 0), se usa como fallback la suma trackeada.
     const totalTracked = actualAmounts.needs + actualAmounts.wants + actualAmounts.savings + actualAmounts.charity;
-    const baseAmount = totalTracked > 0 ? totalTracked : 1;
+    const baseAmount = totalIncome > 0 ? totalIncome : (totalTracked > 0 ? totalTracked : 1);
 
     const actualPercentages: Record<BudgetRole, number> = {
-      needs: totalTracked > 0 ? Number(((actualAmounts.needs / baseAmount) * 100).toFixed(1)) : 0,
-      wants: totalTracked > 0 ? Number(((actualAmounts.wants / baseAmount) * 100).toFixed(1)) : 0,
-      savings: totalTracked > 0 ? Number(((actualAmounts.savings / baseAmount) * 100).toFixed(1)) : 0,
-      charity: totalTracked > 0 ? Number(((actualAmounts.charity / baseAmount) * 100).toFixed(1)) : 0,
+      needs: Number(((actualAmounts.needs / baseAmount) * 100).toFixed(1)),
+      wants: Number(((actualAmounts.wants / baseAmount) * 100).toFixed(1)),
+      savings: Number(((actualAmounts.savings / baseAmount) * 100).toFixed(1)),
+      charity: Number(((actualAmounts.charity / baseAmount) * 100).toFixed(1)),
       income: 100,
       ignore: 0,
     };

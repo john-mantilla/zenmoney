@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CalculateFinancialHealth } from '../../usecases/CalculateFinancialHealth';
 import { Transaction } from '../../entities/Transaction';
 import { Category } from '../../entities/Category';
+import { Account } from '../../entities/Account';
 import { FinancialMethodology } from '../../entities/FinancialMethodology';
 
 describe('CalculateFinancialHealth — Framework de Metodologías Financieras', () => {
@@ -12,15 +13,20 @@ describe('CalculateFinancialHealth — Framework de Metodologías Financieras', 
     { id: 'cat-3', name: 'Ahorro Fiduciaria', icon: 'piggy-bank', color: '#2196F3', parentCategoryId: null, budgetRole: 'savings', isSystem: true, isPrivate: false, familyGroupId: null, createdAt: '' },
   ];
 
+  const mockAccounts: Account[] = [
+    { id: 'acc-bank', familyGroupId: 'fam-1', ownerUserId: 'u1', name: 'Cuenta Bancaria', type: 'bank', initialBalance: 1000000, currency: 'COP', isActive: true, createdAt: '' },
+    { id: 'acc-inv', familyGroupId: 'fam-1', ownerUserId: 'u1', name: 'Fondo de Inversión', type: 'investment', initialBalance: 0, currency: 'COP', isActive: true, createdAt: '' },
+  ];
+
   const mockTransactions: Transaction[] = [
     // Ingreso: $1.000.000
-    { id: 't1', familyGroupId: 'fam-1', accountId: 'acc-1', amount: 1000000, type: 'income', categoryId: null, date: '2026-07-01', description: 'Sueldo', isRecurringInstance: false, createdAt: '' },
+    { id: 't1', familyGroupId: 'fam-1', accountId: 'acc-bank', categoryId: null, createdByUserId: 'u1', type: 'income', amount: 1000000, currency: 'COP', description: 'Sueldo', merchantName: null, transactionDate: '2026-07-01', transferToAccountId: null, isRecurringInstance: false, recurringRuleId: null, status: 'confirmed', inputMethod: 'manual', aiMetadata: null, isPrivate: false, createdAt: '', updatedAt: '', syncedAt: null },
     // Necesidades: $500.000 (50%)
-    { id: 't2', familyGroupId: 'fam-1', accountId: 'acc-1', amount: 500000, type: 'expense', categoryId: 'cat-1', date: '2026-07-05', description: 'Mercado', isRecurringInstance: false, createdAt: '' },
+    { id: 't2', familyGroupId: 'fam-1', accountId: 'acc-bank', categoryId: 'cat-1', createdByUserId: 'u1', type: 'expense', amount: 500000, currency: 'COP', description: 'Mercado', merchantName: null, transactionDate: '2026-07-05', transferToAccountId: null, isRecurringInstance: false, recurringRuleId: null, status: 'confirmed', inputMethod: 'manual', aiMetadata: null, isPrivate: false, createdAt: '', updatedAt: '', syncedAt: null },
     // Deseos: $300.000 (30%)
-    { id: 't3', familyGroupId: 'fam-1', accountId: 'acc-1', amount: 300000, type: 'expense', categoryId: 'cat-2', date: '2026-07-10', description: 'Cenas', isRecurringInstance: false, createdAt: '' },
+    { id: 't3', familyGroupId: 'fam-1', accountId: 'acc-bank', categoryId: 'cat-2', createdByUserId: 'u1', type: 'expense', amount: 300000, currency: 'COP', description: 'Cenas', merchantName: null, transactionDate: '2026-07-10', transferToAccountId: null, isRecurringInstance: false, recurringRuleId: null, status: 'confirmed', inputMethod: 'manual', aiMetadata: null, isPrivate: false, createdAt: '', updatedAt: '', syncedAt: null },
     // Ahorro: $200.000 (20%)
-    { id: 't4', familyGroupId: 'fam-1', accountId: 'acc-1', amount: 200000, type: 'expense', categoryId: 'cat-3', date: '2026-07-15', description: 'Bolsillo', isRecurringInstance: false, createdAt: '' },
+    { id: 't4', familyGroupId: 'fam-1', accountId: 'acc-bank', categoryId: 'cat-3', createdByUserId: 'u1', type: 'expense', amount: 200000, currency: 'COP', description: 'Bolsillo', merchantName: null, transactionDate: '2026-07-15', transferToAccountId: null, isRecurringInstance: false, recurringRuleId: null, status: 'confirmed', inputMethod: 'manual', aiMetadata: null, isPrivate: false, createdAt: '', updatedAt: '', syncedAt: null },
   ];
 
   const rule503020: FinancialMethodology = {
@@ -64,6 +70,41 @@ describe('CalculateFinancialHealth — Framework de Metodologías Financieras', 
     // FIRE espera 50% ahorro, pero solo hubo 20%
     expect(result.actualPercentages.savings).toBe(20);
     expect(result.recommendations.some(r => r.includes('Ahorro e Inversión'))).toBe(true);
+  });
+
+  it('contabiliza las transferencias a cuentas de tipo investment como ahorro/inversión', () => {
+    const transferTx: Transaction = {
+      id: 't-trans',
+      familyGroupId: 'fam-1',
+      accountId: 'acc-bank',
+      categoryId: null,
+      createdByUserId: 'u1',
+      type: 'transfer',
+      amount: 200000,
+      currency: 'COP',
+      description: 'Transferencia a Fiduciaria',
+      merchantName: null,
+      transactionDate: '2026-07-20',
+      transferToAccountId: 'acc-inv',
+      isRecurringInstance: false,
+      recurringRuleId: null,
+      status: 'confirmed',
+      inputMethod: 'manual',
+      aiMetadata: null,
+      isPrivate: false,
+      createdAt: '',
+      updatedAt: '',
+      syncedAt: null,
+    };
+
+    // Sin la transferencia t4 (gasto de ahorro), solo t2 ($500k needs), t3 ($300k wants) + transferTx ($200k inversión) = $1.000.000 total
+    const txsWithoutExpenseSavings = [mockTransactions[0], mockTransactions[1], mockTransactions[2], transferTx];
+
+    const result = CalculateFinancialHealth.execute(txsWithoutExpenseSavings, mockCategories, rule503020, mockAccounts);
+
+    expect(result.actualAmounts.savings).toBe(200000);
+    expect(result.actualPercentages.savings).toBe(20);
+    expect(result.status).toBe('excellent');
   });
 
 });

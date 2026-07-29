@@ -13,7 +13,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
-import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet } from '@/src/presentation/components';
+import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet, LiveBudgetMeter, MicroCelebrationModal, CelebrationType } from '@/src/presentation/components';
+import { CalculateRegistrationStreak } from '@/src/domain/usecases/CalculateRegistrationStreak';
+import { hapticLight, hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -91,6 +93,17 @@ export default function NewTransactionScreen() {
   const [loadingRate, setLoadingRate] = useState(false);
   const [isInstallments, setIsInstallments] = useState(false);
   const [installmentsCount, setInstallmentsCount] = useState('12');
+  // Mapa de presupuestos precargados para el LiveBudgetMeter
+  const [budgetSpentMap, setBudgetSpentMap] = useState<Record<string, { limit: number; spent: number }>>({});
+  // Estado para disparar micro-celebraciones (inversión, racha, meta de ahorro)
+  const [celebrationConfig, setCelebrationConfig] = useState<{
+    visible: boolean;
+    type: CelebrationType;
+    title: string;
+    description: string;
+    badgeText?: string;
+    amountFormatted?: string;
+  } | null>(null);
 
   // Estados de carga y error
   const [isLoading, setIsLoading] = useState(true);
@@ -176,6 +189,21 @@ export default function NewTransactionScreen() {
 
         const loadedCats = await categoryRepo.getAll(true);
         setCategories(loadedCats);
+
+        // Precargar mapa de presupuestos para el LiveBudgetMeter
+        try {
+          const now = new Date();
+          const currentBudgets = await budgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1);
+          const calcProgress = new CalculateBudgetProgress(transactionRepo);
+          const map: Record<string, { limit: number; spent: number }> = {};
+          for (const b of currentBudgets) {
+            const p = await calcProgress.execute(b, loadedCats);
+            map[b.categoryId] = { limit: Number(b.amountLimit) || 0, spent: Number(p.spent) || 0 };
+          }
+          setBudgetSpentMap(map);
+        } catch (err) {
+          console.warn('Failed to pre-load budget progress for LiveBudgetMeter:', err);
+        }
 
         try {
           setCategorizationRules(await categorizationRuleRepo.getAll());
@@ -768,6 +796,9 @@ export default function NewTransactionScreen() {
         ? await transactionRepo.update(id, inputData as any)
         : await transactionRepo.create(inputData);
 
+      // Feedback táctil de éxito al guardar
+      hapticSuccess();
+
       // Si el usuario cambió la categoría que la IA/una regla habían sugerido,
       // se recuerda la corrección para no repetir el mismo error con este comercio.
       if (type === 'expense' && merchantName.trim() && finalCategoryId && finalCategoryId !== suggestedCategoryId) {
@@ -790,7 +821,74 @@ export default function NewTransactionScreen() {
         // Las alertas predictivas son un extra; nunca deben bloquear el guardado.
       }
 
-      router.back();
+      // Evaluador de Micro-Celebraciones (Inversión, Ahorro o Racha)
+      let celebrationToTrigger: {
+        type: CelebrationType;
+        title: string;
+        description: string;
+        badgeText?: string;
+        amountFormatted?: string;
+      } | null = null;
+
+      // 1. Celebración al Ahorrar / Invertir
+      if (type === 'transfer' && transferToAccountId) {
+        const targetAcc = accounts.find((a) => a.id === transferToAccountId);
+        if (targetAcc?.type === 'investment') {
+          celebrationToTrigger = {
+            type: 'investment',
+            badgeText: '🚀 ¡Ahorro / Inversión!',
+            title: '¡Haciendo Crecer tu Capital!',
+            amountFormatted: `$${Math.abs(Math.round(savedTx.amount)).toLocaleString('es-CO')}`,
+            description: '¡Excelente decisión! Has destinado capital directamente a tu cuenta de inversión.',
+          };
+        }
+      } else if (type === 'expense' && finalCategoryId) {
+        const selectedCat = categories.find((c) => c.id === finalCategoryId);
+        if (
+          selectedCat?.budgetRole === 'savings' ||
+          selectedCat?.name.toLowerCase().includes('ahorro') ||
+          selectedCat?.name.toLowerCase().includes('invers')
+        ) {
+          celebrationToTrigger = {
+            type: 'investment',
+            badgeText: '🎯 ¡Aporte a Ahorro!',
+            title: '¡Fortaleciendo tus Reservas!',
+            amountFormatted: `$${Math.abs(Math.round(savedTx.amount)).toLocaleString('es-CO')}`,
+            description: '¡Muy bien! Este movimiento fue directo a tus reservas de Ahorro e Inversión.',
+          };
+        }
+      }
+
+      // 2. Celebración de Racha (Hitos de 3, 7, 14, 21, 30 días)
+      if (!celebrationToTrigger) {
+        try {
+          const ownTx = historicTxsRef.current.filter((tx) => tx.createdByUserId === userProfile?.id);
+          const dates = ownTx.map((tx) => tx.transactionDate);
+          if (!dates.includes(transactionDate)) dates.push(transactionDate);
+          const newStreak = new CalculateRegistrationStreak().execute(dates, transactionDate);
+
+          const STREAK_MILESTONES = [3, 7, 14, 21, 30, 60, 90, 100, 365];
+          if (STREAK_MILESTONES.includes(newStreak)) {
+            celebrationToTrigger = {
+              type: 'streak',
+              badgeText: `🔥 ¡Racha de ${newStreak} Días!`,
+              title: '¡Hábito Financiero Firme!',
+              description: `¡Felicidades! Has mantenido tu disciplina registrando movimientos durante ${newStreak} días seguidos.`,
+            };
+          }
+        } catch {
+          // No interrumpe si falla
+        }
+      }
+
+      if (celebrationToTrigger) {
+        setCelebrationConfig({
+          visible: true,
+          ...celebrationToTrigger,
+        });
+      } else {
+        router.back();
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error al guardar el movimiento.');
     } finally {
@@ -1464,6 +1562,35 @@ export default function NewTransactionScreen() {
                 </View>
               )}
             </View>
+
+            {/* Live Budget Meter (Micro-Feedback en Tiempo Real de Presupuesto) */}
+            {type === 'expense' && (() => {
+              const activeCatId = selectedSubCategoryId || selectedParentCategoryId;
+              const activeCatObj = categories.find((c) => c.id === activeCatId);
+              let budgetInfo = activeCatId ? budgetSpentMap[activeCatId] : undefined;
+              if (!budgetInfo && activeCatObj?.parentCategoryId) {
+                budgetInfo = budgetSpentMap[activeCatObj.parentCategoryId];
+              }
+
+              // Limpiar puntos de miles (ej "8.500" -> "8500") para parsear numéricamente de forma correcta
+              const cleanAmountStr = String(amount).replace(/\./g, '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
+              const numAmount = parseFloat(cleanAmountStr) || 0;
+
+              if (activeCatObj && budgetInfo) {
+                return (
+                  <View style={{ marginBottom: 16 }}>
+                    <LiveBudgetMeter
+                      categoryName={activeCatObj.name}
+                      budgetLimit={budgetInfo.limit}
+                      currentSpent={budgetInfo.spent}
+                      newExpenseAmount={numAmount}
+                      currency={purchaseCurrency}
+                    />
+                  </View>
+                );
+              }
+              return null;
+            })()}
 
             {/* 4. Sección Comercio / Establecimiento + Chips Recientes (Limpio, sin íconos recargados) */}
             {type === 'expense' && (

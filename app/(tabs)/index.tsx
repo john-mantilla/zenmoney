@@ -869,6 +869,7 @@ export default function DashboardScreen() {
           onDismiss={() => setHealthModalVisible(false)}
           transactions={monthTransactions}
           categories={categories}
+          accounts={allAccounts}
         />
       </Portal>
     </View>

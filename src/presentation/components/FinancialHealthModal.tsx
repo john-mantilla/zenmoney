@@ -11,6 +11,7 @@ import { Surface, Text, Button, IconButton, Chip } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
+import { Account } from '@/src/domain/entities/Account';
 import { FinancialMethodology, BudgetRole } from '@/src/domain/entities/FinancialMethodology';
 import { CalculateFinancialHealth } from '@/src/domain/usecases/CalculateFinancialHealth';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -20,6 +21,7 @@ interface FinancialHealthModalProps {
   onDismiss: () => void;
   transactions: Transaction[];
   categories: Category[];
+  accounts?: Account[];
 }
 
 const PRESET_METHODOLOGIES: FinancialMethodology[] = [
@@ -149,6 +151,7 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
   onDismiss,
   transactions,
   categories,
+  accounts = [],
 }) => {
   const theme = useAppTheme();
   const [selectedCode, setSelectedCode] = useState<string>('rule_50_30_20');
@@ -158,19 +161,21 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
   }, [selectedCode]);
 
   const healthData = useMemo(() => {
-    return CalculateFinancialHealth.execute(transactions, categories, selectedMethodology);
-  }, [transactions, categories, selectedMethodology]);
+    return CalculateFinancialHealth.execute(transactions, categories, selectedMethodology, accounts);
+  }, [transactions, categories, selectedMethodology, accounts]);
 
   const formatCurrency = (val: number) => {
     return `$${Math.abs(Math.round(val)).toLocaleString('es-CO')}`;
   };
+
+  const baseAmount = healthData.totalIncome > 0 ? healthData.totalIncome : healthData.totalExpense;
 
   // Evaluar estado para Necesidades
   const getNeedsStatus = (actual: number, target: number) => {
     if (actual <= target + 3) {
       return { label: '✅ Dentro del rango', color: '#059669', bg: '#05966915' };
     }
-    const diff = (healthData.totalExpense * (actual - target)) / 100;
+    const diff = (baseAmount * (actual - target)) / 100;
     return { label: `⚠️ Excedido (+${formatCurrency(diff)})`, color: '#DC2626', bg: '#DC262615' };
   };
 
@@ -179,7 +184,7 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
     if (actual <= target + 2) {
       return { label: '✅ Dentro del rango', color: '#059669', bg: '#05966915' };
     }
-    const diff = (healthData.totalExpense * (actual - target)) / 100;
+    const diff = (baseAmount * (actual - target)) / 100;
     return { label: `⚠️ Excedido (+${formatCurrency(diff)})`, color: '#D97706', bg: '#D9770615' };
   };
 
@@ -188,7 +193,7 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
     if (actual >= target - 2) {
       return { label: '✅ Target cumplido', color: '#059669', bg: '#05966915' };
     }
-    const diff = (healthData.totalExpense * (target - actual)) / 100;
+    const diff = (baseAmount * (target - actual)) / 100;
     return { label: `⚠️ Te faltan ${formatCurrency(diff)}`, color: '#2563EB', bg: '#2563EB15' };
   };
 
@@ -197,7 +202,7 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
     if (actual >= target - 1) {
       return { label: '✅ Target cumplido', color: '#059669', bg: '#05966915' };
     }
-    const diff = (healthData.totalExpense * (target - actual)) / 100;
+    const diff = (baseAmount * (target - actual)) / 100;
     return { label: `⚠️ Te faltan ${formatCurrency(diff)}`, color: '#059669', bg: '#05966915' };
   };
 

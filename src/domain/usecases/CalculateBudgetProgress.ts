@@ -6,6 +6,7 @@
  */
 
 import { Budget, BudgetProgress } from '../entities/Budget';
+import { Category } from '../entities/Category';
 import { TransactionRepository } from '../repositories/TransactionRepository';
 
 export class CalculateBudgetProgress {
@@ -15,23 +16,34 @@ export class CalculateBudgetProgress {
    * Ejecuta la evaluación del progreso del presupuesto.
    *
    * Reglas de negocio:
-   * - Filtra transacciones de tipo 'expense' para la categoría específica.
+   * - Filtra transacciones de tipo 'expense' para la categoría específica y sus subcategorías.
    * - Filtra en el rango de fechas del mes y año especificado por el presupuesto.
    * - Alerta al alcanzar el 80% (warning) y al superar el 100% (exceeded).
    */
-  async execute(budget: Budget): Promise<BudgetProgress> {
+  async execute(budget: Budget, categories: Category[] = []): Promise<BudgetProgress> {
     const startDate = `${budget.year}-${String(budget.month).padStart(2, '0')}-01`;
     // Obtener el último día del mes
     const lastDay = new Date(budget.year, budget.month, 0).getDate();
     const endDate = `${budget.year}-${String(budget.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    let transactions = await this.transactionRepository.getAll({
-      categoryId: budget.categoryId,
+    // Construir conjunto de IDs que pertenecen al presupuesto (categoría + subcategorías)
+    const targetCategoryIds = new Set<string>([budget.categoryId]);
+    if (categories.length > 0) {
+      categories.forEach((cat) => {
+        if (cat.parentCategoryId === budget.categoryId) {
+          targetCategoryIds.add(cat.id);
+        }
+      });
+    }
+
+    let allExpenses = await this.transactionRepository.getAll({
       type: 'expense',
       startDate,
       endDate,
       status: 'confirmed',
     });
+
+    let transactions = allExpenses.filter((tx) => tx.categoryId && targetCategoryIds.has(tx.categoryId));
 
     // Regla de Negocio: Si el presupuesto es individual/personal, solo sumar los gastos de ese usuario
     if (budget.scope === 'individual' && budget.ownerUserId) {

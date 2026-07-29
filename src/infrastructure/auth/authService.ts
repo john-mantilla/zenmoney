@@ -11,8 +11,24 @@ import { Mapper } from '@data/models/Mapper';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 
+let Linking: typeof import('expo-linking') | null = null;
+try {
+  Linking = require('expo-linking');
+} catch (e) {
+  // Ignorado en entorno de pruebas Vitest Node
+}
+
 if (Platform.OS === 'web' && typeof window !== 'undefined') {
   WebBrowser.maybeCompleteAuthSession();
+}
+
+// Escuchar URLs entrantes de Deep Linking en nativo
+if (Platform.OS !== 'web' && Linking?.addEventListener) {
+  Linking.addEventListener('url', (event) => {
+    if (event.url && event.url.includes('auth/callback')) {
+      AuthService.handleOAuthRedirectUrl(event.url);
+    }
+  });
 }
 
 export class AuthService {
@@ -258,6 +274,51 @@ export class AuthService {
   }
 
   /**
+   * Extrae los tokens o código de autorización devueltos en la URL de retorno del SSO
+   * e inyecta la sesión activa en el cliente de Supabase.
+   */
+  static async handleOAuthRedirectUrl(url: string): Promise<void> {
+    try {
+      if (!url) return;
+
+      // 1. Si la URL contiene hash (#access_token=...&refresh_token=...)
+      if (url.includes('#')) {
+        const hashPart = url.substring(url.indexOf('#') + 1);
+        const params = new URLSearchParams(hashPart);
+        const accessToken = params.get('access_token');
+        const refreshToken = params.get('refresh_token');
+
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) {
+            console.error('[AuthService] Error al establecer sesión desde tokens:', error.message);
+          }
+          return;
+        }
+      }
+
+      // 2. Si la URL contiene query params (?code=...)
+      if (url.includes('?')) {
+        const queryPart = url.substring(url.indexOf('?') + 1);
+        const params = new URLSearchParams(queryPart);
+        const code = params.get('code');
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error('[AuthService] Error al intercambiar código PKCE:', error.message);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[AuthService] Error procesando URL de OAuth:', err);
+    }
+  }
+
+  /**
    * Inicia el flujo de autenticación SSO con Google.
    */
   static async signInWithGoogle(): Promise<void> {
@@ -282,7 +343,10 @@ export class AuthService {
       if (isWeb && typeof window !== 'undefined') {
         window.location.href = data.url;
       } else {
-        await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        if (result.type === 'success' && result.url) {
+          await AuthService.handleOAuthRedirectUrl(result.url);
+        }
       }
     }
   }
@@ -311,7 +375,10 @@ export class AuthService {
       if (isWeb && typeof window !== 'undefined') {
         window.location.href = data.url;
       } else {
-        await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+        if (result.type === 'success' && result.url) {
+          await AuthService.handleOAuthRedirectUrl(result.url);
+        }
       }
     }
   }
