@@ -472,11 +472,11 @@ export default function DashboardScreen() {
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={[theme.typography.body, { fontWeight: '600' }]}>
                   {pendingEmailInvoices === 1
-                    ? 'Tienes 1 factura por confirmar'
-                    : `Tienes ${pendingEmailInvoices} facturas por confirmar`}
+                    ? 'Tienes 1 movimiento por correo sin confirmar'
+                    : `Tienes ${pendingEmailInvoices} movimientos por correo sin confirmar`}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                  Llegaron por correo — revísalas para registrarlas como gasto
+                  Notificaciones bancarias y facturas detectadas automáticamente
                 </Text>
               </View>
               <MaterialCommunityIcons name="chevron-right" size={22} color={theme.customColors.textSecondary} />
@@ -701,9 +701,6 @@ export default function DashboardScreen() {
             </List.Accordion>
           )}
         </View>
-
-        {/* ─── SECCIÓN MICRO-DESAFÍO DE 7 DÍAS ───────────────────────────── */}
-        {challenge && <ChallengeCard challenge={challenge} />}
 
         {/* ─── SECCIÓN ACCIONES RÁPIDAS (1 sola fila compacta de 3 botones) ── */}
         <View style={{ marginTop: 16, marginBottom: 8 }}>

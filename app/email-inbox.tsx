@@ -99,7 +99,7 @@ export default function EmailInboxScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Gastos por Confirmar" subtitle="Facturas electrónicas recibidas por correo" />
+        <Appbar.Content title="Movimientos por Confirmar" subtitle="Notificaciones bancarias y facturas por correo" />
       </Appbar.Header>
 
       {loading ? (
@@ -109,45 +109,50 @@ export default function EmailInboxScreen() {
           {invoices.length === 0 ? (
             <EmptyState
               icon="email-check-outline"
-              title="Sin facturas pendientes"
-              description="Cuando te llegue una factura electrónica por correo, aparecerá aquí para que la confirmes como gasto."
+              title="Sin movimientos pendientes"
+              description="Cuando recibas un correo bancario o factura electrónica reenviada, aparecerá aquí para que la confirmes con 1-tap."
             />
           ) : (
-            invoices.map(tx => (
-              <Card key={tx.id} style={styles.card}>
-                <Card.Content>
-                  <View style={styles.row}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[theme.typography.h4, { fontWeight: '600' }]} numberOfLines={1}>
-                        {tx.merchantName || tx.description || 'Comercio desconocido'}
-                      </Text>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginTop: 4 }]}>
-                        {formatDate(tx.transactionDate)} • {getCategoryName(tx.categoryId)}
-                      </Text>
-                    </View>
-                    <AmountDisplay amount={tx.amount} type="expense" size="md" />
-                  </View>
+            invoices.map(tx => {
+              const isIncome = tx.type === 'income';
+              const isBankNotif = tx.aiMetadata?.is_bank_notification;
 
-                  <View style={styles.actionsRow}>
-                    <Button
-                      onPress={() => handleDiscard(tx)}
-                      textColor={theme.colors.error}
-                      disabled={discardingId === tx.id}
-                    >
-                      Descartar
-                    </Button>
-                    <Button
-                      mode="contained"
-                      onPress={() => handleConfirm(tx)}
-                      disabled={discardingId === tx.id}
-                      style={{ marginLeft: 8 }}
-                    >
-                      Revisar y Confirmar
-                    </Button>
-                  </View>
-                </Card.Content>
-              </Card>
-            ))
+              return (
+                <Card key={tx.id} style={styles.card}>
+                  <Card.Content>
+                    <View style={styles.row}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[theme.typography.h4, { fontWeight: '600' }]} numberOfLines={1}>
+                          {tx.merchantName || tx.description || 'Comercio desconocido'}
+                        </Text>
+                        <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginTop: 4 }]}>
+                          {formatDate(tx.transactionDate)} • {getCategoryName(tx.categoryId)} • {isBankNotif ? `🏦 ${tx.aiMetadata?.bank_name || 'Banco'}` : '📄 Factura DIAN'}
+                        </Text>
+                      </View>
+                      <AmountDisplay amount={tx.amount} type={isIncome ? 'income' : 'expense'} size="md" />
+                    </View>
+
+                    <View style={styles.actionsRow}>
+                      <Button
+                        onPress={() => handleDiscard(tx)}
+                        textColor={theme.colors.error}
+                        disabled={discardingId === tx.id}
+                      >
+                        Descartar
+                      </Button>
+                      <Button
+                        mode="contained"
+                        onPress={() => handleConfirm(tx)}
+                        disabled={discardingId === tx.id}
+                        style={{ marginLeft: 8 }}
+                      >
+                        Revisar y Confirmar
+                      </Button>
+                    </View>
+                  </Card.Content>
+                </Card>
+              );
+            })
           )}
         </ScrollView>
       )}

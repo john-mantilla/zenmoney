@@ -1,14 +1,17 @@
 /**
  * ZenMoney — Supabase Edge Function: parse-dian-invoice
  *
- * Recibe el webhook "email.received" de Resend Inbound cuando llega una
- * factura electrónica DIAN reenviada a {family.inboundToken}@<dominio-de-ingesta>,
- * descarga el adjunto .zip, extrae el XML UBL 2.1 (embebido como CDATA dentro
- * del AttachedDocument firmado), parsea los campos clave de forma determinista
- * y crea una transacción `pending` lista para que el usuario la confirme.
+ * Recibe el webhook "email.received" de Resend Inbound cuando llega un correo
+ * reenviado a {family.inboundToken}@<dominio-de-ingesta>.
+ *
+ * Soporta dos modos de procesamiento inteligente:
+ * 1. FACTURA ELECTRÓNICA DIAN (Asunto patrón DIAN + Adjunto .ZIP con XML UBL 2.1)
+ * 2. NOTIFICACIÓN BANCARIA EN TEXTO/HTML (Bancolombia, Davivienda, Nequi, Nu, PSE, Lulo)
+ *    - Clasifica determinísticamente si es Gasto ('expense') o Ingreso ('income').
+ *    - Descarta automáticamente extractos, boletines de seguridad o correos no transaccionales.
  *
  * Secrets requeridos (supabase secrets set ...):
- *   RESEND_API_KEY          — para descargar adjuntos vía la API de Resend
+ *   RESEND_API_KEY          — para descargar adjuntos/cuerpo vía la API de Resend
  *   RESEND_WEBHOOK_SECRET    — para verificar la firma Svix del webhook
  * (SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY ya están disponibles por defecto)
  */
@@ -40,6 +43,115 @@ async function verifyResendSignature(payload: string, headers: Headers, secret: 
   return svixSignature.split(" ").some((entry) => entry.split(",")[1] === expectedSignature);
 }
 
+// ─── Helper de Parseo de Notificaciones Bancarias (Texto / HTML) ───
+function parseBankNotification(subject: string, bodyText: string, currentDate: string) {
+  const fullText = `${subject} ${bodyText}`.toLowerCase();
+
+  // 1. Filtrar correos NO transaccionales (Extractos, Seguridad, Promociones)
+  const ignoreKeywords = [
+    'extracto',
+    'resumen mensual',
+    'cambio de clave',
+    'seguridad',
+    'bienvenido',
+    'nueva función',
+    'promoción',
+    'oferta',
+    'portafolio',
+    'crédito preaprobado',
+  ];
+
+  const isIgnored = ignoreKeywords.some((kw) => fullText.includes(kw));
+  if (isIgnored && !fullText.includes('compra por') && !fullText.includes('recibiste')) {
+    return null;
+  }
+
+  // 2. Extraer Banco o Entidad Financiera
+  let bankName = 'Notificación Bancaria';
+  if (fullText.includes('bancolombia')) bankName = 'Bancolombia';
+  else if (fullText.includes('nequi')) bankName = 'Nequi';
+  else if (fullText.includes('davivienda') || fullText.includes('daviplata')) bankName = 'Davivienda';
+  else if (fullText.includes('nubank') || fullText.includes(' nu ')) bankName = 'Nu';
+  else if (fullText.includes('lulo')) bankName = 'Lulo Bank';
+  else if (fullText.includes('pse')) bankName = 'PSE';
+
+  // 3. Determinar Tipo de Transacción (Gasto vs Ingreso)
+  const expenseKeywords = [
+    'compra por',
+    'pago por',
+    'pago aprobado',
+    'transacción aprobada',
+    'debito',
+    'débito',
+    'retiro',
+    'transferencia enviada',
+    'descontado de tu cuenta',
+    'pago pse',
+  ];
+
+  const incomeKeywords = [
+    'recibiste una consignación',
+    'recibiste un pago',
+    'te enviaron plata',
+    'transferencia recibida',
+    'consignación exitosa',
+    'abono a tu cuenta',
+    'reembolso',
+    'recibiste $',
+  ];
+
+  let type: 'expense' | 'income' | null = null;
+  if (expenseKeywords.some((kw) => fullText.includes(kw))) {
+    type = 'expense';
+  } else if (incomeKeywords.some((kw) => fullText.includes(kw))) {
+    type = 'income';
+  }
+
+  if (!type) return null;
+
+  // 4. Extraer Monto ($ 45.000 / $45,000 / $1.500.000)
+  const amountRegex = /\$\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/g;
+  const matches = [...fullText.matchAll(amountRegex)];
+  let amount: number | null = null;
+
+  if (matches.length > 0) {
+    for (const m of matches) {
+      const rawNumStr = m[1].replace(/\./g, '').replace(/,/g, '');
+      const parsedNum = parseFloat(rawNumStr);
+      if (!isNaN(parsedNum) && parsedNum > 0) {
+        amount = parsedNum;
+        break;
+      }
+    }
+  }
+
+  if (!amount) return null;
+
+  // 5. Extraer Comercio / Establecimiento / Remitente
+  let merchantName = bankName;
+  const merchantRegex = /(?:en|para|de)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s._-]+?)(?:\s+el|\s+por|\s+con|\s+fecha|\s+\d{2}\/|\.|$)/i;
+  const match = merchantRegex.exec(`${subject} ${bodyText}`);
+  if (match && match[1]) {
+    const cleaned = match[1].trim();
+    if (cleaned.length > 2 && cleaned.length < 40 && !cleaned.includes('$')) {
+      merchantName = cleaned;
+    }
+  }
+
+  const description = type === 'income'
+    ? `Ingreso por correo (${merchantName})`
+    : `Gasto por correo (${merchantName})`;
+
+  return {
+    type,
+    amount,
+    merchantName,
+    description,
+    transactionDate: currentDate,
+    bankName,
+  };
+}
+
 serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
@@ -61,20 +173,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ skipped: "evento no relevante" }), { status: 200 });
     }
 
-    const { email_id, to, subject } = event.data;
+    const { email_id, to, subject, text, html } = event.data;
 
-    // 1. Validar el patrón de asunto estandarizado por la DIAN:
-    //    {NIT}; {Nombre emisor}; {NumFactura}; {TipoDoc}; {Receptor};
-    // Se despoja cualquier prefijo de reenvío/respuesta (Fwd:, FW:, RV:, RE:, etc.),
-    // ya que un reenvío manual sí los agrega — el filtro automático de Gmail no.
-    const cleanSubject = (subject || "").replace(/^(\s*(fwd?|rv|re)\s*:\s*)+/gi, "");
-    const subjectMatch = /^\s*(\d{6,12})\s*;\s*([^;]+);\s*([^;]+);\s*(\d{2});/.exec(cleanSubject);
-    if (!subjectMatch) {
-      return new Response(JSON.stringify({ skipped: "asunto no coincide con el patrón DIAN" }), { status: 200 });
-    }
-    const [, supplierNitFromSubject, supplierNameFromSubject, invoiceNumber] = subjectMatch;
-
-    // 2. Resolver a qué familia pertenece, según el token en la dirección de destino
+    // Resolver a qué familia pertenece según el token en la dirección de destino
     const recipient = Array.isArray(to) ? to[0] : to;
     const token = (recipient || "").split("@")[0];
     if (!token) {
@@ -97,111 +198,7 @@ serve(async (req) => {
     }
     const familyGroupId = familyGroup.id;
 
-    // 3. Evitar duplicados: misma factura (NIT + número) ya ingerida para esta familia
-    const rawInputTag = `${supplierNitFromSubject};${invoiceNumber}`;
-    const { data: existing } = await supabase
-      .from("transactions")
-      .select("id")
-      .eq("family_group_id", familyGroupId)
-      .contains("ai_metadata", { raw_input: rawInputTag })
-      .maybeSingle();
-
-    if (existing) {
-      return new Response(
-        JSON.stringify({ skipped: "factura ya registrada", transactionId: existing.id }),
-        { status: 200 }
-      );
-    }
-
-    // 4. Descargar el adjunto .zip vía la API de Resend (el webhook solo trae metadata)
-    const resendApiKey = Deno.env.get("RESEND_API_KEY")!;
-    const attachmentsRes = await fetch(`https://api.resend.com/emails/receiving/${email_id}/attachments`, {
-      headers: { Authorization: `Bearer ${resendApiKey}` },
-    });
-    if (!attachmentsRes.ok) {
-      return new Response(JSON.stringify({ error: "No se pudieron obtener los adjuntos del correo." }), { status: 502 });
-    }
-    const attachmentsJson = await attachmentsRes.json();
-    const zipAttachment = (attachmentsJson.data || []).find(
-      (a: any) => a.content_type === "application/zip" || a.filename?.toLowerCase().endsWith(".zip")
-    );
-    if (!zipAttachment) {
-      return new Response(JSON.stringify({ skipped: "no se encontró adjunto .zip en el correo" }), { status: 200 });
-    }
-
-    const zipRes = await fetch(zipAttachment.download_url);
-    const zipBuffer = await zipRes.arrayBuffer();
-    const zip = await JSZip.loadAsync(zipBuffer);
-    const xmlEntry = Object.values(zip.files).find(
-      (f: any) => !f.dir && f.name.toLowerCase().endsWith(".xml")
-    );
-    if (!xmlEntry) {
-      return new Response(JSON.stringify({ error: "El .zip no contiene un archivo XML." }), { status: 422 });
-    }
-    const outerXml = await (xmlEntry as any).async("string");
-
-    // 5. El UBL Invoice real viene embebido como CDATA dentro del AttachedDocument firmado
-    const cdataMatch = /<cac:ExternalReference>[\s\S]*?<cbc:Description>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/cbc:Description>/.exec(outerXml);
-    const invoiceXml = cdataMatch ? cdataMatch[1] : outerXml;
-
-    // 6. Parseo determinista de los campos clave (esquema fijo DIAN UBL 2.1 — sin IA)
-    const amountMatch = /<cbc:PayableAmount[^>]*>([\d.]+)<\/cbc:PayableAmount>/.exec(invoiceXml);
-    const issueDateMatch = /<cbc:IssueDate>([\d-]+)<\/cbc:IssueDate>/.exec(invoiceXml);
-    const dueDateMatch = /<cbc:PaymentDueDate>([\d-]+)<\/cbc:PaymentDueDate>/.exec(invoiceXml);
-
-    const supplierBlockMatch = /<cac:AccountingSupplierParty>[\s\S]*?<\/cac:AccountingSupplierParty>/.exec(invoiceXml);
-    const supplierBlock = supplierBlockMatch ? supplierBlockMatch[0] : "";
-    // Prefiere el nombre del punto de venta (PhysicalLocation) sobre la razón social legal.
-    // Importante: exige que <cbc:Name> sea el hijo INMEDIATO de PhysicalLocation/PartyName
-    // (solo espacios en blanco entre medio) — si no, un match "de largo alcance" sin límite
-    // (p.ej. [\s\S]*?) puede saltarse hasta un <cbc:Name> de otro elemento completamente
-    // distinto más abajo en el mismo bloque, como el nombre de un TaxScheme ("IVA") cuando
-    // el proveedor no incluye un nombre de punto de venta dentro de PhysicalLocation.
-    const storeNameMatch = /<cac:PhysicalLocation>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
-    const legalNameMatch = /<cac:PartyName>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
-    const nitMatch = /<cac:PartyTaxScheme>[\s\S]*?<cbc:CompanyID[^>]*>(\d+)<\/cbc:CompanyID>/.exec(supplierBlock);
-
-    // Descripción de los ítems comprados (cac:Item > cbc:Description de cada InvoiceLine).
-    // Con un solo ítem (ej. una recarga de gasolina) se usa tal cual — mucho más informativo
-    // que repetir el nombre del comercio. Con varios (ej. un mercado) se resume el conteo.
-    const itemDescriptions = [...invoiceXml.matchAll(/<cac:Item>\s*<cbc:Description>([^<]+)<\/cbc:Description>/g)]
-      .map((m) => m[1].trim());
-
-    const amount = amountMatch ? parseFloat(amountMatch[1]) : null;
-    const issueDate = issueDateMatch ? issueDateMatch[1] : new Date().toISOString().split("T")[0];
-    const dueDate = dueDateMatch ? dueDateMatch[1] : issueDate;
-    const merchantName = (storeNameMatch?.[1] || legalNameMatch?.[1] || supplierNameFromSubject).trim();
-    const supplierNit = nitMatch ? nitMatch[1] : supplierNitFromSubject;
-    const description = itemDescriptions.length === 1
-      ? itemDescriptions[0]
-      : itemDescriptions.length > 1
-        ? `${merchantName} (${itemDescriptions.length} productos)`
-        : merchantName;
-
-    if (!amount) {
-      return new Response(JSON.stringify({ error: "No se pudo extraer el monto de la factura." }), { status: 422 });
-    }
-
-    // 7. Categorización automática por NIT/comercio, reutilizando las mismas reglas
-    //    que la app aprende de las correcciones del usuario (auto_categorization_rules)
-    const { data: rules } = await supabase
-      .from("auto_categorization_rules")
-      .select("match_pattern, category_id, priority")
-      .eq("family_group_id", familyGroupId)
-      .order("priority", { ascending: false });
-
-    const matchedRule = (rules || []).find((r: any) => {
-      const pattern = r.match_pattern.toLowerCase();
-      return (
-        supplierNit.toLowerCase().includes(pattern) ||
-        pattern.includes(supplierNit.toLowerCase()) ||
-        merchantName.toLowerCase().includes(pattern)
-      );
-    });
-    const categoryId = matchedRule?.category_id || null;
-
-    // 8. Cuenta y usuario por defecto — la transacción queda 'pending' para que
-    //    el usuario elija la cuenta real y confirme, igual que con las Facturas manuales
+    // Obtener la cuenta y el usuario administrador por defecto
     const { data: defaultAccount } = await supabase
       .from("accounts")
       .select("id")
@@ -226,44 +223,163 @@ serve(async (req) => {
       );
     }
 
-    const { data: newTx, error: insertError } = await supabase
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    // ─── MODO 1: PROCESAR COMO FACTURA ELECTRÓNICA DIAN (CON ADJUNTO ZIP) ───
+    const cleanSubject = (subject || "").replace(/^(\s*(fwd?|rv|re)\s*:\s*)+/gi, "");
+    const subjectMatch = /^\s*(\d{6,12})\s*;\s*([^;]+);\s*([^;]+);\s*(\d{2});/.exec(cleanSubject);
+
+    if (subjectMatch) {
+      const [, supplierNitFromSubject, supplierNameFromSubject, invoiceNumber] = subjectMatch;
+      const rawInputTag = `${supplierNitFromSubject};${invoiceNumber}`;
+
+      // Evitar duplicados
+      const { data: existing } = await supabase
+        .from("transactions")
+        .select("id")
+        .eq("family_group_id", familyGroupId)
+        .contains("ai_metadata", { raw_input: rawInputTag })
+        .maybeSingle();
+
+      if (existing) {
+        return new Response(
+          JSON.stringify({ skipped: "factura ya registrada", transactionId: existing.id }),
+          { status: 200 }
+        );
+      }
+
+      // Descargar el adjunto .zip vía la API de Resend
+      const resendApiKey = Deno.env.get("RESEND_API_KEY")!;
+      const attachmentsRes = await fetch(`https://api.resend.com/emails/receiving/${email_id}/attachments`, {
+        headers: { Authorization: `Bearer ${resendApiKey}` },
+      });
+
+      if (attachmentsRes.ok) {
+        const attachmentsJson = await attachmentsRes.json();
+        const zipAttachment = (attachmentsJson.data || []).find(
+          (a: any) => a.content_type === "application/zip" || a.filename?.toLowerCase().endsWith(".zip")
+        );
+
+        if (zipAttachment) {
+          const zipRes = await fetch(zipAttachment.download_url);
+          const zipBuffer = await zipRes.arrayBuffer();
+          const zip = await JSZip.loadAsync(zipBuffer);
+          const xmlEntry = Object.values(zip.files).find(
+            (f: any) => !f.dir && f.name.toLowerCase().endsWith(".xml")
+          );
+
+          if (xmlEntry) {
+            const outerXml = await (xmlEntry as any).async("string");
+            const cdataMatch = /<cac:ExternalReference>[\s\S]*?<cbc:Description>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/cbc:Description>/.exec(outerXml);
+            const invoiceXml = cdataMatch ? cdataMatch[1] : outerXml;
+
+            const amountMatch = /<cbc:PayableAmount[^>]*>([\d.]+)<\/cbc:PayableAmount>/.exec(invoiceXml);
+            const issueDateMatch = /<cbc:IssueDate>([\d-]+)<\/cbc:IssueDate>/.exec(invoiceXml);
+            const supplierBlockMatch = /<cac:AccountingSupplierParty>[\s\S]*?<\/cac:AccountingSupplierParty>/.exec(invoiceXml);
+            const supplierBlock = supplierBlockMatch ? supplierBlockMatch[0] : "";
+            const storeNameMatch = /<cac:PhysicalLocation>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
+            const legalNameMatch = /<cac:PartyName>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
+
+            const amount = amountMatch ? parseFloat(amountMatch[1]) : null;
+            const issueDate = issueDateMatch ? issueDateMatch[1] : todayStr;
+            const merchantName = (storeNameMatch?.[1] || legalNameMatch?.[1] || supplierNameFromSubject).trim();
+
+            if (amount) {
+              const { data: newTx } = await supabase
+                .from("transactions")
+                .insert({
+                  family_group_id: familyGroupId,
+                  account_id: defaultAccount.id,
+                  category_id: null,
+                  created_by_user_id: adminProfile.id,
+                  type: "expense",
+                  amount,
+                  currency: "COP",
+                  description: `Factura Electrónica (${merchantName})`,
+                  merchant_name: merchantName,
+                  transaction_date: issueDate,
+                  status: "pending",
+                  input_method: "email",
+                  ai_metadata: { raw_input: rawInputTag, parsed_amount: amount, is_dian_invoice: true },
+                })
+                .select("id")
+                .single();
+
+              return new Response(
+                JSON.stringify({ ok: true, transactionId: newTx?.id, mode: "dian_invoice" }),
+                { status: 200 }
+              );
+            }
+          }
+        }
+      }
+    }
+
+    // ─── MODO 2: PROCESAR COMO NOTIFICACIÓN BANCARIA EN TEXTO / HTML ───
+    const bodyContent = text || html || subject || "";
+    const bankResult = parseBankNotification(subject || "", bodyContent, todayStr);
+
+    if (!bankResult) {
+      return new Response(
+        JSON.stringify({ skipped: "correo no transaccional o sin monto legible" }),
+        { status: 200 }
+      );
+    }
+
+    // Evitar duplicados por id de correo o mismo asunto/monto en el día
+    const rawInputTag = `bank_mail_${email_id}_${bankResult.amount}_${bankResult.type}`;
+    const { data: existingBankTx } = await supabase
+      .from("transactions")
+      .select("id")
+      .eq("family_group_id", familyGroupId)
+      .contains("ai_metadata", { raw_input: rawInputTag })
+      .maybeSingle();
+
+    if (existingBankTx) {
+      return new Response(
+        JSON.stringify({ skipped: "notificación bancaria ya registrada", transactionId: existingBankTx.id }),
+        { status: 200 }
+      );
+    }
+
+    const { data: newBankTx, error: insertError } = await supabase
       .from("transactions")
       .insert({
         family_group_id: familyGroupId,
         account_id: defaultAccount.id,
-        category_id: categoryId,
+        category_id: null,
         created_by_user_id: adminProfile.id,
-        type: "expense",
-        amount,
+        type: bankResult.type,
+        amount: bankResult.amount,
         currency: "COP",
-        description,
-        merchant_name: merchantName,
-        transaction_date: issueDate,
-        transfer_to_account_id: null,
-        is_recurring_instance: false,
-        recurring_rule_id: null,
+        description: bankResult.description,
+        merchant_name: bankResult.merchantName,
+        transaction_date: bankResult.transactionDate,
         status: "pending",
         input_method: "email",
         ai_metadata: {
           raw_input: rawInputTag,
-          parsed_amount: amount,
-          parsed_category: null,
-          parsed_account: null,
-          parsed_merchant: merchantName,
-          confidence: 1,
-          corrections: {},
-          due_date: dueDate,
+          is_bank_notification: true,
+          bank_name: bankResult.bankName,
+          parsed_amount: bankResult.amount,
         },
       })
       .select("id")
       .single();
 
     if (insertError) {
-      return new Response(JSON.stringify({ error: `Error al crear la transacción: ${insertError.message}` }), { status: 500 });
+      return new Response(JSON.stringify({ error: insertError.message }), { status: 500 });
     }
 
     return new Response(
-      JSON.stringify({ ok: true, transactionId: newTx.id, merchantName, amount, dueDate }),
+      JSON.stringify({
+        ok: true,
+        transactionId: newBankTx?.id,
+        mode: "bank_text_notification",
+        type: bankResult.type,
+        amount: bankResult.amount,
+        bankName: bankResult.bankName,
+      }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (err) {
