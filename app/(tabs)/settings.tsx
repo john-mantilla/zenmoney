@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform } from 'react-native';
 import { Button, Text, Avatar, List, Divider, Surface, ActivityIndicator } from 'react-native-paper';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
@@ -260,6 +260,9 @@ const styles = StyleSheet.create({
   scrollContainer: {
     padding: 16,
     paddingBottom: 40,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 780 : '100%',
+    alignSelf: 'center',
   },
   profileCard: {
     padding: 16,

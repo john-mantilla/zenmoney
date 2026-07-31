@@ -11,7 +11,7 @@ import { View, StyleSheet, FlatList, SectionList, RefreshControl, Pressable, Scr
 import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons, Portal, Dialog } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
-import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar } from '@/src/presentation/components';
+import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, TransactionFilterModal } from '@/src/presentation/components';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
@@ -617,119 +617,28 @@ export default function TransactionsScreen() {
         onPress={() => router.push('/transaction/new')}
       />
 
-      {/* ─── PORTAL: DIÁLOGO DE FILTROS ────────────────────────────────────── */}
-      <Portal>
-        <Dialog
-          visible={isFilterModalOpen}
-          onDismiss={() => setIsFilterModalOpen(false)}
-          style={{ borderRadius: 20, maxHeight: '85%' }}
-        >
-          <Dialog.Title style={{ fontWeight: '700' }}>Filtros de Movimientos</Dialog.Title>
-          <Dialog.ScrollArea style={{ paddingHorizontal: 0 }}>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 12 }}>
-              
-              {/* 0. Tipo de Movimiento */}
-              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
-                TIPO DE MOVIMIENTO
-              </Text>
-              <SegmentedButtons
-                value={selectedType}
-                onValueChange={(val) => setSelectedType(val as any)}
-                buttons={[
-                  { value: 'all', label: 'Todos', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-                  { value: 'income', label: 'Ingresos', icon: 'arrow-down-circle', checkedColor: '#059669', uncheckedColor: theme.colors.onSurface },
-                  { value: 'expense', label: 'Gastos', icon: 'arrow-up-circle', checkedColor: '#DC2626', uncheckedColor: theme.colors.onSurface },
-                  { value: 'transfer', label: 'Transfer.', icon: 'swap-horizontal', checkedColor: '#2563EB', uncheckedColor: theme.colors.onSurface },
-                ]}
-                style={{ marginBottom: 20 }}
-              />
-
-              {/* 1. Modo de Agrupamiento */}
-              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
-                AGRUPAR MOVIMIENTOS
-              </Text>
-              <SegmentedButtons
-                value={viewMode}
-                onValueChange={(val) => setViewMode(val as 'date' | 'category')}
-                buttons={[
-                  { value: 'date', label: 'Por Fecha', icon: 'calendar-clock', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-                  { value: 'category', label: 'Por Categoría', icon: 'shape-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-                ]}
-                style={{ marginBottom: 20 }}
-              />
-
-              {/* 2. Filtrar por Cuenta */}
-              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
-                FILTRAR POR CUENTA
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }} contentContainerStyle={{ gap: 6 }}>
-                <Chip
-                  selected={selectedAccountId === null}
-                  onPress={() => setSelectedAccountId(null)}
-                  style={{ borderRadius: 12 }}
-                >
-                  Todas
-                </Chip>
-                {accounts.filter(a => a.isActive).map(acc => (
-                  <Chip
-                    key={acc.id}
-                    selected={selectedAccountId === acc.id}
-                    onPress={() => setSelectedAccountId(acc.id)}
-                    style={{ borderRadius: 12 }}
-                  >
-                    {acc.name}
-                  </Chip>
-                ))}
-              </ScrollView>
-
-              {/* 3. Filtrar por Miembro Familiar */}
-              {Object.keys(familyMembers).length > 0 && (
-                <>
-                  <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.customColors.textSecondary, marginBottom: 8 }]}>
-                    FILTRAR POR MIEMBRO FAMILIAR
-                  </Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 6 }}>
-                    <Chip
-                      selected={selectedMemberId === null}
-                      onPress={() => setSelectedMemberId(null)}
-                      style={{ borderRadius: 12 }}
-                    >
-                      👥 Todos
-                    </Chip>
-                    {Object.entries(familyMembers).map(([id, initials]) => (
-                      <Chip
-                        key={id}
-                        selected={selectedMemberId === id}
-                        onPress={() => setSelectedMemberId(id)}
-                        style={{ borderRadius: 12 }}
-                      >
-                        👤 {id === currentUserId ? 'Tú' : initials}
-                      </Chip>
-                    ))}
-                  </ScrollView>
-                </>
-              )}
-            </ScrollView>
-          </Dialog.ScrollArea>
-
-          <Dialog.Actions style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-            <Button
-              onPress={() => {
-                setSelectedAccountId(null);
-                setSelectedMemberId(null);
-                setSelectedType('all');
-                setViewMode('date');
-              }}
-              textColor={theme.colors.error}
-            >
-              Limpiar Todo
-            </Button>
-            <Button mode="contained" onPress={() => setIsFilterModalOpen(false)} style={{ borderRadius: 10 }}>
-              Aplicar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+      {/* ─── MODAL IMPECCABLE: FILTROS DE MOVIMIENTOS ────────────────────── */}
+      <TransactionFilterModal
+        visible={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        selectedType={selectedType}
+        onSelectType={setSelectedType}
+        viewMode={viewMode}
+        onSelectViewMode={setViewMode}
+        selectedAccountId={selectedAccountId}
+        onSelectAccount={setSelectedAccountId}
+        selectedMemberId={selectedMemberId}
+        onSelectMember={setSelectedMemberId}
+        accounts={accounts}
+        familyMembers={familyMembers}
+        currentUserId={currentUserId}
+        onClearAll={() => {
+          setSelectedAccountId(null);
+          setSelectedMemberId(null);
+          setSelectedType('all');
+          setViewMode('date');
+        }}
+      />
     </View>
   );
 }
@@ -747,6 +656,9 @@ const styles = StyleSheet.create({
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.03)',
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 880 : '100%',
+    alignSelf: 'center',
   },
   searchBar: {
     elevation: 0,
@@ -765,6 +677,9 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingBottom: 150, // Margen extra para que el último item no quede tapado por la barra de totales
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 880 : '100%',
+    alignSelf: 'center',
   },
   viewToggleContainer: {
     marginTop: 12,
@@ -790,7 +705,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderTopWidth: 1,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12, // Padding extra para iOS home bar
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 880 : '100%',
+    alignSelf: 'center',
   },
   summaryCol: {
     alignItems: 'center',

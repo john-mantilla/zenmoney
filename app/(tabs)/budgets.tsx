@@ -7,11 +7,11 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform } from 'react-native';
 import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface, SegmentedButtons } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
-import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar, SmartBudgetSuggestionCard } from '@/src/presentation/components';
+import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar, SmartBudgetSuggestionCard, CreateBudgetModal } from '@/src/presentation/components';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
@@ -832,139 +832,35 @@ export default function BudgetsScreen() {
         onPress={openCreateDialog}
       />
 
-      {/* ─── PORTAL DIÁLOGO: CREAR / EDITAR PRESUPUESTO ──────────────────────── */}
-      <Portal>
-        <Dialog visible={isDialogVisible} onDismiss={() => setIsDialogVisible(false)}>
-          <Dialog.Title>{editingBudget ? 'Editar Presupuesto' : 'Nuevo Límite Mensual'}</Dialog.Title>
-          <Dialog.Content>
-            
-            {errorMsg && (
-              <HelperText type="error" visible={!!errorMsg}>
-                {errorMsg}
-              </HelperText>
-            )}
+      {/* ─── MODAL IMPECCABLE: CREAR / EDITAR PRESUPUESTO O LÍMITE MENSUAL ───── */}
+      <CreateBudgetModal
+        visible={isDialogVisible}
+        onClose={() => {
+          setIsDialogVisible(false);
+          setEditingBudget(null);
+        }}
+        onSave={async (data) => {
+          setSelectedCategoryId(data.categoryId);
+          setLimitAmount(String(data.amount));
+          setSelectedScope(data.scope);
+          setBudgetStartMode(data.startMode);
+          setFutureMonthOffset(data.futureOffset);
 
-            {/* Selector de categoría (solo disponible al crear) */}
-            {!editingBudget && (
-              <>
-                <Text style={[styles.dialogLabel, theme.typography.caption]}>Categoría</Text>
-                <CategoryPickerMenu
-                  categories={categories.filter(c => !c.isPrivate)} // No presupuestamos categorías privadas en MVP
-                  selectedCategoryId={selectedCategoryId}
-                  onSelect={setSelectedCategoryId}
-                  style={{ marginBottom: 12, alignSelf: 'flex-start' }}
-                />
-              </>
-            )}
-
-            {editingBudget && (
-              <Text style={[theme.typography.h4, { marginBottom: 16 }]}>
-                Categoría: {getCategoryDetails(editingBudget.categoryId).name}
-              </Text>
-            )}
-
-            <TextInput
-              label="Monto Límite Mensual ($)"
-              value={limitAmount}
-              onChangeText={(txt) => {
-                setLimitAmount(txt.replace(/[^0-9.]/g, ''));
-                setErrorMsg(null);
-              }}
-              mode="outlined"
-              keyboardType="numeric"
-              style={styles.dialogInput}
-            />
-
-            {/* Sugerencia Inteligente en Tiempo Real al escribir el presupuesto */}
-            {(() => {
-              const numVal = parseFloat(limitAmount) || 0;
-              if (selectedCategoryId && numVal > 0) {
-                const realTimeSug = SuggestRealisticBudget.execute(
-                  selectedCategoryId,
-                  numVal,
-                  historicTxs,
-                  categories,
-                  selectedYear,
-                  selectedMonth
-                );
-                if (realTimeSug) {
-                  return (
-                    <SmartBudgetSuggestionCard
-                      suggestion={realTimeSug}
-                      onApplySuggestion={(newVal) => setLimitAmount(String(newVal))}
-                    />
-                  );
-                }
+          await handleSaveBudget();
+        }}
+        onDelete={
+          editingBudget
+            ? async () => {
+                await handleDeleteBudget(editingBudget);
               }
-              return null;
-            })()}
-
-            {/* Selector de Ámbito / Visibilidad */}
-            <Text style={[styles.dialogLabel, theme.typography.caption, { marginTop: 16 }]}>
-              Visibilidad y Ámbito
-            </Text>
-            <SegmentedButtons
-              value={selectedScope}
-              onValueChange={(val: string) => setSelectedScope(val as 'family' | 'individual')}
-              buttons={[
-                { value: 'family', label: 'Familiar', icon: 'account-group-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-                { value: 'individual', label: 'Personal (Privado)', icon: 'lock-outline', checkedColor: theme.colors.primary, uncheckedColor: theme.colors.onSurface },
-              ]}
-              density="small"
-              style={{ marginBottom: 12 }}
-            />
-
-            <View style={{ marginTop: 24 }}>
-              <Text style={[styles.dialogLabel, theme.typography.caption]}>Inicia a partir de:</Text>
-              <RadioButton.Group onValueChange={val => setBudgetStartMode(val as 'current' | 'future')} value={budgetStartMode}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <RadioButton value="current" color={theme.colors.primary} />
-                  <Text style={theme.typography.body}>Este mes ({selectedYear}-{String(selectedMonth).padStart(2, '0')})</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                  <RadioButton value="future" color={theme.colors.primary} />
-                  <Text style={theme.typography.body}>Mes futuro:</Text>
-                </View>
-              </RadioButton.Group>
-              
-              {budgetStartMode === 'future' && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginLeft: 36 }}>
-                  <IconButton icon="minus" size={20} onPress={() => setFutureMonthOffset(Math.max(1, futureMonthOffset - 1))} />
-                  <Text style={{ fontWeight: 'bold', marginHorizontal: 8 }}>
-                    +{futureMonthOffset} mes{futureMonthOffset > 1 ? 'es' : ''} 
-                    {(() => {
-                        let m = selectedMonth + futureMonthOffset;
-                        let y = selectedYear;
-                        while(m > 12) { m -= 12; y++; }
-                        return ` (${y}-${String(m).padStart(2, '0')})`;
-                    })()}
-                  </Text>
-                  <IconButton icon="plus" size={20} onPress={() => setFutureMonthOffset(Math.min(24, futureMonthOffset + 1))} />
-                </View>
-              )}
-            </View>
-
-          </Dialog.Content>
-          <Dialog.Actions style={styles.dialogActions}>
-            {editingBudget && (
-              <IconButton
-                icon="delete"
-                iconColor={theme.colors.error}
-                onPress={() => handleDeleteBudget(editingBudget)}
-                style={styles.deleteBtn}
-              />
-            )}
-            <View style={styles.actionButtonsRow}>
-              <Button onPress={() => setIsDialogVisible(false)} textColor={theme.customColors.textSecondary}>
-                Cancelar
-              </Button>
-              <Button mode="contained" onPress={handleSaveBudget} style={{ marginLeft: 8 }}>
-                Guardar
-              </Button>
-            </View>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+            : undefined
+        }
+        editingBudget={editingBudget}
+        categories={categories}
+        historicTransactions={historicTxs}
+        selectedYear={selectedYear}
+        selectedMonth={selectedMonth}
+      />
     </View>
   );
 }
@@ -981,6 +877,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 130,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 880 : '100%',
+    alignSelf: 'center',
   },
   summaryCard: {
     borderRadius: 16,

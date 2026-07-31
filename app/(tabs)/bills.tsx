@@ -12,7 +12,7 @@ import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Text, Card, Button, Portal, Dialog, TextInput, HelperText, ActivityIndicator, List, Surface, IconButton, Menu, SegmentedButtons, FAB } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useAppTheme } from '@/src/presentation/theme';
-import { AmountDisplay, EmptyState, CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
+import { AmountDisplay, EmptyState, CategoryPickerMenu, NetworkStatusBar, CreateBillModal } from '@/src/presentation/components';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
@@ -1010,188 +1010,52 @@ export default function BillsScreen() {
         onPress={openCreateDialog}
       />
 
-      {/* ─── PORTAL DIÁLOGO: AGREGAR FACTURA / BILL AL VUELO ──────────────── */}
-      <Portal>
-        <Dialog visible={isDialogVisible} onDismiss={() => setIsDialogVisible(false)}>
-          <Dialog.Title>{editingBill ? 'Editar Factura' : 'Registrar Factura'}</Dialog.Title>
-          <Dialog.Content>
-            <ScrollView
-              style={{ maxHeight: Dimensions.get('window').height * 0.45 }}
-              contentContainerStyle={{ paddingBottom: 8 }}
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled={true}
-            >
-            {errorMsg && <HelperText type="error" visible={!!errorMsg}>{errorMsg}</HelperText>}
-            
-            <TextInput
-              label="Descripción de la factura (ej: Recibo de la Luz)"
-              value={billDescription}
-              onChangeText={(txt) => { setBillDescription(txt); setErrorMsg(null); }}
-              mode="outlined"
-              style={styles.dialogInput}
-              disabled={savingBill}
-            />
+      {/* ─── MODAL IMPECCABLE: CREAR / EDITAR FACTURA ──────────────── */}
+      <CreateBillModal
+        visible={isDialogVisible}
+        onClose={() => {
+          setIsDialogVisible(false);
+          setEditingBill(null);
+        }}
+        onSave={async (data) => {
+          const inputData = {
+            accountId: data.accountId || (accounts[0]?.id || ''),
+            categoryId: data.type === 'expense' ? (data.categoryId || null) : null,
+            type: data.type,
+            amount: data.amount,
+            description: data.description,
+            transactionDate: data.date,
+            inputMethod: 'manual',
+            transferToAccountId: data.type === 'transfer' ? (data.transferToAccountId || null) : null,
+            status: 'pending',
+            isRecurringInstance: editingBill ? editingBill.isRecurringInstance : false,
+            recurringRuleId: editingBill ? editingBill.recurringRuleId : null,
+            aiMetadata: {
+              rawInput: '',
+              parsedAmount: data.amount,
+              parsedCategory: null,
+              parsedAccount: null,
+              parsedMerchant: null,
+              confidence: 1,
+              corrections: {},
+              dueDate: data.date,
+              occurrenceDate: editingBill ? data.date : undefined,
+            }
+          } as any;
 
-            <TextInput
-              label="Monto de la Factura ($)"
-              value={billAmount}
-              onChangeText={(txt) => { setBillAmount(txt.replace(/[^0-9.]/g, '')); setErrorMsg(null); }}
-              mode="outlined"
-              keyboardType="numeric"
-              style={styles.dialogInput}
-              disabled={savingBill}
-            />
-
-            {/* Calendario Nativo Web o Campo Móvil */}
-            {Platform.OS === 'web' ? (
-              <View style={styles.webDateContainer}>
-                <Text style={[styles.dialogSelectLabel, theme.typography.caption]}>Fecha de Vencimiento</Text>
-                <input
-                  type="date"
-                  value={billDate}
-                  onChange={(e) => { setBillDate(e.target.value); setErrorMsg(null); }}
-                  style={webStyles.dateInput}
-                  disabled={savingBill}
-                />
-              </View>
-            ) : (
-              <View>
-                <Pressable onPress={() => setShowDatePicker(true)}>
-                  <View pointerEvents="none">
-                    <TextInput
-                      label="Fecha de Vencimiento"
-                      value={billDate}
-                      mode="outlined"
-                      style={styles.dialogInput}
-                      disabled={savingBill}
-                      right={<TextInput.Icon icon="calendar" />}
-                    />
-                  </View>
-                </Pressable>
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={(() => {
-                      const parts = billDate.split('-');
-                      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-                    })()}
-                    mode="date"
-                    display="default"
-                    onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
-                      setShowDatePicker(false);
-                      if (selectedDate && event.type === 'set') {
-                        const year = selectedDate.getFullYear();
-                        const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-                        const day = String(selectedDate.getDate()).padStart(2, '0');
-                        setBillDate(`${year}-${month}-${day}`);
-                        setErrorMsg(null);
-                      }
-                    }}
-                  />
-                )}
-              </View>
-            )}
-
-            <Text style={[styles.dialogSelectLabel, theme.typography.caption, { marginTop: 12 }]}>Tipo de Factura</Text>
-            <SegmentedButtons
-              value={billType}
-              onValueChange={(val) => {
-                setBillType(val as 'expense' | 'transfer');
-                setBillCategoryId('');
-                setBillTransferToAccountId('');
-              }}
-              buttons={[
-                { value: 'expense', label: 'Gasto / Servicio', icon: 'receipt-text-outline', disabled: savingBill },
-                { value: 'transfer', label: 'Pago Tarjeta / Crédito', icon: 'credit-card-outline', disabled: savingBill },
-              ]}
-              style={styles.dialogInput}
-            />
-
-            {billType === 'expense' ? (
-              <>
-                <Text style={[styles.dialogSelectLabel, theme.typography.caption, { marginTop: 12 }]}>Categoría</Text>
-                <CategoryPickerMenu
-                  categories={categories}
-                  selectedCategoryId={billCategoryId}
-                  onSelect={setBillCategoryId}
-                  excludeNamesContaining="ingreso"
-                  disabled={savingBill}
-                  style={styles.categorySelectBtn}
-                />
-              </>
-            ) : (
-              <>
-                <Text style={[styles.dialogSelectLabel, theme.typography.caption, { marginTop: 12 }]}>Cuenta Destino (tarjeta o crédito a pagar)</Text>
-                <View style={{ flexDirection: 'row' }}>
-                  <Menu
-                    visible={showAccountMenu}
-                    onDismiss={() => setShowAccountMenu(false)}
-                    anchor={
-                      <Button
-                        mode="outlined"
-                        onPress={() => setShowAccountMenu(true)}
-                        style={styles.categorySelectBtn}
-                        icon="credit-card-outline"
-                        disabled={savingBill}
-                      >
-                        {accounts.find(a => a.id === billTransferToAccountId)?.name || 'Seleccionar Cuenta'}
-                      </Button>
-                    }
-                  >
-                    <ScrollView style={{ maxHeight: 200 }}>
-                      {accounts.filter(a => ['credit_card', 'loan', 'mortgage'].includes(a.type)).map(acc => (
-                        <Menu.Item
-                          key={acc.id}
-                          onPress={() => {
-                            setBillTransferToAccountId(acc.id);
-                            setShowAccountMenu(false);
-                          }}
-                          title={acc.name}
-                          leadingIcon="credit-card-outline"
-                        />
-                      ))}
-                    </ScrollView>
-                  </Menu>
-                </View>
-                {accounts.filter(a => ['credit_card', 'loan', 'mortgage'].includes(a.type)).length === 0 && (
-                  <HelperText type="info" visible={true}>
-                    No tienes tarjetas ni créditos registrados. Créalos primero en Cuentas y Deudas.
-                  </HelperText>
-                )}
-              </>
-            )}
-            </ScrollView>
-          </Dialog.Content>
-          <Dialog.Actions>
-            {editingBill && (
-              <Button
-                onPress={handleDeleteBill}
-                textColor={theme.colors.error}
-                style={{ marginRight: 'auto' }}
-                disabled={savingBill}
-              >
-                Eliminar
-              </Button>
-            )}
-            <Button onPress={() => setIsDialogVisible(false)} textColor={theme.customColors.textSecondary} disabled={savingBill}>
-              Cancelar
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleSaveBill}
-              loading={savingBill}
-              disabled={
-                savingBill ||
-                !billAmount ||
-                !billDescription.trim() ||
-                (billType === 'expense' ? !billCategoryId : !billTransferToAccountId)
-              }
-              style={{ marginLeft: 8 }}
-            >
-              {editingBill ? 'Guardar' : 'Registrar'}
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+          if (editingBill) {
+            await transactionRepo.update(editingBill.id, inputData);
+          } else {
+            await transactionRepo.create(inputData);
+          }
+          setEditingBill(null);
+          loadData(true);
+        }}
+        onDelete={editingBill ? handleDeleteBill : undefined}
+        editingBill={editingBill}
+        accounts={accounts}
+        categories={categories}
+      />
     </View>
   );
 }
@@ -1230,7 +1094,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    maxWidth: 600,
+    maxWidth: Platform.OS === 'web' ? 880 : '100%',
     width: '100%',
     alignSelf: 'center',
   },

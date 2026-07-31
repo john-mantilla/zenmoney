@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Image } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Image, Platform } from 'react-native';
 import { Button, Card, Text, Switch, ActivityIndicator, Dialog, Portal, TextInput, IconButton, Appbar, HelperText } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,6 +15,7 @@ import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurr
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { inferAccountBrand, getAccountBrandInfo, BRAND_COLORS } from '@/src/presentation/theme/accountBrands';
+import { CreateAccountModal } from '@/src/presentation/components';
 import { useAccountCustomizationStore } from '@/src/infrastructure/state/accountCustomizationStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -447,263 +448,32 @@ export default function SettingsAccountsScreen() {
         )}
       </ScrollView>
 
-      {/* ─── PORTAL DIÁLOGO: AGREGAR / EDITAR CUENTA ───────────────────── */}
-      <Portal>
-        <Dialog 
-          visible={isDialogVisible} 
-          onDismiss={() => setIsDialogVisible(false)}
-          style={{ maxHeight: '80%', borderRadius: 12 }}
-        >
-          <Dialog.Title>{selectedAccount ? 'Editar Cuenta' : 'Nueva Cuenta o Deuda'}</Dialog.Title>
-          <Dialog.ScrollArea style={{ paddingHorizontal: 0, borderTopWidth: 0, borderBottomWidth: 0 }}>
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingVertical: 8 }} keyboardShouldPersistTaps="handled">
-              <HelperText type="error" visible={!!errorMsg}>
-                {errorMsg}
-              </HelperText>
-              {/* Fila Única: Avatar Cromático + Nombre de Cuenta */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <View
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    backgroundColor: accountColor || inferAccountBrand(accountName, accountType).color,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderWidth: 2,
-                    borderColor: theme.colors.outline + '40',
-                  }}
-                >
-                  <MaterialCommunityIcons
-                    name={(accountIcon || inferAccountBrand(accountName, accountType).icon) as any}
-                    size={24}
-                    color="#FFFFFF"
-                  />
-                </View>
+      {/* ─── MODAL IMPECCABLE: CREAR / EDITAR CUENTA O DEUDA ───────────── */}
+      <CreateAccountModal
+        visible={isDialogVisible}
+        onClose={() => {
+          setIsDialogVisible(false);
+          setSelectedAccount(null);
+        }}
+        onSave={async (data) => {
+          setAccountName(data.name);
+          setAccountType(data.type);
+          setInitialBalanceInput(String(data.initialBalance));
+          if (data.color) setAccountColor(data.color);
+          if (data.icon) setAccountIcon(data.icon);
+          if (data.closingDay) setClosingDay(String(data.closingDay));
+          if (data.paymentDay) setPaymentDay(String(data.paymentDay));
+          setIsPrivate(!!data.isPrivate);
+          setHasInstallment(!!data.hasInstallment);
+          if (data.installmentAmount) setInstallmentAmount(String(data.installmentAmount));
+          if (data.installmentEndDate) setInstallmentEndDate(data.installmentEndDate);
+          if (data.installmentSourceAccountId) setInstallmentSourceAccountId(data.installmentSourceAccountId);
 
-                <View style={{ flex: 1 }}>
-                  <TextInput
-                    label="Nombre de la Cuenta (ej: Bancolombia, Nequi, Nu)"
-                    value={accountName}
-                    onChangeText={(txt) => handleNameOrTypeChange(txt, accountType)}
-                    mode="outlined"
-                    disabled={savingAccount}
-                  />
-                </View>
-              </View>
-
-              {/* Selector de Tipo de Cuenta (5 Básicos) */}
-              <Text style={[theme.typography.caption, { marginBottom: 6, color: theme.customColors.textSecondary, fontWeight: '600' }]}>
-                Tipo de Cuenta:
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginBottom: 12 }}>
-                {(['bank', 'cash', 'credit_card', 'loan', 'investment'] as AccountType[]).map((t) => (
-                  <Button
-                    key={t}
-                    mode={accountType === t ? 'contained' : 'outlined'}
-                    compact
-                    style={{ marginRight: 8, borderRadius: 8 }}
-                    onPress={() => handleNameOrTypeChange(accountName, t)}
-                    disabled={savingAccount}
-                  >
-                    {getAccountTypeLabel(t)}
-                  </Button>
-                ))}
-              </ScrollView>
-
-              {/* Paleta Horizontal de Colores */}
-              <Text style={[theme.typography.caption, { marginBottom: 6, color: theme.customColors.textSecondary, fontWeight: '600' }]}>
-                Color de Marca / Fondo del Ícono:
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginBottom: 14 }}>
-                {BRAND_COLORS.map(c => {
-                  const activeColor = accountColor || inferAccountBrand(accountName, accountType).color;
-                  const isSelected = activeColor.toLowerCase() === c.color.toLowerCase();
-                  return (
-                    <Pressable
-                      key={c.color}
-                      onPress={() => {
-                        setAccountColor(c.color);
-                        setIsManualBrandSet(true);
-                      }}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor: c.color,
-                        marginRight: 8,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        borderWidth: isSelected ? 3 : 1,
-                        borderColor: isSelected ? theme.colors.primary : '#FFFFFF',
-                      }}
-                    >
-                      {isSelected && <MaterialCommunityIcons name="check" size={16} color="#FFFFFF" />}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-
-              {!selectedAccount && (
-                <TextInput
-                  label="Saldo Inicial ($ COP)"
-                  value={initialBalanceInput}
-                  onChangeText={(txt) => setInitialBalanceInput(txt.replace(/[^0-9]/g, ''))}
-                  mode="outlined"
-                  keyboardType="numeric"
-                  placeholder="0"
-                  style={styles.dialogInput}
-                  disabled={savingAccount}
-                />
-              )}
-
-              {['credit_card'].includes(accountType) && (
-                <>
-                  <TextInput
-                    label="Día de Corte de Facturación (1 - 31)"
-                    value={closingDay}
-                    onChangeText={txt => {
-                      const num = parseInt(txt.replace(/[^0-9]/g, '')) || '';
-                      setClosingDay(num === '' ? '' : String(Math.min(31, Math.max(1, Number(num)))));
-                    }}
-                    mode="outlined"
-                    keyboardType="numeric"
-                    placeholder="15"
-                    style={styles.dialogInput}
-                    disabled={savingAccount}
-                  />
-                  
-                  <TextInput
-                    label="Día de Pago de la Tarjeta (1 - 31)"
-                    value={paymentDay}
-                    onChangeText={txt => {
-                      const num = parseInt(txt.replace(/[^0-9]/g, '')) || '';
-                      setPaymentDay(num === '' ? '' : String(Math.min(31, Math.max(1, Number(num)))));
-                    }}
-                    mode="outlined"
-                    keyboardType="numeric"
-                    placeholder="2"
-                    style={styles.dialogInput}
-                    disabled={savingAccount}
-                  />
-                </>
-              )}
-
-              {['loan', 'mortgage'].includes(accountType) && (
-                <TextInput
-                  label="Día de Pago de la Cuota (1 - 31)"
-                  value={paymentDay}
-                  onChangeText={txt => {
-                    const num = parseInt(txt.replace(/[^0-9]/g, '')) || '';
-                    setPaymentDay(num === '' ? '' : String(Math.min(31, Math.max(1, Number(num)))));
-                  }}
-                  mode="outlined"
-                  keyboardType="numeric"
-                  placeholder="5"
-                  style={styles.dialogInput}
-                  disabled={savingAccount}
-                />
-              )}
-
-              {/* Configurar cuota mensual para deudas (Tarjeta o Crédito) */}
-              {['credit_card', 'loan', 'mortgage'].includes(accountType) && (
-                <View style={styles.autoInstallmentSection}>
-                  <View style={styles.switchRow}>
-                    <Text style={theme.typography.body}>¿Tiene cobro / cuota mensual fija?</Text>
-                    <Switch
-                      value={hasInstallment}
-                      onValueChange={setHasInstallment}
-                      color={theme.colors.primary}
-                      disabled={savingAccount}
-                    />
-                  </View>
-
-                  {hasInstallment && (
-                    <View>
-                      <TextInput
-                        label="Monto de la Cuota ($)"
-                        value={installmentAmount}
-                        onChangeText={(txt) => setInstallmentAmount(txt.replace(/[^0-9]/g, ''))}
-                        mode="outlined"
-                        keyboardType="numeric"
-                        style={styles.dialogInput}
-                        disabled={savingAccount}
-                      />
-
-                      <TextInput
-                        label="Fecha Fin de la Cuota (AAAA-MM-DD)"
-                        value={installmentEndDate}
-                        onChangeText={setInstallmentEndDate}
-                        mode="outlined"
-                        placeholder="Ej: 2027-12-31"
-                        style={styles.dialogInput}
-                        disabled={savingAccount}
-                      />
-                      <HelperText type="info" visible={!selectedAccount}>
-                        Se crearán de una sola vez todas las cuotas entre hoy y esta fecha.
-                      </HelperText>
-
-                      <Text style={[theme.typography.caption, { marginBottom: 4, color: theme.customColors.textSecondary }]}>
-                        Debitar de la Cuenta:
-                      </Text>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row', marginVertical: 4 }}>
-                        {accounts.filter(a => a.type !== 'credit_card' && a.id !== selectedAccount?.id).map((a) => (
-                          <Button
-                            key={a.id}
-                            mode={installmentSourceAccountId === a.id ? 'contained' : 'outlined'}
-                            compact
-                            style={{ marginRight: 8, borderRadius: 8, marginBottom: 4 }}
-                            onPress={() => setInstallmentSourceAccountId(a.id)}
-                            disabled={savingAccount}
-                            labelStyle={{ fontSize: 11 }}
-                          >
-                            {a.name}
-                          </Button>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
-                </View>
-              )}
-              {/* Opción de Cuenta Privada (Solo visible para ti) */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.outline + '20' }}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={[theme.typography.body, { fontWeight: '600', color: theme.colors.onSurface }]}>
-                    Cuenta Privada
-                  </Text>
-                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                    Ocultar del patrimonio familiar (solo visible para ti)
-                  </Text>
-                </View>
-                <Switch
-                  value={isPrivate}
-                  onValueChange={setIsPrivate}
-                  color={theme.colors.primary}
-                  disabled={savingAccount}
-                />
-              </View>
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button
-              onPress={() => setIsDialogVisible(false)}
-              textColor={theme.customColors.textSecondary}
-              disabled={savingAccount}
-            >
-              Cancelar
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleSaveAccount}
-              loading={savingAccount}
-              disabled={savingAccount || !accountName.trim()}
-              style={{ marginLeft: 8 }}
-            >
-              Guardar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+          await handleSaveAccount();
+        }}
+        editingAccount={selectedAccount}
+        accounts={accounts}
+      />
     </View>
   );
 }
@@ -714,6 +484,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 780 : '100%',
+    alignSelf: 'center',
   },
   addBtn: {
     marginBottom: 16,

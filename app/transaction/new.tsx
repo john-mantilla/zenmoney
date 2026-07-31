@@ -1788,7 +1788,13 @@ export default function NewTransactionScreen() {
         <Dialog
           visible={isAccountSheetVisible}
           onDismiss={() => setIsAccountSheetVisible(false)}
-          style={{ maxHeight: '80%', borderRadius: 16 }}
+          style={{
+            maxHeight: '80%',
+            borderRadius: 16,
+            maxWidth: Platform.OS === 'web' ? 560 : '100%',
+            width: '100%',
+            alignSelf: 'center',
+          }}
         >
           <Dialog.Title>
             {accountSelectorTarget === 'destination' ? 'Seleccionar Cuenta Destino' : 'Seleccionar Cuenta Origen'}
@@ -1902,6 +1908,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 24,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 680 : '100%',
+    alignSelf: 'center',
   },
   modeSelector: {
     marginBottom: 16,

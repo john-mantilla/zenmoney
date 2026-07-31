@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, List, IconButton, Appbar, Divider, SegmentedButtons, HelperText, Chip, Surface } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
@@ -502,7 +502,16 @@ export default function SettingsFamilyScreen() {
       {/* ─── PORTAL DIÁLOGOS ───────────────────────────────────────────── */}
       <Portal>
         {/* DIÁLOGO 1: INVITAR MIEMBRO */}
-        <Dialog visible={isInviteDialogVisible} onDismiss={() => setIsInviteDialogVisible(false)}>
+        <Dialog
+          visible={isInviteDialogVisible}
+          onDismiss={() => setIsInviteDialogVisible(false)}
+          style={{
+            borderRadius: 20,
+            maxWidth: Platform.OS === 'web' ? 560 : '100%',
+            width: '100%',
+            alignSelf: 'center',
+          }}
+        >
           <Dialog.Title>Invitar miembro a la familia</Dialog.Title>
           <Dialog.Content>
             {inviteError && (
@@ -554,7 +563,16 @@ export default function SettingsFamilyScreen() {
         </Dialog>
 
         {/* DIÁLOGO 2: DESVINCULAR MIEMBRO */}
-        <Dialog visible={isRemoveMemberDialogVisible} onDismiss={() => !removingMember && setIsRemoveMemberDialogVisible(false)}>
+        <Dialog
+          visible={isRemoveMemberDialogVisible}
+          onDismiss={() => !removingMember && setIsRemoveMemberDialogVisible(false)}
+          style={{
+            borderRadius: 20,
+            maxWidth: Platform.OS === 'web' ? 560 : '100%',
+            width: '100%',
+            alignSelf: 'center',
+          }}
+        >
           <Dialog.Title style={{ color: theme.colors.error }}>Desvincular Miembro</Dialog.Title>
           <Dialog.Content>
             <Text style={[theme.typography.body, { marginBottom: 12 }]}>
@@ -589,7 +607,16 @@ export default function SettingsFamilyScreen() {
         </Dialog>
 
         {/* DIÁLOGO 3: CANCELAR / ELIMINAR INVITACIÓN */}
-        <Dialog visible={isCancelInviteDialogVisible} onDismiss={() => !cancellingInvite && setIsCancelInviteDialogVisible(false)}>
+        <Dialog
+          visible={isCancelInviteDialogVisible}
+          onDismiss={() => !cancellingInvite && setIsCancelInviteDialogVisible(false)}
+          style={{
+            borderRadius: 20,
+            maxWidth: Platform.OS === 'web' ? 560 : '100%',
+            width: '100%',
+            alignSelf: 'center',
+          }}
+        >
           <Dialog.Title>Cancelar Invitación</Dialog.Title>
           <Dialog.Content>
             <Text style={theme.typography.body}>
@@ -627,6 +654,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 780 : '100%',
+    alignSelf: 'center',
   },
   addBtn: {
     marginBottom: 16,

@@ -129,8 +129,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1.5,
     marginVertical: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
     elevation: 3,
-    boxShadow: '0px 4px 16px rgba(0,0,0,0.06)',
   },
   headerRow: {
     flexDirection: 'row',

@@ -11,6 +11,7 @@ import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, 
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
+import * as Haptics from 'expo-haptics';
 import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard } from '@/src/presentation/components';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
@@ -839,7 +840,12 @@ export default function DashboardScreen() {
         <Dialog
           visible={!!selectedAccountForAction}
           onDismiss={() => setSelectedAccountForAction(null)}
-          style={{ borderRadius: 20 }}
+          style={{
+            borderRadius: 20,
+            maxWidth: Platform.OS === 'web' ? 560 : '100%',
+            width: '100%',
+            alignSelf: 'center',
+          }}
         >
           <Dialog.Title style={{ fontWeight: 'bold' }}>
             {selectedAccountForAction?.name}
@@ -1000,6 +1006,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 115,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 960 : '100%',
+    alignSelf: 'center',
   },
   emailInboxCard: {
     marginTop: 16,

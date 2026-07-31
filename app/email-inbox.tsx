@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform } from 'react-native';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Text, Card, Button, ActivityIndicator, Appbar, IconButton } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -166,6 +166,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 780 : '100%',
+    alignSelf: 'center',
   },
   card: {
     borderRadius: 12,

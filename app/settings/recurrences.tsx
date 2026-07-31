@@ -8,7 +8,7 @@ import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, List,
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
-import { CategoryPickerMenu } from '@/src/presentation/components';
+import { CategoryPickerMenu, CreateRecurrenceModal } from '@/src/presentation/components';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
 import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
 import { SupabaseAccountRepository } from '@/src/data/repositories/SupabaseAccountRepository';
@@ -363,154 +363,53 @@ export default function SettingsRecurrencesScreen() {
         )}
       </ScrollView>
 
-      {/* ─── PORTAL DIÁLOGO: CREAR / EDITAR RECURRENCIA ─────────────────── */}
-      <Portal>
-        <Dialog 
-          visible={isDialogVisible} 
-          onDismiss={() => setIsDialogVisible(false)}
-          style={{ maxHeight: '80%', borderRadius: 12 }}
-        >
-          <Dialog.Title>{editingRule ? 'Editar Recurrencia' : 'Nueva Recurrencia'}</Dialog.Title>
-          <Dialog.ScrollArea style={styles.dialogScrollArea}>
-            <ScrollView contentContainerStyle={{ paddingVertical: 8 }}>
-              <HelperText type="error" visible={!!errorMsg}>
-                {errorMsg}
-              </HelperText>
+      {/* ─── MODAL IMPECCABLE: RECURRENCIAS ─────────────────── */}
+      <CreateRecurrenceModal
+        visible={isDialogVisible}
+        onClose={() => {
+          setIsDialogVisible(false);
+          setEditingRule(null);
+        }}
+        onSave={async (data) => {
+          const payload = {
+            accountId: data.accountId,
+            categoryId: data.categoryId || null,
+            type: data.type,
+            amount: data.amount,
+            description: data.description,
+            frequency: data.frequency,
+            dayOfMonth: data.frequency === 'monthly' ? (data.dayOfMonth || 5) : null,
+            startDate: data.startDate,
+            endDate: data.endDate || data.startDate,
+          };
 
-              <SegmentedButtons
-                value={recType}
-                onValueChange={(val) => {
-                  setRecType(val as 'income' | 'expense');
-                  setRecCategoryId(val === 'expense'
-                    ? (categories.find((c) => !c.name.toLowerCase().includes('ingreso'))?.id || '')
-                    : (incomeCategories[0]?.id || ''));
-                }}
-                buttons={[
-                  { value: 'expense', label: 'Gasto', icon: 'arrow-up-circle-outline', disabled: savingRecurrence },
-                  { value: 'income', label: 'Ingreso', icon: 'arrow-down-circle-outline', disabled: savingRecurrence },
-                ]}
-                style={styles.dialogInput}
-              />
+          const generator = new GenerateRecurringInstances(transactionRepo);
 
-              <TextInput
-                label={recType === 'income' ? 'Descripción (ej: Salario mensual)' : 'Descripción (ej: Suscripción Netflix)'}
-                value={recDescription}
-                onChangeText={setRecDescription}
-                mode="outlined"
-                style={styles.dialogInput}
-                disabled={savingRecurrence}
-              />
+          if (editingRule) {
+            const updatedRule = await recurrenceRepo.update(editingRule.id, payload);
+            const oldEndDate = editingRule.endDate;
+            if (!oldEndDate || (data.endDate && data.endDate > oldEndDate)) {
+              await generator.execute(updatedRule, updatedRule.startDate, data.endDate || updatedRule.startDate);
+            } else if (data.endDate && data.endDate < oldEndDate) {
+              const pendingInstances = await transactionRepo.getAll({
+                recurringRuleId: editingRule.id,
+                status: 'pending',
+              });
+              const toRemove = pendingInstances.filter(tx => tx.transactionDate > data.endDate!);
+              await Promise.all(toRemove.map(tx => transactionRepo.delete(tx.id)));
+            }
+          } else {
+            const createdRule = await recurrenceRepo.create(payload);
+            await generator.execute(createdRule, createdRule.startDate, createdRule.endDate || createdRule.startDate);
+          }
 
-              <TextInput
-                label="Monto ($ COP)"
-                value={recAmount}
-                onChangeText={(txt) => setRecAmount(txt.replace(/[^0-9]/g, ''))}
-                mode="outlined"
-                keyboardType="numeric"
-                style={styles.dialogInput}
-                disabled={savingRecurrence}
-              />
-
-              <Text style={[theme.typography.caption, { marginBottom: 4, color: theme.customColors.textSecondary }]}>
-                Frecuencia
-              </Text>
-              <View style={styles.typesRow}>
-                {(['daily', 'weekly', 'biweekly', 'monthly', 'yearly'] as const).map((f) => (
-                  <Button
-                    key={f}
-                    mode={recFrequency === f ? 'contained' : 'outlined'}
-                    compact
-                    style={styles.typeBtn}
-                    onPress={() => setRecFrequency(f)}
-                    disabled={savingRecurrence}
-                  >
-                    {getFrequencyLabel(f)}
-                  </Button>
-                ))}
-              </View>
-
-              {recFrequency === 'monthly' && (
-                <TextInput
-                  label="Día del Mes (1 - 31)"
-                  value={recDayOfMonth}
-                  onChangeText={(txt) => {
-                    const num = parseInt(txt.replace(/[^0-9]/g, '')) || '';
-                    setRecDayOfMonth(num === '' ? '' : String(Math.min(31, Math.max(1, Number(num)))));
-                  }}
-                  mode="outlined"
-                  keyboardType="numeric"
-                  style={styles.dialogInput}
-                  disabled={savingRecurrence}
-                />
-              )}
-
-              <DateField label="Fecha de inicio" value={recStartDate} onChange={setRecStartDate} disabled={savingRecurrence} />
-              <DateField label="Fecha de fin" value={recEndDate} onChange={setRecEndDate} disabled={savingRecurrence} />
-              <HelperText type="info" visible={!editingRule}>
-                Se crearán de una sola vez todas las facturas entre el inicio y el fin. Si necesitas más adelante, puedes extender la fecha de fin editando la recurrencia.
-              </HelperText>
-
-              <Text style={[theme.typography.caption, { marginBottom: 4, color: theme.customColors.textSecondary }]}>
-                {recType === 'income' ? 'Cuenta que recibe' : 'Cuenta de Pago'}
-              </Text>
-              <View style={styles.typesRow}>
-                {activeAccounts.map((a) => (
-                  <Button
-                    key={a.id}
-                    mode={recAccountId === a.id ? 'contained' : 'outlined'}
-                    compact
-                    style={styles.typeBtn}
-                    onPress={() => setRecAccountId(a.id)}
-                    disabled={savingRecurrence}
-                    labelStyle={{ fontSize: 10 }}
-                  >
-                    {a.name}
-                  </Button>
-                ))}
-                {activeAccounts.length === 0 && (
-                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                    No tienes cuentas activas.
-                  </Text>
-                )}
-              </View>
-
-              {recType === 'expense' && (
-                <>
-                  <Text style={[theme.typography.caption, { marginBottom: 4, color: theme.customColors.textSecondary, marginTop: 4 }]}>
-                    Categoría
-                  </Text>
-                  <CategoryPickerMenu
-                    categories={categories}
-                    selectedCategoryId={recCategoryId}
-                    onSelect={setRecCategoryId}
-                    excludeNamesContaining="ingreso"
-                    disabled={savingRecurrence}
-                    style={{ alignSelf: 'flex-start', marginBottom: 8 }}
-                  />
-                </>
-              )}
-            </ScrollView>
-          </Dialog.ScrollArea>
-          <Dialog.Actions>
-            <Button
-              onPress={() => setIsDialogVisible(false)}
-              textColor={theme.customColors.textSecondary}
-              disabled={savingRecurrence}
-            >
-              Cancelar
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleSaveRecurrence}
-              loading={savingRecurrence}
-              disabled={savingRecurrence || !recAmount || !recDescription.trim() || !recAccountId}
-              style={{ marginLeft: 8 }}
-            >
-              Guardar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+          setEditingRule(null);
+          loadData();
+        }}
+        editingRule={editingRule}
+        accounts={accounts}
+        categories={categories}
+      />
     </View>
   );
 }
@@ -521,6 +420,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 780 : '100%',
+    alignSelf: 'center',
   },
   addBtn: {
     marginBottom: 16,

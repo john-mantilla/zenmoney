@@ -3,12 +3,13 @@
  *
  * Espacio de entrenamiento financiero basado en Hábitos Atómicos (James Clear).
  * Permite visualizar el avance de micro-desafíos de 7 días, explorar próximas metas
- * y coleccionar las insignias ganadas por logros reales (sin puntos arbitrarios).
+ * y coleccionar las insignias ganadas por logros reales (Impeccable.style design).
  */
 
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
-import { Text, Surface, IconButton, Avatar, Card } from 'react-native-paper';
+import { Text, Surface, IconButton, Avatar } from 'react-native-paper';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,11 +17,10 @@ import { ChallengeCard, MicroCelebrationModal } from '@/src/presentation/compone
 import { Evaluate7DayChallenge } from '@/src/domain/usecases/Evaluate7DayChallenge';
 import { Challenge } from '@/src/domain/entities/Challenge';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
+import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-
-import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 
 export interface BadgeItem {
   id: string;
@@ -147,20 +147,22 @@ export default function CoachScreen() {
     }
   };
 
+  const unlockedCount = badges.filter((b) => b.unlocked).length;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Cabecera Modal del Entrenador */}
+      {/* Cabecera del Entrenador */}
       <View
         style={[
           styles.header,
           {
             backgroundColor: theme.colors.surface,
-            borderBottomColor: theme.colors.outline,
-            paddingTop: Math.max(insets.top, Platform.OS === 'ios' ? 44 : 10),
+            borderBottomColor: theme.colors.outline + '30',
+            paddingTop: Math.max(insets.top, Platform.OS === 'ios' ? 44 : 12),
           },
         ]}
       >
-        <IconButton icon="chevron-down" size={28} onPress={() => router.back()} />
+        <IconButton icon="chevron-down" size={26} onPress={() => router.back()} />
         <View style={{ alignItems: 'center' }}>
           <Text style={[styles.headerTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
             Entrenador Financiero
@@ -169,29 +171,45 @@ export default function CoachScreen() {
             Hábitos Atómicos & Insignias
           </Text>
         </View>
-        <IconButton icon="trophy-outline" iconColor={theme.colors.primary} size={24} onPress={() => {}} />
+        <View style={styles.headerRightBadge}>
+          <MaterialCommunityIcons name="trophy-award" size={20} color={theme.colors.primary} />
+          <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.primary }]}>
+            {unlockedCount}/{badges.length}
+          </Text>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Banner Motivacional del Entrenador */}
-        <Surface style={[styles.heroCard, { backgroundColor: theme.colors.primaryContainer + '35', borderColor: theme.colors.primary + '40' }]}>
-          <View style={styles.heroRow}>
-            <Avatar.Icon size={46} icon="trophy" style={{ backgroundColor: theme.colors.primary }} color="#FFFFFF" />
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={[theme.typography.h3, { fontWeight: '800', color: theme.colors.onSurface }]}>
-                ¡Bienvenido a tu Gimnasio Financiero!
-              </Text>
-              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginTop: 2, lineHeight: 16 }]}>
-                Aquí no hay presiones de 30 días ni puntos ficticios. Solo micro-desafíos de 7 días e insignias por victorias de dinero real.
-              </Text>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Banner Motivacional Hero con Gradiente */}
+        <Surface style={[styles.heroCard, { backgroundColor: theme.colors.surface }]} elevation={2}>
+          <LinearGradient
+            colors={[theme.colors.primary + '18', theme.colors.primary + '05']}
+            style={styles.heroGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.heroRow}>
+              <View style={[styles.heroIconBadge, { backgroundColor: theme.colors.primary }]}>
+                <MaterialCommunityIcons name="trophy" size={26} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 14 }}>
+                <Text style={[theme.typography.h3, { fontWeight: '800', color: theme.colors.onSurface }]}>
+                  Gimnasio Financiero
+                </Text>
+                <Text style={[theme.typography.bodySmall, { color: theme.customColors.textSecondary, marginTop: 4, lineHeight: 18 }]}>
+                  Micro-desafíos de 7 días basados en victorias de dinero real. Desarrolla hábitos duraderos sin presiones.
+                </Text>
+              </View>
             </View>
-          </View>
+          </LinearGradient>
         </Surface>
 
         {/* ─── SECCIÓN 1: DESAFÍO ACTIVO DE 7 DÍAS ──────────────────────────── */}
-        <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
-          🔥 Desafío Activo de la Semana
-        </Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurface }]}>
+            🔥 Desafío Activo de la Semana
+          </Text>
+        </View>
         {challenge && <ChallengeCard challenge={challenge} />}
 
         {/* ─── SECCIÓN 2: GALERÍA DE INSIGNIAS GANADAS ───────────────────────── */}
@@ -200,7 +218,7 @@ export default function CoachScreen() {
             🏆 Insignias y Logros
           </Text>
           <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700' }]}>
-            {badges.filter((b) => b.unlocked).length} de {badges.length} desbloqueadas
+            {unlockedCount} de {badges.length} desbloqueadas
           </Text>
         </View>
 
@@ -210,7 +228,7 @@ export default function CoachScreen() {
               <Pressable
                 key={badge.id}
                 onPress={() => handleBadgePress(badge)}
-                style={({ pressed }) => [{ opacity: pressed ? 0.8 : 1, width: '48%' }]}
+                style={styles.badgeWrapper}
               >
                 <Surface
                   style={[
@@ -218,37 +236,38 @@ export default function CoachScreen() {
                     {
                       backgroundColor: theme.colors.surface,
                       borderColor: badge.unlocked ? badge.color + '60' : theme.colors.outline + '20',
-                      opacity: badge.unlocked ? 1 : 0.55,
+                      opacity: badge.unlocked ? 1 : 0.6,
                     },
                   ]}
+                  elevation={badge.unlocked ? 2 : 0}
                 >
                   <View
                     style={[
                       styles.badgeIconCircle,
-                      { backgroundColor: badge.unlocked ? badge.color + '20' : theme.colors.surfaceVariant },
+                      { backgroundColor: badge.unlocked ? badge.color + '20' : theme.colors.surfaceVariant + '80' },
                     ]}
                   >
                     <MaterialCommunityIcons
                       name={(badge.icon as any) || 'trophy'}
                       size={26}
-                      color={badge.unlocked ? badge.color : theme.customColors.textSecondary}
+                      color={badge.unlocked ? badge.color : theme.customColors.textTertiary}
                     />
                   </View>
 
-                  <Text style={[styles.badgeTitle, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                  <Text style={[styles.badgeTitle, theme.typography.bodySmall, { color: theme.colors.onSurface, fontWeight: '700' }]} numberOfLines={1}>
                     {badge.title}
                   </Text>
-                  <Text style={[styles.badgeSub, { color: theme.customColors.textSecondary }]} numberOfLines={2}>
+                  <Text style={[styles.badgeSub, theme.typography.caption, { color: theme.customColors.textSecondary }]} numberOfLines={2}>
                     {badge.subtitle}
                   </Text>
 
                   <View
                     style={[
                       styles.statusPill,
-                      { backgroundColor: badge.unlocked ? badge.color + '15' : theme.colors.surfaceVariant },
+                      { backgroundColor: badge.unlocked ? badge.color + '18' : theme.colors.surfaceVariant },
                     ]}
                   >
-                    <Text style={[styles.statusPillText, { color: badge.unlocked ? badge.color : theme.customColors.textSecondary }]}>
+                    <Text style={[styles.statusPillText, theme.typography.caption, { color: badge.unlocked ? badge.color : theme.customColors.textTertiary, fontWeight: '700' }]}>
                       {badge.unlocked ? `✓ ${badge.unlockedDate || 'Logrado'}` : '🔒 Por conquistar'}
                     </Text>
                   </View>
@@ -280,30 +299,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 10,
-    paddingHorizontal: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
   },
   headerTitle: {
-    fontWeight: 'bold',
+    fontWeight: '700',
+  },
+  headerRightBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#05966915',
   },
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 840 : '100%',
+    alignSelf: 'center',
   },
   heroCard: {
-    padding: 16,
     borderRadius: 20,
-    borderWidth: 1,
+    overflow: 'hidden',
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB30',
+  },
+  heroGradient: {
+    padding: 18,
   },
   heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  heroIconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   sectionTitle: {
     fontWeight: '800',
-    marginBottom: 8,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -315,43 +356,45 @@ const styles = StyleSheet.create({
   badgesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 12,
+    gap: 12,
+  },
+  badgeWrapper: {
+    width: Platform.OS === 'web' ? '31%' : '48%',
+    minWidth: 150,
+    flexGrow: 1,
   },
   badgeCard: {
-    padding: 14,
+    padding: 16,
     borderRadius: 18,
     borderWidth: 1.5,
     alignItems: 'center',
+    height: '100%',
   },
   badgeIconCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 10,
   },
   badgeTitle: {
-    fontSize: 13,
-    fontWeight: '800',
     textAlign: 'center',
     marginBottom: 4,
   },
   badgeSub: {
-    fontSize: 10,
     textAlign: 'center',
-    lineHeight: 14,
-    marginBottom: 10,
-    height: 28,
+    lineHeight: 15,
+    marginBottom: 12,
+    minHeight: 30,
   },
   statusPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginTop: 'auto',
   },
   statusPillText: {
     fontSize: 10,
-    fontWeight: '700',
   },
 });

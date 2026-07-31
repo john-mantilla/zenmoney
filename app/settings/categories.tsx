@@ -3,13 +3,14 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, Appbar } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
 import { Category, inferCategoryBudgetRole } from '@/src/domain/entities/Category';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { CreateCategoryModal } from '@/src/presentation/components';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SettingsCategoriesScreen() {
@@ -294,76 +295,23 @@ export default function SettingsCategoriesScreen() {
         )}
       </ScrollView>
 
-      {/* ─── PORTAL DIÁLOGO: AGREGAR/EDITAR CATEGORÍA ─────────────────────────── */}
-      <Portal>
-        <Dialog visible={isDialogVisible} onDismiss={() => setIsDialogVisible(false)}>
-          <Dialog.Title>
-            {editingCategory
-              ? 'Editar Categoría'
-              : parentCategoryIdForNew
-              ? 'Nueva Subcategoría'
-              : 'Nueva Categoría Principal'}
-          </Dialog.Title>
-          <Dialog.Content>
-            <TextInput
-              label="Nombre (ej: Restaurantes, Sushi)"
-              value={newCategoryName}
-              onChangeText={setNewCategoryName}
-              mode="outlined"
-              style={styles.dialogInput}
-              disabled={savingCategory}
-            />
+      {/* ─── MODAL IMPECCABLE: CREAR / EDITAR CATEGORÍA O SUBCATEGORÍA ──── */}
+      <CreateCategoryModal
+        visible={isDialogVisible}
+        onClose={() => {
+          setIsDialogVisible(false);
+          setEditingCategory(null);
+          setParentCategoryIdForNew(null);
+        }}
+        onSave={async (data) => {
+          setNewCategoryName(data.name);
+          setNewBudgetRole(data.budgetRole);
 
-            {/* Selector de Pilar 50/30/20 */}
-            <Text style={{ fontWeight: '700', fontSize: 12, marginTop: 8, marginBottom: 6, color: theme.colors.onSurface }}>
-              Pilar Presupuestal (Metodología Financial)
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-              {[
-                { role: 'needs', label: '🔴 Necesidad' },
-                { role: 'wants', label: '🟡 Deseo' },
-                { role: 'savings', label: '🔵 Ahorro' },
-                { role: 'income', label: '🟢 Ingreso' },
-              ].map((item) => (
-                <Button
-                  key={item.role}
-                  mode={newBudgetRole === item.role ? 'contained' : 'outlined'}
-                  compact
-                  onPress={() => setNewBudgetRole(item.role as any)}
-                  style={{ borderRadius: 8, marginBottom: 4 }}
-                  labelStyle={{ fontSize: 11 }}
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </View>
-
-            {!!parentCategoryIdForNew && !editingCategory && (
-              <Text style={{ fontStyle: 'italic', opacity: 0.7, fontSize: 12 }}>
-                Se creará dentro de: {categories.find((c) => c.id === parentCategoryIdForNew)?.name}
-              </Text>
-            )}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button
-              onPress={() => setIsDialogVisible(false)}
-              textColor={theme.customColors.textSecondary}
-              disabled={savingCategory}
-            >
-              Cancelar
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleSaveCategory}
-              loading={savingCategory}
-              disabled={savingCategory || !newCategoryName.trim()}
-              style={{ marginLeft: 8 }}
-            >
-              Guardar
-            </Button>
-          </Dialog.Actions>
-        </Dialog>
-      </Portal>
+          await handleSaveCategory();
+        }}
+        editingCategory={editingCategory}
+        parentCategory={categories.find((c) => c.id === parentCategoryIdForNew)}
+      />
     </View>
   );
 }
@@ -374,6 +322,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 780 : '100%',
+    alignSelf: 'center',
   },
   addBtn: {
     marginBottom: 16,
