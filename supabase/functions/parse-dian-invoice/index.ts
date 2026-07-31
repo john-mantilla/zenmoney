@@ -47,12 +47,32 @@ async function verifyResendSignature(payload: string, headers: Headers, secret: 
 function parseBankNotification(subject: string, bodyText: string, currentDate: string) {
   const fullText = `${subject} ${bodyText}`.toLowerCase();
 
-  // 1. Filtrar correos NO transaccionales (Extractos, Seguridad, Promociones)
+  // 1. Palabras clave transaccionales prioritarias
+  const transactionKeywords = [
+    'compra por',
+    'pago por',
+    'pago aprobado',
+    'transacción aprobada',
+    'transaccion aprobada',
+    'recibiste una consignación',
+    'recibiste un pago',
+    'te enviaron plata',
+    'transferencia recibida',
+    'consignación exitosa',
+    'consignacion exitosa',
+    'descontado de tu cuenta',
+    'pago pse',
+    'pse - transacción aprobada',
+    'pse - transaccion aprobada',
+  ];
+
+  const hasTransactionKeyword = transactionKeywords.some((kw) => fullText.includes(kw));
+
+  // 2. Filtrar correos NO transaccionales (Extractos, Promociones)
   const ignoreKeywords = [
     'extracto',
     'resumen mensual',
     'cambio de clave',
-    'seguridad',
     'bienvenido',
     'nueva función',
     'promoción',
@@ -62,25 +82,26 @@ function parseBankNotification(subject: string, bodyText: string, currentDate: s
   ];
 
   const isIgnored = ignoreKeywords.some((kw) => fullText.includes(kw));
-  if (isIgnored && !fullText.includes('compra por') && !fullText.includes('recibiste')) {
+  if (isIgnored && !hasTransactionKeyword) {
     return null;
   }
 
-  // 2. Extraer Banco o Entidad Financiera
+  // 3. Extraer Banco o Entidad Financiera
   let bankName = 'Notificación Bancaria';
   if (fullText.includes('bancolombia')) bankName = 'Bancolombia';
   else if (fullText.includes('nequi')) bankName = 'Nequi';
   else if (fullText.includes('davivienda') || fullText.includes('daviplata')) bankName = 'Davivienda';
   else if (fullText.includes('nubank') || fullText.includes(' nu ')) bankName = 'Nu';
   else if (fullText.includes('lulo')) bankName = 'Lulo Bank';
-  else if (fullText.includes('pse')) bankName = 'PSE';
+  else if (fullText.includes('pse') || fullText.includes('achcolombia')) bankName = 'PSE';
 
-  // 3. Determinar Tipo de Transacción (Gasto vs Ingreso)
+  // 4. Determinar Tipo de Transacción (Gasto vs Ingreso)
   const expenseKeywords = [
     'compra por',
     'pago por',
     'pago aprobado',
     'transacción aprobada',
+    'transaccion aprobada',
     'debito',
     'débito',
     'retiro',
@@ -107,17 +128,22 @@ function parseBankNotification(subject: string, bodyText: string, currentDate: s
     type = 'income';
   }
 
-  if (!type) return null;
+  if (!type && !hasTransactionKeyword) return null;
+  if (!type) type = 'expense';
 
-  // 4. Extraer Monto ($ 45.000 / $45,000 / $1.500.000)
+  // 5. Extraer Monto ($ 175.000,00 / $ 45.000 / $45,000 / $1.500.000)
   const amountRegex = /\$\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/g;
   const matches = [...fullText.matchAll(amountRegex)];
   let amount: number | null = null;
 
   if (matches.length > 0) {
     for (const m of matches) {
-      const rawNumStr = m[1].replace(/\./g, '').replace(/,/g, '');
-      const parsedNum = parseFloat(rawNumStr);
+      let rawStr = m[1];
+      if (rawStr.includes(',')) {
+        rawStr = rawStr.split(',')[0];
+      }
+      const cleanedStr = rawStr.replace(/\./g, '').trim();
+      const parsedNum = parseFloat(cleanedStr);
       if (!isNaN(parsedNum) && parsedNum > 0) {
         amount = parsedNum;
         break;
@@ -127,20 +153,42 @@ function parseBankNotification(subject: string, bodyText: string, currentDate: s
 
   if (!amount) return null;
 
-  // 5. Extraer Comercio / Establecimiento / Remitente
+  // 6. Extraer Comercio / Empresa / Remitente
   let merchantName = bankName;
-  const merchantRegex = /(?:en|para|de)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s._-]+?)(?:\s+el|\s+por|\s+con|\s+fecha|\s+\d{2}\/|\.|$)/i;
-  const match = merchantRegex.exec(`${subject} ${bodyText}`);
-  if (match && match[1]) {
-    const cleaned = match[1].trim();
-    if (cleaned.length > 2 && cleaned.length < 40 && !cleaned.includes('$')) {
-      merchantName = cleaned;
+  let customDescription: string | null = null;
+
+  const fullRaw = `${subject} ${bodyText}`;
+
+  const pseEmpresaMatch = /Empresa:\s*([\s\S]+?)(?=\s+Descripción:|\s+Fecha|\s+CUS|\s+Gracias|\n|\r|$)/i.exec(fullRaw);
+  const pseDescMatch = /Descripción:\s*([\s\S]+?)(?=\s+Fecha|\s+CUS|\s+Gracias|\n|\r|$)/i.exec(fullRaw);
+
+  if (pseEmpresaMatch && pseEmpresaMatch[1]) {
+    merchantName = pseEmpresaMatch[1].trim();
+  }
+  if (pseDescMatch && pseDescMatch[1]) {
+    customDescription = pseDescMatch[1].trim();
+  }
+
+  if (!merchantName || merchantName === 'PSE') {
+    const merchantRegex = /(?:en|para|de)\s+([A-ZÁÉÍÓÚÑa-záéíóúñ0-9\s._-]+?)(?:\s+el|\s+por|\s+con|\s+fecha|\s+\d{2}\/|\.|$)/i;
+    const match = merchantRegex.exec(fullRaw);
+    if (match && match[1]) {
+      const cleaned = match[1].trim();
+      if (cleaned.length > 2 && cleaned.length < 50 && !cleaned.includes('$')) {
+        merchantName = cleaned;
+      }
     }
   }
 
-  const description = type === 'income'
-    ? `Ingreso por correo (${merchantName})`
-    : `Gasto por correo (${merchantName})`;
+  if (!merchantName) {
+    merchantName = bankName;
+  }
+
+  const description = customDescription || (
+    type === 'income'
+      ? `Ingreso por correo (${merchantName})`
+      : `Gasto por correo (${merchantName})`
+  );
 
   return {
     type,

@@ -464,6 +464,7 @@ export default function TransactionsScreen() {
                 categoryIcon={catInfo.icon}
                 categoryColor={catInfo.color}
                 accountName={accName}
+                destinationAccountName={item.transferToAccountId ? getAccountName(item.transferToAccountId) : null}
                 authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
                 onPress={() => router.push(`/transaction/new?id=${item.id}`)}
               />
@@ -517,6 +518,7 @@ export default function TransactionsScreen() {
                 categoryIcon={catInfo.icon}
                 categoryColor={catInfo.color}
                 accountName={accName}
+                destinationAccountName={item.transferToAccountId ? getAccountName(item.transferToAccountId) : null}
                 authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
                 onPress={() => router.push(`/transaction/new?id=${item.id}`)}
               />

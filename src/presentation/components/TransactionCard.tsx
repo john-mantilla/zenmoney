@@ -19,6 +19,7 @@ interface TransactionCardProps {
   categoryIcon: string;
   categoryColor: string;
   accountName: string;
+  destinationAccountName?: string | null;
   authorInitials?: string | null;
   onPress?: () => void;
 }
@@ -29,11 +30,30 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   categoryIcon,
   categoryColor,
   accountName,
+  destinationAccountName,
   authorInitials,
   onPress,
 }) => {
   const theme = useAppTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const isTransfer = transaction.type === 'transfer';
+  const finalIcon = isTransfer ? 'swap-horizontal' : categoryIcon;
+  const finalColor = isTransfer ? (theme.customColors.transfer || '#0284C7') : categoryColor;
+
+  let finalTitle = transaction.description;
+  if (!finalTitle || finalTitle.trim().toLowerCase() === 'sin clasificar') {
+    if (isTransfer) {
+      finalTitle = destinationAccountName ? `Transferencia a ${destinationAccountName}` : 'Transferencia entre cuentas';
+    } else {
+      finalTitle = categoryName;
+    }
+  }
+
+  let finalAccountMeta = accountName;
+  if (isTransfer && destinationAccountName) {
+    finalAccountMeta = `${accountName} ➔ ${destinationAccountName}`;
+  }
 
   // Animaciones de presión
   const handlePressIn = () => {
@@ -74,13 +94,13 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
         ]}
       >
         <View style={styles.leftSection}>
-          <CategoryIcon icon={categoryIcon} color={categoryColor} />
+          <CategoryIcon icon={finalIcon} color={finalColor} />
           <View style={styles.meta}>
             <Text
               numberOfLines={1}
               style={[styles.description, theme.typography.h4, { color: theme.colors.onSurface }]}
             >
-              {transaction.description || categoryName}
+              {finalTitle}
             </Text>
             
             <View style={styles.subMeta}>
@@ -88,7 +108,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
                 numberOfLines={1}
                 style={[styles.details, theme.typography.bodySmall, { color: theme.customColors.textSecondary, flexShrink: 1 }]}
               >
-                {formattedDate} • {accountName}
+                {formattedDate} • {finalAccountMeta}
               </Text>
               
               {/* Badges de entrada inteligente (Voz / NLQ) */}

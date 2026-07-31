@@ -40,6 +40,23 @@ describe('ParseEmailNotification', () => {
     expect(result.bankName).toBe('PSE');
   });
 
+  it('detecta correctamente el correo real de PSE con tips de seguridad y decimales (GOU PAYMENTS / BORA PH)', () => {
+    const subject = 'PSE - Transacción Aprobada 🟢 CUS 524648130';
+    const body = `¡Hola, JOHN HERMAN MANTILLA HERNANDEZ!
+    Los siguientes son los datos de tu transacción:
+    Valor: $ 175.000,00 Empresa: GOU PAYMENTS S.A EASPBV Descripción: PAGO CONJUNTO RESIDENCIAL BORA PH Fecha de la transacción: 30/07/2026 CUS: 524648130 Gracias por utilizar nuestro servicio.
+    Ten encuenta estos tips de seguridad: Usa dispositivos personales o de confianza...`;
+
+    const result = ParseEmailNotification.parse(subject, body, '2026-07-30');
+
+    expect(result.isTransactional).toBe(true);
+    expect(result.type).toBe('expense');
+    expect(result.amount).toBe(175000);
+    expect(result.merchantName).toBe('GOU PAYMENTS S.A EASPBV');
+    expect(result.description).toBe('PAGO CONJUNTO RESIDENCIAL BORA PH');
+    expect(result.bankName).toBe('PSE');
+  });
+
   it('descarta correctamente un correo publicitario o extracto mensual', () => {
     const subject = 'Tu extracto mensual de Cuenta de Ahorros está disponible';
     const body = 'Estimado cliente, adjunto encontrarás el resumen mensual de tu cuenta correspondiente a Junio.';

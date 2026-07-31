@@ -9,7 +9,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform, Dimensions } from 'react-native';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
-import { Text, Card, Button, Portal, Dialog, TextInput, HelperText, ActivityIndicator, List, Surface, IconButton, Menu, SegmentedButtons } from 'react-native-paper';
+import { Text, Card, Button, Portal, Dialog, TextInput, HelperText, ActivityIndicator, List, Surface, IconButton, Menu, SegmentedButtons, FAB } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useAppTheme } from '@/src/presentation/theme';
 import { AmountDisplay, EmptyState, CategoryPickerMenu, NetworkStatusBar } from '@/src/presentation/components';
@@ -697,9 +697,14 @@ export default function BillsScreen() {
         {/* ─── TARJETA INTELIGENTE DE RESUMEN DEL MES ──────────────────────── */}
         {selectedDate === '' && (
           <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
-            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600', marginBottom: 4 }]}>
-              Facturas pendientes este mes
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600' }]}>
+                Facturas pendientes este mes
+              </Text>
+              <Button mode="text" compact icon="plus" onPress={openCreateDialog} labelStyle={{ fontSize: 12, fontWeight: '700', color: theme.colors.primary }}>
+                Nueva Factura
+              </Button>
+            </View>
             
             <Text style={[theme.typography.amountLarge, { color: totalUnpaid > 0 ? '#DC2626' : '#059669', fontSize: 30, fontWeight: '800', marginBottom: 12 }]}>
               $ {Math.round(totalUnpaid).toLocaleString('es-CO')}
@@ -995,6 +1000,15 @@ export default function BillsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* FAB Flotante para crear una nueva factura */}
+      <FAB
+        icon="plus"
+        label="Nueva Factura"
+        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        color="#FFFFFF"
+        onPress={openCreateDialog}
+      />
 
       {/* ─── PORTAL DIÁLOGO: AGREGAR FACTURA / BILL AL VUELO ──────────────── */}
       <Portal>
@@ -1355,6 +1369,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 4,
     flex: 1,
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 16,
+    borderRadius: 28,
   },
 });
 
