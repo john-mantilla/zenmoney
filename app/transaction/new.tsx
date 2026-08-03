@@ -236,9 +236,6 @@ export default function NewTransactionScreen() {
             }
             const sorted = [...activeAccs].sort((a, b) => (usageCount[b.id] || 0) - (usageCount[a.id] || 0) || a.name.localeCompare(b.name));
             setAccounts(sorted);
-            if (!params.accountId && sorted.length > 0) {
-              setAccountId(sorted[0].id);
-            }
           } catch {}
         })();
 
@@ -879,12 +876,20 @@ export default function NewTransactionScreen() {
           ...celebrationToTrigger,
         });
       } else {
-        router.back();
+        navigateAway();
       }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Error al guardar el movimiento.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const navigateAway = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/transactions');
     }
   };
 
@@ -1879,6 +1884,22 @@ export default function NewTransactionScreen() {
               const day = String(selectedDate.getDate()).padStart(2, '0');
               setTransactionDate(`${year}-${month}-${day}`);
             }
+          }}
+        />
+      )}
+
+      {/* Modal de Micro-Celebraciones (Inversión, Ahorro o Racha) */}
+      {celebrationConfig && (
+        <MicroCelebrationModal
+          visible={celebrationConfig.visible}
+          type={celebrationConfig.type}
+          title={celebrationConfig.title}
+          description={celebrationConfig.description}
+          badgeText={celebrationConfig.badgeText}
+          amountFormatted={celebrationConfig.amountFormatted}
+          onDismiss={() => {
+            setCelebrationConfig(null);
+            navigateAway();
           }}
         />
       )}

@@ -251,19 +251,27 @@ export default function SettingsRecurrencesScreen() {
       if (editingRule) {
         const updatedRule = await recurrenceRepo.update(editingRule.id, payload);
         const oldEndDate = editingRule.endDate;
-        // Editar la regla NUNCA toca las facturas ya creadas (monto, fecha o día se pueden
-        // mover libremente sin que el sistema las regenere). Solo si se EXTIENDE la fecha de
-        // fin (o se le agrega una por primera vez a una regla antigua sin fecha de fin) se
-        // generan las facturas nuevas que faltan; si se ACORTA, se borran las pendientes que
-        // quedaron después de la nueva fecha de fin. execute() es idempotente: nunca duplica
-        // una fecha que ya tenga factura creada.
+
+        // Actualizar la categoría, cuenta, monto y descripción en todas las facturas pendientes ya generadas
+        const pendingInstances = await transactionRepo.getAll({
+          recurringRuleId: editingRule.id,
+          status: 'pending',
+        });
+        await Promise.all(
+          pendingInstances.map((tx) =>
+            transactionRepo.update(tx.id, {
+              categoryId: payload.categoryId,
+              accountId: payload.accountId,
+              amount: payload.amount,
+              description: payload.description,
+              type: payload.type,
+            } as any)
+          )
+        );
+
         if (!oldEndDate || recEndDate > oldEndDate) {
           await generator.execute(updatedRule, updatedRule.startDate, recEndDate);
         } else if (recEndDate < oldEndDate) {
-          const pendingInstances = await transactionRepo.getAll({
-            recurringRuleId: editingRule.id,
-            status: 'pending',
-          });
           const toRemove = pendingInstances.filter(tx => tx.transactionDate > recEndDate);
           await Promise.all(toRemove.map(tx => transactionRepo.delete(tx.id)));
         }
@@ -388,13 +396,27 @@ export default function SettingsRecurrencesScreen() {
           if (editingRule) {
             const updatedRule = await recurrenceRepo.update(editingRule.id, payload);
             const oldEndDate = editingRule.endDate;
+
+            // Actualizar la categoría, cuenta, monto y descripción en todas las facturas pendientes ya generadas
+            const pendingInstances = await transactionRepo.getAll({
+              recurringRuleId: editingRule.id,
+              status: 'pending',
+            });
+            await Promise.all(
+              pendingInstances.map((tx) =>
+                transactionRepo.update(tx.id, {
+                  categoryId: payload.categoryId,
+                  accountId: payload.accountId,
+                  amount: payload.amount,
+                  description: payload.description,
+                  type: payload.type,
+                } as any)
+              )
+            );
+
             if (!oldEndDate || (data.endDate && data.endDate > oldEndDate)) {
               await generator.execute(updatedRule, updatedRule.startDate, data.endDate || updatedRule.startDate);
             } else if (data.endDate && data.endDate < oldEndDate) {
-              const pendingInstances = await transactionRepo.getAll({
-                recurringRuleId: editingRule.id,
-                status: 'pending',
-              });
               const toRemove = pendingInstances.filter(tx => tx.transactionDate > data.endDate!);
               await Promise.all(toRemove.map(tx => transactionRepo.delete(tx.id)));
             }

@@ -2,7 +2,8 @@
  * ZenMoney — Servicio de Alertas de Facturas por Vencer (Hoy a las 2:00 PM)
  *
  * Programa o dispara notificaciones nativas para facturas que vencen el día de hoy
- * fijando la hora a las 2:00 PM (14:00 hrs).
+ * fijando la hora a las 2:00 PM (14:00 hrs). Incluye deduplicación estricta por día
+ * y firma de facturas para evitar desbordamientos o duplicados en el centro de notificaciones.
  */
 
 import { Platform } from 'react-native';
@@ -11,6 +12,7 @@ import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseT
 import { BudgetAlertService } from './BudgetAlertService';
 
 const SCHEDULED_BILL_KEYS = 'zenmoney:scheduled_bill_notification_ids';
+const LAST_NOTIFIED_BILL_SIGNATURE_KEY = 'zenmoney:last_notified_bill_signature';
 
 let Notifications: typeof import('expo-notifications') | null = null;
 
@@ -25,16 +27,12 @@ if (Platform.OS !== 'web') {
 export class BillAlertService {
   /**
    * Programa o notifica facturas que vencen HOY a las 2:00 PM (14:00 hrs).
+   * Deduplica mediante firma única (`fecha_cantidad_montoTotal`) para notificar máximo una vez al día.
    */
   static async scheduleBillAlerts(): Promise<void> {
     if (Platform.OS === 'web' || !Notifications) return;
 
     try {
-      await this.cancelExistingAlerts();
-
-      const permissionsGranted = await BudgetAlertService.requestPermissions();
-      if (!permissionsGranted) return;
-
       const transactionRepo = new SupabaseTransactionRepository();
       const pendingTxs = await transactionRepo.getAll({ status: 'pending' });
 
@@ -56,6 +54,19 @@ export class BillAlertService {
 
       const count = todayBills.length;
       const totalAmount = todayBills.reduce((sum, tx) => sum + Number(tx.amount), 0);
+      const billSignature = `${todayStr}_${count}_${Math.round(totalAmount)}`;
+
+      // Evitar notificaciones duplicadas si ya se notificó la misma combinación hoy
+      const lastSignature = await AsyncStorage.getItem(LAST_NOTIFIED_BILL_SIGNATURE_KEY);
+      if (lastSignature === billSignature) {
+        return;
+      }
+
+      await this.cancelExistingAlerts();
+
+      const permissionsGranted = await BudgetAlertService.requestPermissions();
+      if (!permissionsGranted) return;
+
       const amountFormatted = Math.round(totalAmount).toLocaleString('es-CO');
 
       let title = '';
@@ -75,7 +86,7 @@ export class BillAlertService {
 
       let trigger: any;
       if (now.getHours() >= 14) {
-        // Si ya pasaron las 2:00 PM del día actual, notificar inmediatamente
+        // Si ya pasaron las 2:00 PM del día actual, notificar una sola vez inmediatamente
         trigger = { seconds: 2, type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL };
       } else {
         trigger = targetTime;
@@ -92,7 +103,8 @@ export class BillAlertService {
       });
 
       await AsyncStorage.setItem(SCHEDULED_BILL_KEYS, JSON.stringify([id]));
-      console.log(`[BillAlertService] Alerta de facturas programada para hoy a las 2:00 PM (${id})`);
+      await AsyncStorage.setItem(LAST_NOTIFIED_BILL_SIGNATURE_KEY, billSignature);
+      console.log(`[BillAlertService] Alerta de facturas registrada hoy (${billSignature}) id: ${id}`);
     } catch (err) {
       console.warn('[BillAlertService] Error al programar alerta de facturas para hoy:', err);
     }

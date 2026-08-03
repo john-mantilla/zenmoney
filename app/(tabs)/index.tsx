@@ -225,9 +225,8 @@ export default function DashboardScreen() {
       const startDate = `${selectedYear}-${monthStr}-01`;
       const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
-      // 3. Cargar movimientos recientes limitados al mes seleccionado
+      // 3. Cargar todos los movimientos confirmados del mes seleccionado
       const loadedTransactions = await transactionRepo.getAll({ 
-        limit: 10, 
         status: 'confirmed',
         startDate,
         endDate

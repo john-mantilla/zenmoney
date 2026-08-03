@@ -28,7 +28,7 @@ export interface CreateCategoryInput {
 }
 
 export function inferCategoryBudgetRole(name: string, parentName?: string, explicitRole?: BudgetRole): BudgetRole {
-  if (explicitRole && explicitRole !== 'needs') {
+  if (explicitRole) {
     return explicitRole;
   }
 

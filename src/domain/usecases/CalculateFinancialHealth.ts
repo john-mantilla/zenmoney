@@ -37,6 +37,11 @@ export class CalculateFinancialHealth {
       if (!cat) return 'needs';
 
       const parent = cat.parentCategoryId ? fullCatMap.get(cat.parentCategoryId) : undefined;
+
+      // Respetar el rol explícito asignado a la categoría o a su categoría padre
+      if (cat.budgetRole) return cat.budgetRole;
+      if (parent?.budgetRole) return parent.budgetRole;
+
       return inferCategoryBudgetRole(cat.name, parent?.name, cat.budgetRole);
     };
 
