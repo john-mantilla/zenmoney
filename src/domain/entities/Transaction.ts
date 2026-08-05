@@ -16,6 +16,8 @@ export interface AIMetadata {
   corrections: Record<string, { original: string; corrected: string }>;
   dueDate?: string;
   occurrenceDate?: string;
+  is_bank_notification?: boolean;
+  bank_name?: string;
 }
 
 export interface Transaction {
@@ -57,4 +59,16 @@ export interface CreateTransactionInput {
   inputMethod?: InputMethod;
   aiMetadata?: AIMetadata | null;
   isPrivate?: boolean;
+}
+
+export interface TransactionFilters {
+  accountId?: string;
+  categoryId?: string;
+  type?: TransactionType;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  status?: TransactionStatus;
+  limit?: number;
+  offset?: number;
 }

@@ -1,12 +1,8 @@
 import { z } from 'zod';
 
-export const TransactionTypeSchema = z.enum(['income', 'expense', 'transfer'], {
-  errorMap: () => ({ message: 'El tipo de transacción debe ser income, expense o transfer.' }),
-});
+export const TransactionTypeSchema = z.enum(['income', 'expense', 'transfer']);
 
-export const TransactionStatusSchema = z.enum(['confirmed', 'pending', 'archived'], {
-  errorMap: () => ({ message: 'El estado de la transacción debe ser confirmed, pending o archived.' }),
-});
+export const TransactionStatusSchema = z.enum(['confirmed', 'pending', 'archived']);
 
 export const InputMethodSchema = z.enum(['manual', 'voice', 'nlq', 'email', 'photo']);
 
@@ -17,7 +13,7 @@ export const AIMetadataSchema = z.object({
   parsedAccount: z.string().nullable(),
   parsedMerchant: z.string().nullable(),
   confidence: z.number().min(0).max(1),
-  corrections: z.record(z.object({ original: z.string(), corrected: z.string() })),
+  corrections: z.record(z.string(), z.object({ original: z.string(), corrected: z.string() })),
   dueDate: z.string().optional(),
   occurrenceDate: z.string().optional(),
 });
@@ -25,11 +21,11 @@ export const AIMetadataSchema = z.object({
 export const CreateTransactionSchema = z
   .object({
     id: z.string().optional(),
-    accountId: z.string({ required_error: 'La cuenta es requerida.' }).min(1, 'La cuenta es requerida.'),
+    accountId: z.string().min(1, 'La cuenta es requerida.'),
     categoryId: z.string().nullable().optional(),
     type: TransactionTypeSchema,
     amount: z
-      .number({ required_error: 'El monto es requerido.' })
+      .number()
       .positive('El monto de la transacción debe ser mayor a cero.'),
     currency: z.string().default('USD'),
     description: z.string().max(500, 'La descripción no puede exceder 500 caracteres.').nullable().optional(),

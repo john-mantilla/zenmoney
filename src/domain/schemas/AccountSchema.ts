@@ -1,17 +1,15 @@
 import { z } from 'zod';
 
-export const AccountTypeSchema = z.enum(['bank', 'cash', 'credit_card', 'loan', 'investment'], {
-  errorMap: () => ({ message: 'Tipo de cuenta no válido.' }),
-});
+export const AccountTypeSchema = z.enum(['bank', 'cash', 'credit_card', 'loan', 'investment']);
 
 export const CreateAccountSchema = z.object({
   id: z.string().optional(),
   name: z
-    .string({ required_error: 'El nombre de la cuenta es requerido.' })
+    .string()
     .min(1, 'El nombre de la cuenta es requerido.')
     .max(100, 'El nombre no puede exceder 100 caracteres.'),
   type: AccountTypeSchema,
-  initialBalance: z.number({ required_error: 'El saldo inicial es requerido.' }),
+  initialBalance: z.number(),
   currency: z.string().default('USD'),
   closingDay: z
     .number()

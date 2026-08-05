@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-export const FrequencySchema = z.enum(['daily', 'weekly', 'biweekly', 'monthly', 'yearly'], {
-  errorMap: () => ({ message: 'Frecuencia no válida.' }),
-});
+export const FrequencySchema = z.enum(['daily', 'weekly', 'biweekly', 'monthly', 'yearly']);
 
 export const CreateRecurringRuleSchema = z.object({
   id: z.string().optional(),

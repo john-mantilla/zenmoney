@@ -185,7 +185,7 @@ export class AuthService {
   /**
    * Obtiene la sesión actual y sus datos de perfil/familia correspondientes.
    */
-  static async getCurrentSession(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup } | null> {
+  static async getCurrentSession(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
     const { data: { session }, error } = await supabase.auth.getSession();
     
     if (error || !session?.user) {

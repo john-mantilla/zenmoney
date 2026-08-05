@@ -30,7 +30,7 @@ import { Account } from '@/src/domain/entities/Account';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
-import { AnomalyDetectorService } from '@/src/infrastructure/services/AnomalyDetectorService';
+import { AnomalyDetectorService, SmartAlert } from '@/src/infrastructure/services/AnomalyDetectorService';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { FinancialHealthModal } from '@/src/presentation/components/FinancialHealthModal';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -67,7 +67,7 @@ export default function DashboardScreen() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   
   // Alertas Inteligentes & Modal de Salud Financiera 50/30/20
-  const [smartAlerts, setSmartAlerts] = useState<string[]>([]);
+  const [smartAlerts, setSmartAlerts] = useState<SmartAlert[]>([]);
   const [healthModalVisible, setHealthModalVisible] = useState(false);
 
   // Estados de control de colapsables (Acordeones - Colapsados por defecto para una vista compacta)
@@ -394,37 +394,73 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
-        {/* Alertas Inteligentes */}
+        {/* Alertas Inteligentes con persistencia de descarte */}
         {smartAlerts.length > 0 && (
           <View style={{ marginBottom: 16 }}>
-            {smartAlerts.map((alert, index) => (
-              <Surface key={index} style={[styles.alertCard, { backgroundColor: theme.colors.surfaceVariant }]} elevation={1}>
+            {smartAlerts.map((alert) => (
+              <Surface key={alert.id} style={[styles.alertCard, { backgroundColor: theme.colors.surfaceVariant, marginBottom: 8 }]} elevation={1}>
                 <View style={styles.alertHeader}>
-                  <MaterialCommunityIcons name="alert-decagram" size={20} color={theme.colors.primary} />
+                  <MaterialCommunityIcons
+                    name={alert.type === 'duplicate' ? 'content-copy' : alert.type === 'subscription' ? 'calendar-sync' : 'alert-decagram'}
+                    size={20}
+                    color={theme.colors.primary}
+                  />
                   <Text style={[theme.typography.caption, { fontWeight: 'bold', color: theme.colors.primary, marginLeft: 8, flex: 1 }]}>
-                    Alerta Inteligente
+                    {alert.title || 'Alerta Inteligente'}
                   </Text>
                   <IconButton
                     icon="close"
                     size={18}
                     iconColor={theme.customColors.textSecondary}
-                    onPress={() => {
-                      // Descartar localmente
-                      setSmartAlerts(prev => prev.filter((_, i) => i !== index));
+                    onPress={async () => {
+                      await AnomalyDetectorService.dismissAlert(alert.id);
+                      setSmartAlerts((prev) => prev.filter((a) => a.id !== alert.id));
                     }}
                     style={{ margin: 0 }}
                   />
                 </View>
-                {/* Parse Markdown-like bold text **bold** for the alert string */}
+
+                {/* Formateador de texto con negritas */}
                 <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface, marginTop: 4, lineHeight: 20 }]}>
-                  {alert.split(/\*\*(.*?)\*\*/g).map((part, i) => 
+                  {alert.message.split(/\*\*(.*?)\*\*/g).map((part, i) =>
                     i % 2 === 1 ? (
-                      <Text key={i} style={{ fontWeight: 'bold' }}>{part}</Text>
+                      <Text key={i} style={{ fontWeight: 'bold' }}>
+                        {part}
+                      </Text>
                     ) : (
                       <Text key={i}>{part}</Text>
                     )
                   )}
                 </Text>
+
+                {/* Botones de Acción Rápida / Entendido */}
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, gap: 8 }}>
+                  {alert.actionRoute && (
+                    <Button
+                      mode="text"
+                      compact
+                      textColor={theme.colors.primary}
+                      onPress={async () => {
+                        await AnomalyDetectorService.dismissAlert(alert.id);
+                        setSmartAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+                        router.push(alert.actionRoute as any);
+                      }}
+                    >
+                      {alert.actionLabel || 'Ver más'}
+                    </Button>
+                  )}
+                  <Button
+                    mode="contained-tonal"
+                    compact
+                    onPress={async () => {
+                      await AnomalyDetectorService.dismissAlert(alert.id);
+                      setSmartAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+                    }}
+                    style={{ borderRadius: 10 }}
+                  >
+                    Entendido
+                  </Button>
+                </View>
               </Surface>
             ))}
           </View>

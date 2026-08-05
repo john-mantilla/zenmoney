@@ -463,7 +463,7 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
                     >
                       <View style={styles.pillarHeader}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <MaterialCommunityIcons name="heart-handshake-outline" size={20} color="#8B5CF6" />
+                          <MaterialCommunityIcons name="handshake-outline" size={20} color="#8B5CF6" />
                           <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface }]}>
                             Caridad & Donaciones
                           </Text>

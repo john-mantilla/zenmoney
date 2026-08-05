@@ -58,7 +58,7 @@ export class SecurityGuard {
     }
 
     // Cuentas privadas del usuario
-    if (account.isPrivate && account.createdByUserId && account.createdByUserId !== user.userId) {
+    if (account.isPrivate && account.ownerUserId && account.ownerUserId !== user.userId) {
       return { allowed: false, reason: 'No tienes acceso a esta cuenta privada.' };
     }
 

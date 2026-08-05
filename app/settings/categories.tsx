@@ -29,7 +29,7 @@ export default function SettingsCategoriesScreen() {
   const [isDialogVisible, setIsDialogVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newBudgetRole, setNewBudgetRole] = useState<'needs' | 'wants' | 'savings' | 'charity' | 'income' | 'ignore'>('needs');
-  const [parentCategoryIdForNew, setParentCategoryIdForNew] = useState<string>('');
+  const [parentCategoryIdForNew, setParentCategoryIdForNew] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
 

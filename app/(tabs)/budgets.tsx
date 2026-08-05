@@ -22,6 +22,14 @@ import { Transaction } from '@/src/domain/entities/Transaction';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useFocusEffect } from 'expo-router';
 
+export interface CreateBudgetData {
+  categoryId: string;
+  amount: number;
+  scope: 'family' | 'individual';
+  startMode: 'current' | 'future';
+  futureOffset: number;
+}
+
 interface BudgetTreeChild {
   id: string;
   categoryId: string;
@@ -353,21 +361,25 @@ export default function BudgetsScreen() {
     setIsDialogVisible(true);
   };
 
-  const handleSaveBudget = async () => {
-    if (!limitAmount || parseFloat(limitAmount) <= 0) {
+  const handleSaveBudget = async (data?: CreateBudgetData) => {
+    const categoryIdToUse = data ? data.categoryId : selectedCategoryId;
+    const limitNum = data ? data.amount : parseFloat(limitAmount);
+    const scopeToUse = data ? data.scope : selectedScope;
+    const startModeToUse = data ? data.startMode : budgetStartMode;
+    const offsetToUse = data ? data.futureOffset : futureMonthOffset;
+
+    if (!limitNum || isNaN(limitNum) || limitNum <= 0) {
       setErrorMsg('Por favor ingresa un límite de dinero válido mayor a cero.');
       return;
     }
 
     setIsLoading(true);
     try {
-      const limitNum = parseFloat(limitAmount);
-      
       let targetYear = selectedYear;
       let targetMonth = selectedMonth;
       
-      if (budgetStartMode === 'future') {
-        let rawMonth = selectedMonth + futureMonthOffset;
+      if (startModeToUse === 'future') {
+        let rawMonth = selectedMonth + offsetToUse;
         let rawYear = selectedYear;
         while (rawMonth > 12) {
           rawMonth -= 12;
@@ -379,42 +391,42 @@ export default function BudgetsScreen() {
 
       const { userProfile } = require('@/src/infrastructure/auth/authStore').useAuthStore.getState();
       const currentUserId = userProfile?.id;
-      const ownerUserId = selectedScope === 'individual' ? currentUserId : null;
+      const ownerUserId = scopeToUse === 'individual' ? currentUserId : null;
 
-      if (editingBudget && budgetStartMode === 'current') {
+      if (editingBudget && startModeToUse === 'current') {
         if (editingBudget.year === targetYear && editingBudget.month === targetMonth) {
           await budgetRepo.update(editingBudget.id, {
             amountLimit: limitNum,
-            scope: selectedScope,
+            scope: scopeToUse,
             ownerUserId,
           });
         } else {
           await budgetRepo.create({
-            categoryId: selectedCategoryId,
+            categoryId: categoryIdToUse,
             amountLimit: limitNum,
             year: targetYear,
             month: targetMonth,
-            scope: selectedScope,
+            scope: scopeToUse,
             ownerUserId,
           });
         }
       } else {
         const existingTargetBudgets = await budgetRepo.getByMonth(targetYear, targetMonth);
-        const exists = existingTargetBudgets.find(b => b.categoryId === selectedCategoryId && b.scope === selectedScope && b.ownerUserId === ownerUserId);
+        const exists = existingTargetBudgets.find(b => b.categoryId === categoryIdToUse && b.scope === scopeToUse && b.ownerUserId === ownerUserId);
         
         if (exists) {
           await budgetRepo.update(exists.id, {
              amountLimit: limitNum,
-             scope: selectedScope,
+             scope: scopeToUse,
              ownerUserId,
           });
         } else {
           await budgetRepo.create({
-            categoryId: selectedCategoryId,
+            categoryId: categoryIdToUse,
             amountLimit: limitNum,
             year: targetYear,
             month: targetMonth,
-            scope: selectedScope,
+            scope: scopeToUse,
             ownerUserId,
           });
         }
@@ -840,13 +852,7 @@ export default function BudgetsScreen() {
           setEditingBudget(null);
         }}
         onSave={async (data) => {
-          setSelectedCategoryId(data.categoryId);
-          setLimitAmount(String(data.amount));
-          setSelectedScope(data.scope);
-          setBudgetStartMode(data.startMode);
-          setFutureMonthOffset(data.futureOffset);
-
-          await handleSaveBudget();
+          await handleSaveBudget(data);
         }}
         onDelete={
           editingBudget

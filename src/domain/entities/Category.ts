@@ -3,6 +3,7 @@
  */
 
 import { BudgetRole } from './FinancialMethodology';
+export type { BudgetRole };
 
 export interface Category {
   id: string;

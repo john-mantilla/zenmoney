@@ -3,6 +3,7 @@
  */
 
 export type Frequency = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+export type FrequencyType = Frequency;
 
 export interface RecurringRule {
   id: string;

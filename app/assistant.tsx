@@ -98,7 +98,8 @@ export default function AssistantScreen() {
       const alerts = await anomalyService.scanForAnomalies();
       const newAlerts: Message[] = [];
       
-      for (const alertText of alerts) {
+      for (const alertItem of alerts) {
+        const alertText = typeof alertItem === 'string' ? alertItem : (alertItem as any).message || (alertItem as any).title || JSON.stringify(alertItem);
         // Verificar si la IA ya ha enviado esta alerta exacta recientemente
         const alreadySent = history.some(h => h.content === alertText);
         if (!alreadySent) {

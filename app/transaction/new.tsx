@@ -75,6 +75,8 @@ export default function NewTransactionScreen() {
     amount?: string;
     description?: string;
     action?: string;
+    voiceInput?: string;
+    autoProcess?: string;
     mode?: 'quick' | 'ai' | 'manual';
   }>();
   const id = params.id;
@@ -209,8 +211,22 @@ export default function NewTransactionScreen() {
         // DESBLOQUEAR UI INMEDIATAMENTE (< 30ms) para respuesta instantánea de botones y atajos
         setIsLoading(false);
 
-        // Si viene por atajo de cámara o voz, activar la funcionalidad de inmediato
-        if (params.action === 'camera') {
+        // Si viene por atajo de voz/cámara o comando de Google Assistant (Smartwatch / Wear OS)
+        if (params.voiceInput) {
+          setMode('ai');
+          setAiInput(params.voiceInput);
+          setTimeout(async () => {
+            try {
+              setIsLoading(true);
+              const parsed = await aiProvider.parseTransaction(params.voiceInput!, activeAccs, loadedCats);
+              applyParsedResult(parsed);
+            } catch (err) {
+              console.error('[VoiceInput] Error al procesar entrada de voz:', err);
+            } finally {
+              setIsLoading(false);
+            }
+          }, 150);
+        } else if (params.action === 'camera') {
           setMode('ai');
           setTimeout(() => {
             handlePickReceipt('camera');

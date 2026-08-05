@@ -1,5 +1,5 @@
 import { CategoryRepository } from '@domain/repositories/CategoryRepository';
-import { Category, CreateCategoryInput } from '@domain/entities/Category';
+import { Category, CreateCategoryInput, inferCategoryBudgetRole } from '@domain/entities/Category';
 import { LocalDatabase } from '../local/LocalDatabase';
 
 export class SqliteCategoryRepository implements CategoryRepository {
@@ -26,7 +26,7 @@ export class SqliteCategoryRepository implements CategoryRepository {
     query += ' ORDER BY name ASC;';
 
     const rows = await db.getAllAsync<any>(query, params);
-    return rows.map(this.toDomain);
+    return rows.map(row => this.toDomain(row));
   }
 
   async getByParentId(parentId: string | null): Promise<Category[]> {
@@ -42,10 +42,11 @@ export class SqliteCategoryRepository implements CategoryRepository {
     const id = (input as any).id || Math.random().toString(36).substring(2, 15);
     const familyGroupId = (input as any).familyGroupId || 'offline-family';
     const createdAt = new Date().toISOString();
+    const budgetRole = inferCategoryBudgetRole(input.name, undefined, input.budgetRole);
 
     await db.runAsync(
-      `INSERT INTO categories (id, family_group_id, name, icon, color, parent_category_id, is_system, is_private, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO categories (id, family_group_id, name, icon, color, parent_category_id, is_system, is_private, created_at, budget_role)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         id,
         familyGroupId,
@@ -55,7 +56,8 @@ export class SqliteCategoryRepository implements CategoryRepository {
         input.parentCategoryId || null,
         0, // is_system = false
         input.isPrivate ? 1 : 0,
-        createdAt
+        createdAt,
+        budgetRole
       ]
     );
 
@@ -66,6 +68,7 @@ export class SqliteCategoryRepository implements CategoryRepository {
       icon: input.icon || 'tag',
       color: input.color || '#808080',
       parentCategoryId: input.parentCategoryId || null,
+      budgetRole,
       isSystem: false,
       isPrivate: input.isPrivate || false,
       createdAt
@@ -151,6 +154,7 @@ export class SqliteCategoryRepository implements CategoryRepository {
       icon: row.icon,
       color: row.color,
       parentCategoryId: row.parent_category_id,
+      budgetRole: row.budget_role || inferCategoryBudgetRole(row.name),
       isSystem: row.is_system === 1,
       isPrivate: row.is_private === 1,
       createdAt: row.created_at

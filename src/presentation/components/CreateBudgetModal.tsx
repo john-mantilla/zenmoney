@@ -2,12 +2,12 @@
  * ZenMoney — Modal para Crear/Editar Presupuesto y Límite Mensual (Impeccable.style)
  *
  * Presenta una interfaz responsive para web y móvil (tarjeta centrada en web),
- * selección de categoría, sugerencias inteligentes en tiempo real, selector
- * de ámbito (Familiar vs Personal) y fecha de inicio diferida.
+ * selector de categoría con acordeón jerárquico de 2 niveles, sugerencias inteligentes en tiempo real,
+ * selector de ámbito (Familiar vs Personal) y fecha de inicio diferida.
  */
 
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Modal, Pressable, Platform, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, ScrollView, Modal, Pressable, Platform, TouchableWithoutFeedback, TouchableOpacity } from 'react-native';
 import { Surface, Text, Button, TextInput, SegmentedButtons, RadioButton, IconButton } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as Haptics from 'expo-haptics';
@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Category } from '@/src/domain/entities/Category';
 import { Budget } from '@/src/domain/entities/Budget';
-import { CategoryPickerMenu } from './CategoryPickerMenu';
 import { SmartBudgetSuggestionCard } from './SmartBudgetSuggestionCard';
 import { SuggestRealisticBudget } from '@/src/domain/usecases/SuggestRealisticBudget';
 import { Transaction } from '@/src/domain/entities/Transaction';
@@ -59,23 +58,28 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
   const [selectedScope, setSelectedScope] = useState<'family' | 'individual'>('family');
   const [budgetStartMode, setBudgetStartMode] = useState<'current' | 'future'>('current');
   const [futureMonthOffset, setFutureMonthOffset] = useState(1);
+  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (editingBudget) {
       setSelectedCategoryId(editingBudget.categoryId);
-      setLimitAmount(String(editingBudget.amount));
-      setSelectedScope(editingBudget.isFamilyGroupBudget === false ? 'individual' : 'family');
+      const limitVal = editingBudget.amountLimit ?? (editingBudget as any).amount;
+      setLimitAmount(limitVal !== undefined && limitVal !== null ? String(limitVal) : '');
+      const isIndividual = editingBudget.scope === 'individual' || editingBudget.ownerUserId !== null;
+      setSelectedScope(isIndividual ? 'individual' : 'family');
       setBudgetStartMode('current');
       setFutureMonthOffset(1);
     } else {
-      setSelectedCategoryId(categories.length > 0 ? categories[0].id : '');
+      const firstNonPrivate = categories.find((c) => !c.isPrivate) || categories[0];
+      setSelectedCategoryId(firstNonPrivate ? firstNonPrivate.id : '');
       setLimitAmount('');
       setSelectedScope('family');
       setBudgetStartMode('current');
       setFutureMonthOffset(1);
     }
+    setIsCategoryPickerOpen(false);
     setErrorMsg(null);
   }, [editingBudget, visible, categories]);
 
@@ -122,6 +126,13 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
     const cat = categories.find((c) => c.id === id);
     return cat ? cat.name : 'Categoría';
   };
+
+  const selectedCat = categories.find((c) => c.id === selectedCategoryId);
+
+  // Lista de categorías para el selector jerárquico
+  const visibleCategories = categories.filter((c) => !c.isPrivate);
+  const parents = visibleCategories.filter((c) => !c.parentCategoryId);
+  const childrenOf = (parentId: string) => visibleCategories.filter((c) => c.parentCategoryId === parentId);
 
   // Sugerencia inteligente en tiempo real
   const numVal = parseFloat(limitAmount) || 0;
@@ -193,15 +204,82 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
                   CATEGORÍA
                 </Text>
                 {!editingBudget ? (
-                  <CategoryPickerMenu
-                    categories={categories.filter((c) => !c.isPrivate)}
-                    selectedCategoryId={selectedCategoryId}
-                    onSelect={(id) => {
-                      triggerHaptic();
-                      setSelectedCategoryId(id);
-                    }}
-                    style={{ marginBottom: 14 }}
-                  />
+                  <View style={{ marginBottom: 14 }}>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        triggerHaptic();
+                        setIsCategoryPickerOpen(!isCategoryPickerOpen);
+                      }}
+                      style={[
+                        styles.categorySelectorCard,
+                        {
+                          borderColor: isCategoryPickerOpen ? theme.colors.primary : theme.colors.outline + '40',
+                          backgroundColor: theme.colors.surfaceVariant + '30',
+                        },
+                      ]}
+                    >
+                      <View style={[styles.categoryIconCircle, { backgroundColor: (selectedCat?.color || theme.colors.primary) + '20' }]}>
+                        <MaterialCommunityIcons name={(selectedCat?.icon as any) || 'tag-outline'} size={20} color={selectedCat?.color || theme.colors.primary} />
+                      </View>
+                      <Text style={[theme.typography.body, { flex: 1, fontWeight: '600', color: selectedCat ? theme.colors.onSurface : theme.customColors.textSecondary }]}>
+                        {selectedCat ? selectedCat.name : 'Seleccionar Categoría'}
+                      </Text>
+                      <MaterialCommunityIcons name={isCategoryPickerOpen ? 'chevron-up' : 'chevron-down'} size={20} color={theme.colors.onSurface} />
+                    </TouchableOpacity>
+
+                    {/* Acordeón Desplegable de Categorías */}
+                    {isCategoryPickerOpen && (
+                      <Surface style={[styles.categoryListContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '30' }]}>
+                        <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                          {parents.map((parent) => {
+                            const children = childrenOf(parent.id);
+                            const isParentSelected = selectedCategoryId === parent.id;
+                            return (
+                              <View key={parent.id}>
+                                <TouchableOpacity
+                                  activeOpacity={0.7}
+                                  onPress={() => {
+                                    triggerHaptic();
+                                    setSelectedCategoryId(parent.id);
+                                    setIsCategoryPickerOpen(false);
+                                  }}
+                                  style={[styles.categoryRow, isParentSelected && { backgroundColor: theme.colors.primaryContainer + '60' }]}
+                                >
+                                  <MaterialCommunityIcons name={(parent.icon as any) || 'folder-outline'} size={18} color={parent.color || theme.colors.primary} style={{ marginRight: 8 }} />
+                                  <Text style={{ flex: 1, fontWeight: isParentSelected ? '700' : '600', color: isParentSelected ? theme.colors.primary : theme.colors.onSurface }}>
+                                    {parent.name}
+                                  </Text>
+                                  {isParentSelected && <MaterialCommunityIcons name="check" size={18} color={theme.colors.primary} />}
+                                </TouchableOpacity>
+                                {children.map((child) => {
+                                  const isChildSelected = selectedCategoryId === child.id;
+                                  return (
+                                    <TouchableOpacity
+                                      key={child.id}
+                                      activeOpacity={0.7}
+                                      onPress={() => {
+                                        triggerHaptic();
+                                        setSelectedCategoryId(child.id);
+                                        setIsCategoryPickerOpen(false);
+                                      }}
+                                      style={[styles.childCategoryRow, isChildSelected && { backgroundColor: theme.colors.primaryContainer + '40' }]}
+                                    >
+                                      <MaterialCommunityIcons name="subdirectory-arrow-right" size={16} color={theme.customColors.textSecondary} style={{ marginRight: 6 }} />
+                                      <Text style={{ flex: 1, fontSize: 13, color: isChildSelected ? theme.colors.primary : theme.colors.onSurface, fontWeight: isChildSelected ? '700' : '400' }}>
+                                        {child.name}
+                                      </Text>
+                                      {isChildSelected && <MaterialCommunityIcons name="check" size={16} color={theme.colors.primary} />}
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+                            );
+                          })}
+                        </ScrollView>
+                      </Surface>
+                    )}
+                  </View>
                 ) : (
                   <Surface style={[styles.categoryReadonly, { backgroundColor: theme.colors.surfaceVariant + '50' }]}>
                     <MaterialCommunityIcons name="tag-outline" size={20} color={theme.colors.primary} style={{ marginRight: 8 }} />
@@ -403,6 +481,44 @@ const styles = StyleSheet.create({
   },
   input: {
     marginBottom: 14,
+  },
+  categorySelectorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    gap: 10,
+  },
+  categoryIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  categoryListContainer: {
+    marginTop: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 6,
+    overflow: 'hidden',
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  childCategoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingLeft: 28,
+    paddingRight: 12,
+    borderRadius: 8,
   },
   categoryReadonly: {
     flexDirection: 'row',
