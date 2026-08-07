@@ -64,6 +64,8 @@ export class HybridBudgetRepository implements BudgetRepository {
         return local;
       }
     }
+
+    if (await this.isOnline()) {
       try {
         const remote = await this.remoteRepo.getByMonth(year, month);
         await this.localRepo!.bulkSave(remote);

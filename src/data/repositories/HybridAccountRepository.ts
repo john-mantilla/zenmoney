@@ -43,6 +43,8 @@ export class HybridAccountRepository implements AccountRepository {
         return local;
       }
     }
+
+    if (await this.isOnline()) {
       try {
         const remote = await this.remoteRepo.getAll();
         await this.localRepo!.bulkSave(remote);
@@ -55,7 +57,7 @@ export class HybridAccountRepository implements AccountRepository {
 
         return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
       } catch (err) {
-        // Fallback silently
+        // Fallback silencioso
       }
     }
     return this.localRepo!.getAll();

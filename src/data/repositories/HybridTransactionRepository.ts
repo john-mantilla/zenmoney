@@ -43,6 +43,8 @@ export class HybridTransactionRepository implements TransactionRepository {
         return local;
       }
     }
+
+    if (await this.isOnline()) {
       try {
         const remote = await this.remoteRepo.getAll(filters);
         await this.localRepo!.bulkSave(remote);

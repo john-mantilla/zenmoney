@@ -43,6 +43,8 @@ export class HybridCategoryRepository implements CategoryRepository {
         return local;
       }
     }
+
+    if (await this.isOnline()) {
       try {
         const remote = await this.remoteRepo.getAll(includeSystem);
         await this.localRepo!.bulkSave(remote);
