@@ -34,10 +34,15 @@ export class HybridCategoryRepository implements CategoryRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(includeSystem = true): Promise<Category[]> {
+  async getAll(includeSystem = true, preferCache = false): Promise<Category[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll(includeSystem);
 
-    if (await this.isOnline()) {
+    if (preferCache && this.localRepo) {
+      const local = await this.localRepo.getAll(includeSystem);
+      if (local.length > 0) {
+        return local;
+      }
+    }
       try {
         const remote = await this.remoteRepo.getAll(includeSystem);
         await this.localRepo!.bulkSave(remote);

@@ -228,9 +228,8 @@ export default function BudgetsScreen() {
         let budgetId = parentBudgetItem?.budget.id || `virtual-${parentId}`;
 
         if (group.subBudgets.length > 0) {
-          amountLimit = group.subBudgets.reduce((sum, s) => sum + s.budget.amountLimit, 0);
-          const parentDirectSpent = parentBudgetItem ? parentBudgetItem.spent : 0;
-          spent = group.subBudgets.reduce((sum, s) => sum + s.spent, 0) + parentDirectSpent;
+          amountLimit = parentBudgetItem ? parentBudgetItem.budget.amountLimit : group.subBudgets.reduce((sum, s) => sum + s.budget.amountLimit, 0);
+          spent = getCategoryAndSubcategoriesSpent(parentId, parentBudgetItem?.budget || group.subBudgets[0]?.budget);
         } else {
           const p = parentBudgetItem!;
           amountLimit = p ? p.budget.amountLimit : 0;

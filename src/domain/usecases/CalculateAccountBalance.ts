@@ -20,11 +20,11 @@ export class CalculateAccountBalance {
    * - Para tarjetas de crédito: saldoInicial (típicamente 0 o límite negativo) - gastos + ingresos (pagos a la tarjeta).
    * - Las transferencias entre cuentas propias se restan de la origen y se suman en la destino.
    */
-  async execute(account: Account): Promise<number> {
-    const transactions = await this.transactionRepository.getAll({
+  async execute(account: Account, preferCache = false): Promise<number> {
+    const transactions = await (this.transactionRepository as any).getAll({
       accountId: account.id,
       status: 'confirmed',
-    });
+    }, preferCache);
 
     let balance = Number(account.initialBalance);
     const isDebt = ['credit_card', 'loan', 'mortgage'].includes(account.type);

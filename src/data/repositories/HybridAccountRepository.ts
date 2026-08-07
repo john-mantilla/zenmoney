@@ -34,10 +34,15 @@ export class HybridAccountRepository implements AccountRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(): Promise<Account[]> {
+  async getAll(preferCache = false): Promise<Account[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll();
-    
-    if (await this.isOnline()) {
+
+    if (preferCache && this.localRepo) {
+      const local = await this.localRepo.getAll();
+      if (local.length > 0) {
+        return local;
+      }
+    }
       try {
         const remote = await this.remoteRepo.getAll();
         await this.localRepo!.bulkSave(remote);

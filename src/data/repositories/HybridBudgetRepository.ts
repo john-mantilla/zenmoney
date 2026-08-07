@@ -55,10 +55,15 @@ export class HybridBudgetRepository implements BudgetRepository {
     return this.localRepo!.getAll();
   }
 
-  async getByMonth(year: number, month: number): Promise<Budget[]> {
+  async getByMonth(year: number, month: number, preferCache = false): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getByMonth(year, month);
 
-    if (await this.isOnline()) {
+    if (preferCache && this.localRepo) {
+      const local = await this.localRepo.getByMonth(year, month);
+      if (local.length > 0) {
+        return local;
+      }
+    }
       try {
         const remote = await this.remoteRepo.getByMonth(year, month);
         await this.localRepo!.bulkSave(remote);

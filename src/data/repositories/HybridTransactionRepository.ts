@@ -34,10 +34,15 @@ export class HybridTransactionRepository implements TransactionRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(filters?: TransactionFilters): Promise<Transaction[]> {
+  async getAll(filters?: TransactionFilters, preferCache = false): Promise<Transaction[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll(filters);
 
-    if (await this.isOnline()) {
+    if (preferCache && this.localRepo) {
+      const local = await this.localRepo.getAll(filters);
+      if (local.length > 0) {
+        return local;
+      }
+    }
       try {
         const remote = await this.remoteRepo.getAll(filters);
         await this.localRepo!.bulkSave(remote);

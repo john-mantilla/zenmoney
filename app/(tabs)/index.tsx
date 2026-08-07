@@ -152,13 +152,14 @@ export default function DashboardScreen() {
     lastLoadRef.current = Date.now();
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
-    try {
-      const loadedAccounts = await accountRepo.getAll();
+
+    const executeFetch = async (preferCache: boolean) => {
+      const loadedAccounts = await accountRepo.getAll(preferCache);
       
       // Calcular saldos dinámicos reales para cada cuenta en base a transacciones confirmadas
       const accountsWithRealBalances = await Promise.all(
         loadedAccounts.map(async (acc) => {
-          const realBalance = await balanceUseCase.execute(acc);
+          const realBalance = await balanceUseCase.execute(acc, preferCache);
           return {
             ...acc,
             initialBalance: realBalance,
@@ -194,13 +195,9 @@ export default function DashboardScreen() {
       }
 
       // 1. Clasificación en 4 pilares financieros
-      // Cuentas de Dinero Disponible (bancos y efectivo operativo)
       const liquid = activeAccounts.filter(acc => ['cash', 'bank'].includes(acc.type));
-      // Inversiones y Patrimonio (CDTs, fiduciarias, acciones)
       const investments = activeAccounts.filter(acc => acc.type === 'investment');
-      // Tarjetas de crédito (deuda a corto plazo)
       const cards = activeAccounts.filter(acc => acc.type === 'credit_card');
-      // Créditos y obligaciones (deuda a largo plazo: hipotecas, préstamos)
       const loans = activeAccounts.filter(acc => ['loan', 'mortgage'].includes(acc.type));
       
       setLiquidAccounts(liquid);
@@ -208,15 +205,12 @@ export default function DashboardScreen() {
       setCreditCards(cards);
       setLoanAccounts(loans);
 
-      // Calcular Liquidez Consolidada Operativa: Dinero Líquido Operativo - Deuda Tarjetas
       const liquidSum = liquid.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
       const cardsSum = cards.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
-      
-      // Saldo disponible operativo diario: Disponible Operativo - Tarjeta
       setTotalBalance(liquidSum - cardsSum);
 
       // 2. Cargar categorías para mapping
-      const loadedCategories = await categoryRepo.getAll(true);
+      const loadedCategories = await categoryRepo.getAll(true, preferCache);
       setCategories(loadedCategories);
 
       // Calcular resumen financiero mensual y rango de fechas
@@ -230,7 +224,7 @@ export default function DashboardScreen() {
         status: 'confirmed',
         startDate,
         endDate
-      });
+      }, preferCache);
       let filteredTxs = loadedTransactions;
       if (userProfile) {
         filteredTxs = loadedTransactions.filter(tx => !tx.isPrivate || tx.createdByUserId === userProfile.id);
@@ -238,12 +232,11 @@ export default function DashboardScreen() {
       setMonthTransactions(filteredTxs);
       setRecentTransactions(filteredTxs.slice(0, 3));
 
-      // 3b. Facturas electrónicas recibidas por correo, aún sin confirmar como gasto
-      const pendingEmailTx = await transactionRepo.getAll({ status: 'pending', inputMethod: 'email' });
+      // 3b. Facturas electrónicas recibidas por correo
+      const pendingEmailTx = await transactionRepo.getAll({ status: 'pending', inputMethod: 'email' }, preferCache);
       setPendingEmailInvoices(pendingEmailTx.length);
 
-      // 3c. Racha de registro y detección de "vacío" — ambas sobre el historial PERSONAL
-      // del usuario (no de toda la familia), ya que es una señal de hábito individual.
+      // 3c. Racha de registro y detección de "vacío"
       if (userProfile) {
         const todayStr = new Date().toISOString().split('T')[0];
         const ninetyDaysAgo = new Date();
@@ -252,14 +245,13 @@ export default function DashboardScreen() {
           startDate: ninetyDaysAgo.toISOString().split('T')[0],
           endDate: todayStr,
           status: 'confirmed',
-        })).filter(tx => tx.createdByUserId === userProfile.id);
+        }, preferCache)).filter(tx => tx.createdByUserId === userProfile.id);
 
         setRegistrationStreak(streakUseCase.execute(ownTx.map(tx => tx.transactionDate), todayStr));
 
         const gapResult = gapUseCase.execute(ownTx, todayStr);
         setRegistrationGapDays(gapResult.hasGap ? gapResult.daysSinceLastTransaction : null);
 
-        // Evaluar Micro-Desafío de 7 Días (IA o Estándar)
         const challengeRepo = new HybridChallengeRepository();
         const customChallenges = await challengeRepo.getAll();
         const activeCustom = customChallenges.find((c) => c.status === 'active');
@@ -276,7 +268,7 @@ export default function DashboardScreen() {
       }
 
       // 4. Calcular resumen financiero mensual
-      const summary = await summaryUseCase.execute(startDate, endDate);
+      const summary = await summaryUseCase.execute(startDate, endDate, preferCache);
       setMonthlyIncome(summary.totalIncome);
       setMonthlyExpenses(summary.totalExpenses);
 
@@ -284,10 +276,17 @@ export default function DashboardScreen() {
       const anomalyService = new AnomalyDetectorService();
       const alerts = await anomalyService.scanForAnomalies();
       setSmartAlerts(alerts);
+    };
 
-      // Programar o actualizar las alertas de facturas por vencer
-      BillAlertService.scheduleBillAlerts().catch(() => {});
-      
+    try {
+      // Pasada 1: Carga local ultra-rápida desde SQLite (<100ms) para omitir el spinner de inmediato
+      if (!force) {
+        await executeFetch(true);
+        setIsLoading(false);
+      }
+
+      // Pasada 2: Revalidación y sincronización en segundo plano con la nube Supabase
+      await executeFetch(false);
     } catch (err) {
       console.error('[Dashboard Load Error]:', err);
     } finally {

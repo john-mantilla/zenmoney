@@ -26,12 +26,12 @@ export class GetFinancialSummary {
   /**
    * Ejecuta la generación del resumen financiero.
    */
-  async execute(startDate: string, endDate: string): Promise<FinancialSummary> {
-    const transactions = await this.transactionRepository.getAll({
+  async execute(startDate: string, endDate: string, preferCache = false): Promise<FinancialSummary> {
+    const transactions = await (this.transactionRepository as any).getAll({
       startDate,
       endDate,
       status: 'confirmed',
-    });
+    }, preferCache);
 
     let totalIncome = 0;
     let totalExpenses = 0;
