@@ -220,6 +220,59 @@ export default function NewTransactionScreen() {
               setIsLoading(true);
               const parsed = await aiProvider.parseTransaction(params.voiceInput!, activeAccs, loadedCats);
               applyParsedResult(parsed);
+
+              // Auto-Guardado Inteligente (Opción A): Si hay monto válido y cuentas disponibles
+              const amountVal = parsed.amount ? Number(parsed.amount) : 0;
+              if (amountVal > 0 && activeAccs.length > 0) {
+                const targetAccountId = (parsed as any).suggestedAccountId || activeAccs[0].id;
+                const learnedCatId = parsed.merchantName
+                  ? matchRuleUseCase.execute(parsed.merchantName, categorizationRules)
+                  : null;
+                const targetCatId = learnedCatId || (parsed as any).suggestedCategoryId || (loadedCats.find(c => !c.parentCategoryId)?.id || '');
+                const targetCatObj = loadedCats.find(c => c.id === targetCatId);
+
+                const newTx = await transactionRepo.create({
+                  type: parsed.type || 'expense',
+                  amount: amountVal,
+                  accountId: targetAccountId,
+                  categoryId: targetCatId || undefined,
+                  merchantName: parsed.merchantName || undefined,
+                  description: parsed.description || params.voiceInput,
+                  transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
+                });
+
+                hapticSuccess();
+
+                // Redirigir inmediatamente al Resumen mostrando Snackbar interactivo
+                router.replace({
+                  pathname: '/(tabs)',
+                  params: {
+                    voiceToast: 'true',
+                    voiceAmount: String(amountVal),
+                    voiceCategory: targetCatObj?.name || 'Gasto',
+                    voiceTxId: newTx.id,
+                  },
+                });
+                return;
+              } else if (amountVal === 0 && activeAccs.length > 0) {
+                // Si falta el monto en el dictado, guardar en la bandeja "Por confirmar"
+                await transactionRepo.create({
+                  type: 'expense',
+                  amount: 0,
+                  accountId: activeAccs[0].id,
+                  categoryId: loadedCats[0]?.id || '',
+                  description: `🎙️ ${params.voiceInput}`,
+                  transactionDate: new Date().toISOString().split('T')[0],
+                });
+                hapticSuccess();
+                router.replace({
+                  pathname: '/(tabs)',
+                  params: {
+                    voiceToastPending: 'true',
+                  },
+                });
+                return;
+              }
             } catch (err) {
               console.error('[VoiceInput] Error al procesar entrada de voz:', err);
             } finally {

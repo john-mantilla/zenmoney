@@ -279,6 +279,22 @@ export class SqliteTransactionRepository implements TransactionRepository {
     }
   }
 
+  async syncPendingEmailInvoices(remotePendingList: Transaction[]): Promise<void> {
+    const db = this.getDb();
+    const remoteIds = remotePendingList.map(t => t.id);
+    if (remoteIds.length === 0) {
+      await db.runAsync(
+        "DELETE FROM transactions WHERE input_method = 'email' AND status = 'pending';"
+      );
+    } else {
+      const placeholders = remoteIds.map(() => '?').join(',');
+      await db.runAsync(
+        `DELETE FROM transactions WHERE input_method = 'email' AND status = 'pending' AND id NOT IN (${placeholders});`,
+        remoteIds
+      );
+    }
+  }
+
   async getUnsynced(): Promise<Transaction[]> {
     const db = this.getDb();
     const rows = await db.getAllAsync<any>('SELECT * FROM transactions WHERE synced = 0;');

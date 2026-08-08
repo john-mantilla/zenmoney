@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform, TouchableOpacity, Image } from 'react-native';
-import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, Portal, Dialog } from 'react-native-paper';
+import { Text, FAB, Surface, ActivityIndicator, Button, List, IconButton, Card, Portal, Dialog, Snackbar } from 'react-native-paper';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
@@ -33,7 +33,7 @@ import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategory
 import { AnomalyDetectorService, SmartAlert } from '@/src/infrastructure/services/AnomalyDetectorService';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { FinancialHealthModal } from '@/src/presentation/components/FinancialHealthModal';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 export default function DashboardScreen() {
@@ -69,6 +69,34 @@ export default function DashboardScreen() {
   // Alertas Inteligentes & Modal de Salud Financiera 50/30/20
   const [smartAlerts, setSmartAlerts] = useState<SmartAlert[]>([]);
   const [healthModalVisible, setHealthModalVisible] = useState(false);
+
+  // Parámetros de Toast por voz
+  const params = useLocalSearchParams<{
+    voiceToast?: string;
+    voiceAmount?: string;
+    voiceCategory?: string;
+    voiceTxId?: string;
+    voiceToastPending?: string;
+  }>();
+
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastTxId, setToastTxId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (params.voiceToast === 'true') {
+      const amtNum = Number(params.voiceAmount || 0);
+      const amtStr = amtNum > 0 ? `$${amtNum.toLocaleString('es-CO')}` : '';
+      const catStr = params.voiceCategory || 'Gasto';
+      setToastMessage(`✅ Registrado por voz: ${amtStr} en ${catStr}`);
+      setToastTxId(params.voiceTxId || null);
+      setToastVisible(true);
+    } else if (params.voiceToastPending === 'true') {
+      setToastMessage('⚠️ Guardado en "Por Confirmar" (Falta indicar el monto)');
+      setToastTxId(null);
+      setToastVisible(true);
+    }
+  }, [params.voiceToast, params.voiceAmount, params.voiceCategory, params.voiceTxId, params.voiceToastPending]);
 
   // Estados de control de colapsables (Acordeones - Colapsados por defecto para una vista compacta)
   const [liquidExpanded, setLiquidExpanded] = useState(false);
@@ -993,6 +1021,25 @@ export default function DashboardScreen() {
           accounts={allAccounts}
         />
       </Portal>
+
+      <Snackbar
+        visible={toastVisible}
+        onDismiss={() => setToastVisible(false)}
+        duration={6000}
+        action={
+          toastTxId
+            ? {
+                label: 'Editar',
+                onPress: () => {
+                  router.push({ pathname: '/transaction/new', params: { id: toastTxId } });
+                },
+              }
+            : undefined
+        }
+        style={{ backgroundColor: theme.colors.elevation.level3, marginBottom: 70 }}
+      >
+        <Text style={{ color: theme.colors.onSurface }}>{toastMessage}</Text>
+      </Snackbar>
     </View>
   );
 }
