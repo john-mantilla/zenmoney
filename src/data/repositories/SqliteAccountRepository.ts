@@ -108,6 +108,20 @@ export class SqliteAccountRepository implements AccountRepository {
     }
   }
 
+  async syncWithRemote(remoteAccounts: Account[]): Promise<void> {
+    const db = this.getDb();
+    await this.bulkSave(remoteAccounts);
+
+    const remoteIds = remoteAccounts.map(a => a.id);
+    if (remoteIds.length > 0) {
+      const placeholders = remoteIds.map(() => '?').join(',');
+      await db.runAsync(
+        `DELETE FROM accounts WHERE id NOT IN (${placeholders});`,
+        remoteIds
+      );
+    }
+  }
+
   async getUnsynced(): Promise<Account[]> {
     const db = this.getDb();
     const rows = await db.getAllAsync<any>(

@@ -174,7 +174,7 @@ export default function DashboardScreen() {
   const loadData = async (force = false) => {
     const isNewTimeframe = selectedMonth !== lastLoadedMonthRef.current || selectedYear !== lastLoadedYearRef.current;
     
-    if (!force && !isNewTimeframe && Date.now() - lastLoadRef.current < 5000) {
+    if (!force && !isNewTimeframe && Date.now() - lastLoadRef.current < 15000) {
       return;
     }
     lastLoadRef.current = Date.now();

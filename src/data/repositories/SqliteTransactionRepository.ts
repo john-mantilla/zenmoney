@@ -279,6 +279,41 @@ export class SqliteTransactionRepository implements TransactionRepository {
     }
   }
 
+  async syncWithRemote(remoteTransactions: Transaction[], filters?: TransactionFilters): Promise<void> {
+    const db = this.getDb();
+    await this.bulkSave(remoteTransactions);
+
+    // Eliminar de la base de datos local las transacciones ya sincronizadas que fueron borradas en la nube
+    const remoteIds = remoteTransactions.map(t => t.id);
+    let deleteQuery = "DELETE FROM transactions WHERE synced = 1";
+    const deleteParams: any[] = [];
+
+    if (filters?.accountId) {
+      deleteQuery += " AND (account_id = ? OR transfer_to_account_id = ?)";
+      deleteParams.push(filters.accountId, filters.accountId);
+    }
+    if (filters?.status) {
+      deleteQuery += " AND status = ?";
+      deleteParams.push(filters.status);
+    }
+    if (filters?.startDate) {
+      deleteQuery += " AND transaction_date >= ?";
+      deleteParams.push(filters.startDate);
+    }
+    if (filters?.endDate) {
+      deleteQuery += " AND transaction_date <= ?";
+      deleteParams.push(filters.endDate);
+    }
+
+    if (remoteIds.length > 0) {
+      const placeholders = remoteIds.map(() => '?').join(',');
+      deleteQuery += ` AND id NOT IN (${placeholders})`;
+      deleteParams.push(...remoteIds);
+    }
+
+    await db.runAsync(deleteQuery, deleteParams);
+  }
+
   async syncPendingEmailInvoices(remotePendingList: Transaction[]): Promise<void> {
     const db = this.getDb();
     const remoteIds = remotePendingList.map(t => t.id);

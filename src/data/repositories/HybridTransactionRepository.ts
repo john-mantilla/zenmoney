@@ -47,7 +47,9 @@ export class HybridTransactionRepository implements TransactionRepository {
     if (await this.isOnline()) {
       try {
         const remote = await this.remoteRepo.getAll(filters);
-        await this.localRepo!.bulkSave(remote);
+        if (this.localRepo) {
+          await (this.localRepo as any).syncWithRemote(remote, filters);
+        }
 
         if (filters?.inputMethod === 'email' && filters?.status === 'pending' && this.localRepo) {
           await this.localRepo.syncPendingEmailInvoices(remote);

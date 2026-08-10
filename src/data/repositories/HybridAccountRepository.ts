@@ -47,7 +47,7 @@ export class HybridAccountRepository implements AccountRepository {
     if (await this.isOnline()) {
       try {
         const remote = await this.remoteRepo.getAll();
-        await this.localRepo!.bulkSave(remote);
+        await (this.localRepo as any).syncWithRemote(remote);
 
         // Mezclar con cuentas locales no sincronizadas
         const unsynced = await this.localRepo!.getUnsynced();
