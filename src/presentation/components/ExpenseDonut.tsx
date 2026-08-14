@@ -20,28 +20,47 @@ export const ExpenseDonut: React.FC<Props> = ({ expenses, categories, monthLabel
     let sum = 0;
     const catTotals: Record<string, { id: string; name: string; amount: number; color: string; icon: string }> = {};
 
-    for (const tx of expenses) {
-      if (tx.status !== 'confirmed') continue;
+    // Filtrar estrictamente solo transacciones de tipo 'expense' y estado 'confirmed'
+    const onlyExpenses = expenses.filter(tx => tx.status === 'confirmed' && tx.type === 'expense');
+
+    for (const tx of onlyExpenses) {
       sum += tx.amount;
       
       const catId = tx.categoryId;
-      if (!catId) continue;
-      
-      let parentCatId = catId;
-      const cat = categories.find(c => c.id === catId);
-      if (cat?.parentCategoryId) {
-        parentCatId = cat.parentCategoryId;
-      }
-      
-      const parentCat = categories.find(c => c.id === parentCatId);
-      const color = parentCat ? parentCat.color : theme.customColors.expense;
-      const name = parentCat ? parentCat.name : 'Otra';
-      const icon = parentCat ? parentCat.icon : 'help-circle';
+      let catName = 'Sin clasificar';
+      let catColor = theme.customColors.expense || '#EF4444';
+      let catIcon = 'tag-outline';
+      let groupKey = 'uncategorized';
 
-      if (!catTotals[parentCatId]) {
-        catTotals[parentCatId] = { id: parentCatId, name, amount: 0, color, icon };
+      if (catId) {
+        const cat = categories.find(c => c.id === catId);
+        if (cat) {
+          if (cat.parentCategoryId) {
+            const parentCat = categories.find(c => c.id === cat.parentCategoryId);
+            if (parentCat) {
+              groupKey = parentCat.id;
+              catName = parentCat.name;
+              catColor = parentCat.color || catColor;
+              catIcon = parentCat.icon || catIcon;
+            } else {
+              groupKey = cat.id;
+              catName = cat.name;
+              catColor = cat.color || catColor;
+              catIcon = cat.icon || catIcon;
+            }
+          } else {
+            groupKey = cat.id;
+            catName = cat.name;
+            catColor = cat.color || catColor;
+            catIcon = cat.icon || catIcon;
+          }
+        }
       }
-      catTotals[parentCatId].amount += tx.amount;
+
+      if (!catTotals[groupKey]) {
+        catTotals[groupKey] = { id: groupKey, name: catName, amount: 0, color: catColor, icon: catIcon };
+      }
+      catTotals[groupKey].amount += tx.amount;
     }
 
     const sortedCats = Object.values(catTotals).sort((a, b) => b.amount - a.amount);
