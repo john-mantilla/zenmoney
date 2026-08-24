@@ -71,6 +71,16 @@ export class TrendAnalysisUseCase {
       }
     }
 
-    return points;
+    // Recortar meses iniciales sin datos para que la gráfica no se vea plana y vacía.
+    // Buscamos el primer mes que tenga ingresos, gastos o presupuesto.
+    let firstActiveIndex = points.findIndex(p => p.income > 0 || p.expense > 0 || p.budget > 0);
+    
+    // Si no hay datos en absoluto o solo en el último mes, mostramos al menos 6 meses por estética.
+    if (firstActiveIndex === -1 || firstActiveIndex > 6) {
+      firstActiveIndex = 6;
+    }
+    
+    // Retornamos el subarreglo desde el primer mes con datos (o los últimos 6 meses)
+    return points.slice(firstActiveIndex);
   }
 }

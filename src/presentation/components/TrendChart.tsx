@@ -34,7 +34,16 @@ export const TrendChart: React.FC<Props> = ({ data }) => {
   );
   
   // Si no hay datos, maxValue sería -Infinity o 0 y rompe la gráfica
-  const safeMaxVal = (!isFinite(maxVal) || maxVal <= 0) ? 100 : maxVal;
+  // Multiplicamos por 1.15 para dar un 15% de "headroom" (espacio arriba) 
+  // y evitar que las curvas bezier se salgan del lienzo superior al rebotar.
+  const safeMaxVal = (!isFinite(maxVal) || maxVal <= 0) ? 100 : maxVal * 1.15;
+
+  // Cálculo dinámico para ajustar perfectamente a la pantalla sin cortar el último mes
+  const chartWidth = screenWidth - 70;
+  const numSegments = Math.max(1, data.length - 1);
+  const startPadding = 15;
+  const endPadding = 30; // Extra espacio a la derecha para que el label no se corte
+  const dynamicSpacing = (chartWidth - startPadding - endPadding) / numSegments;
 
   return (
     <Surface elevation={1} style={{ marginHorizontal: 16, borderRadius: 16, padding: 16, paddingBottom: 0, backgroundColor: theme.colors.surface }}>
@@ -48,14 +57,14 @@ export const TrendChart: React.FC<Props> = ({ data }) => {
           data2={expenseData}
           data3={budgetData}
           height={220}
-          width={screenWidth - 90}
+          width={chartWidth}
           showVerticalLines
           verticalLinesColor="rgba(0,0,0,0.05)"
           rulesColor="rgba(0,0,0,0.05)"
           rulesType="solid"
-          spacing={(screenWidth - 90) / 11}
-          initialSpacing={10}
-          endSpacing={10}
+          spacing={dynamicSpacing}
+          initialSpacing={startPadding}
+          endSpacing={endPadding}
           thickness={3}
           thickness2={3}
           thickness3={2}
@@ -121,7 +130,7 @@ export const TrendChart: React.FC<Props> = ({ data }) => {
               
               // Evitar que el tooltip se corte en los bordes de la pantalla
               const index = data.findIndex(d => d.fullDate === pt.date);
-              const isNearRight = index >= 9;
+              const isNearRight = index >= data.length - 2;
               const isNearLeft = index <= 1;
               let leftOffset = -40; // Centrado por defecto
               if (isNearRight) leftOffset = -90; // Empujar a la izquierda

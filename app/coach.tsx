@@ -21,17 +21,7 @@ import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallen
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-
-export interface BadgeItem {
-  id: string;
-  title: string;
-  subtitle: string;
-  icon: string;
-  category: 'habit' | 'savings' | 'budget';
-  unlocked: boolean;
-  unlockedDate?: string;
-  color: string;
-}
+import { EvaluateBadges, BadgeItem } from '@/src/domain/usecases/EvaluateBadges';
 
 export default function CoachScreen() {
   const router = useRouter();
@@ -41,6 +31,7 @@ export default function CoachScreen() {
 
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [selectedBadge, setSelectedBadge] = useState<BadgeItem | null>(null);
+  const [badges, setBadges] = useState<BadgeItem[]>([]);
 
   const transactionRepo = new HybridTransactionRepository();
 
@@ -74,71 +65,14 @@ export default function CoachScreen() {
         const challengeData = Evaluate7DayChallenge.execute(userTxs, todayStr, userProfile?.id);
         setChallenge(challengeData);
       }
+      
+      const activeChallengeData = activeCustom || Evaluate7DayChallenge.execute(userTxs, todayStr, userProfile?.id);
+      setBadges(EvaluateBadges.execute(userTxs, activeChallengeData));
     } catch (err) {
       console.warn('[Coach Load Error]:', err);
     }
   };
 
-  // Colección de Insignias de Logro Real
-  const badges: BadgeItem[] = [
-    {
-      id: 'badge-streak-7d',
-      title: 'Constancia de Acero',
-      subtitle: '7 días seguidos registrando movimientos',
-      icon: 'fire',
-      category: 'habit',
-      unlocked: challenge?.status === 'completed' || (challenge?.completedDays || 0) >= 7,
-      unlockedDate: 'Reto Activo',
-      color: '#F97316',
-    },
-    {
-      id: 'badge-investment',
-      title: 'Constructor de Capital',
-      subtitle: 'Primer aporte a Inversión o Ahorro activo',
-      icon: 'rocket-launch',
-      category: 'savings',
-      unlocked: true,
-      unlockedDate: 'Conquistado',
-      color: '#059669',
-    },
-    {
-      id: 'badge-realistic-budget',
-      title: 'Mente Realista',
-      subtitle: 'Adaptaste una meta con Sugerencia Inteligente',
-      icon: 'lightning-bolt',
-      category: 'budget',
-      unlocked: true,
-      unlockedDate: 'Conquistado',
-      color: '#2563EB',
-    },
-    {
-      id: 'badge-frugal-7d',
-      title: 'Escudo Fugas Hormiga',
-      subtitle: '7 días con gastos de antojitos bajo control',
-      icon: 'shield-check',
-      category: 'savings',
-      unlocked: false,
-      color: '#8B5CF6',
-    },
-    {
-      id: 'badge-family-team',
-      title: 'Familia Implacable',
-      subtitle: 'Semana con 100% de registros en equipo',
-      icon: 'account-group',
-      category: 'habit',
-      unlocked: false,
-      color: '#EC4899',
-    },
-    {
-      id: 'badge-clean-month',
-      title: 'Cierre de Mes Dorado',
-      subtitle: 'Mantuviste las Necesidades dentro del 50%',
-      icon: 'crown',
-      category: 'budget',
-      unlocked: false,
-      color: '#EAB308',
-    },
-  ];
 
   const handleBadgePress = (badge: BadgeItem) => {
     if (badge.unlocked) {
@@ -254,10 +188,10 @@ export default function CoachScreen() {
                     />
                   </View>
 
-                  <Text style={[styles.badgeTitle, theme.typography.bodySmall, { color: theme.colors.onSurface, fontWeight: '700' }]} numberOfLines={1}>
+                  <Text style={[styles.badgeTitle, theme.typography.bodySmall, { color: theme.colors.onSurface, fontWeight: '700' }]}>
                     {badge.title}
                   </Text>
-                  <Text style={[styles.badgeSub, theme.typography.caption, { color: theme.customColors.textSecondary }]} numberOfLines={2}>
+                  <Text style={[styles.badgeSub, theme.typography.caption, { color: theme.customColors.textSecondary }]}>
                     {badge.subtitle}
                   </Text>
 
@@ -368,7 +302,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1.5,
     alignItems: 'center',
-    height: '100%',
+    flex: 1, // Allow it to fill the wrapper flexibly instead of hard 100% which breaks wrapping
   },
   badgeIconCircle: {
     width: 52,
@@ -386,7 +320,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 15,
     marginBottom: 12,
-    minHeight: 30,
   },
   statusPill: {
     paddingHorizontal: 10,

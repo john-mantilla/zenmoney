@@ -336,24 +336,24 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
                       elevation={1}
                     >
                       <View style={styles.pillarHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, paddingRight: 8 }}>
                           <MaterialCommunityIcons name="home-city-outline" size={20} color={theme.colors.primary} />
-                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={2}>
                             Necesidades Básicas
                           </Text>
                         </View>
                         <View style={[styles.badge, { backgroundColor: status.bg }]}>
-                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color }]}>
+                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color, textAlign: 'right' }]}>
                             {status.label}
                           </Text>
                         </View>
                       </View>
 
                       <View style={styles.valueRow}>
-                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24 }]}>
+                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24, flexShrink: 1 }]} numberOfLines={1}>
                           Real: {actual}%
                         </Text>
-                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary }]}>
+                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary, flexShrink: 1 }]} numberOfLines={1}>
                           {formatCurrency(healthData.actualAmounts.needs)}
                         </Text>
                       </View>
@@ -378,24 +378,24 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
                       elevation={1}
                     >
                       <View style={styles.pillarHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, paddingRight: 8 }}>
                           <MaterialCommunityIcons name="palette-outline" size={20} color="#D97706" />
-                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={2}>
                             Deseos & Estilo de Vida
                           </Text>
                         </View>
                         <View style={[styles.badge, { backgroundColor: status.bg }]}>
-                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color }]}>
+                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color, textAlign: 'right' }]}>
                             {status.label}
                           </Text>
                         </View>
                       </View>
 
                       <View style={styles.valueRow}>
-                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24 }]}>
+                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24, flexShrink: 1 }]} numberOfLines={1}>
                           Real: {actual}%
                         </Text>
-                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary }]}>
+                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary, flexShrink: 1 }]} numberOfLines={1}>
                           {formatCurrency(healthData.actualAmounts.wants)}
                         </Text>
                       </View>
@@ -420,24 +420,24 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
                       elevation={1}
                     >
                       <View style={styles.pillarHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, paddingRight: 8 }}>
                           <MaterialCommunityIcons name="piggy-bank-outline" size={20} color="#059669" />
-                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={2}>
                             Ahorros & Inversión
                           </Text>
                         </View>
                         <View style={[styles.badge, { backgroundColor: status.bg }]}>
-                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color }]}>
+                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color, textAlign: 'right' }]}>
                             {status.label}
                           </Text>
                         </View>
                       </View>
 
                       <View style={styles.valueRow}>
-                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24 }]}>
+                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24, flexShrink: 1 }]} numberOfLines={1}>
                           Real: {actual}%
                         </Text>
-                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary }]}>
+                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary, flexShrink: 1 }]} numberOfLines={1}>
                           {formatCurrency(healthData.actualAmounts.savings)}
                         </Text>
                       </View>
@@ -462,24 +462,24 @@ export const FinancialHealthModal: React.FC<FinancialHealthModalProps> = ({
                       elevation={1}
                     >
                       <View style={styles.pillarHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, paddingRight: 8 }}>
                           <MaterialCommunityIcons name="handshake-outline" size={20} color="#8B5CF6" />
-                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                          <Text style={[theme.typography.h4, { fontWeight: '700', color: theme.colors.onSurface, flexShrink: 1 }]} numberOfLines={2}>
                             Caridad & Donaciones
                           </Text>
                         </View>
                         <View style={[styles.badge, { backgroundColor: status.bg }]}>
-                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color }]}>
+                          <Text style={[theme.typography.caption, { fontSize: 11, fontWeight: '700', color: status.color, textAlign: 'right' }]}>
                             {status.label}
                           </Text>
                         </View>
                       </View>
 
                       <View style={styles.valueRow}>
-                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24 }]}>
+                        <Text style={[theme.typography.amount, { color: theme.colors.onSurface, fontSize: 24, flexShrink: 1 }]} numberOfLines={1}>
                           Real: {actual}%
                         </Text>
-                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary }]}>
+                        <Text style={[theme.typography.amountSmall, { color: theme.customColors.textSecondary, flexShrink: 1 }]} numberOfLines={1}>
                           {formatCurrency(healthData.actualAmounts.charity)}
                         </Text>
                       </View>
@@ -590,19 +590,22 @@ const styles = StyleSheet.create({
   pillarHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     marginBottom: 10,
+    gap: 8,
   },
   badge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
+    flexShrink: 1,
   },
   valueRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
     marginBottom: 4,
+    gap: 8,
   },
   recCard: {
     flexDirection: 'row',
