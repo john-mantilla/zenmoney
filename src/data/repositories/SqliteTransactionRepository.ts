@@ -200,6 +200,15 @@ export class SqliteTransactionRepository implements TransactionRepository {
       ]
     );
 
+    if (data.tags !== undefined) {
+      await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [id]);
+      if (data.tags.length > 0) {
+        for (const tagId of data.tags) {
+          await db.runAsync('INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);', [id, tagId]);
+        }
+      }
+    }
+
     return {
       ...existing,
       accountId,
@@ -276,6 +285,13 @@ export class SqliteTransactionRepository implements TransactionRepository {
           tx.updatedAt
         ]
       );
+
+      if (tx.tags && tx.tags.length > 0) {
+        await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [tx.id]);
+        for (const tag of tx.tags) {
+          await db.runAsync('INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);', [tx.id, tag.id]);
+        }
+      }
     }
   }
 

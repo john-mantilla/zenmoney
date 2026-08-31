@@ -352,6 +352,8 @@ export default function TransactionsScreen() {
     if (!isSelectionMode) {
       setIsSelectionMode(true);
       setSelectedTransactionIds(new Set([id]));
+    } else {
+      toggleSelection(id);
     }
   };
 
@@ -554,6 +556,7 @@ export default function TransactionsScreen() {
         <SectionList
           sections={getGroupedTransactionsByDate()}
           keyExtractor={item => item.id}
+          extraData={selectedTransactionIds}
           renderSectionHeader={({ section: { id, title, total } }) => (
             <Pressable onPress={() => toggleDateCollapse(id)}>
               <View style={[styles.sectionHeader, { backgroundColor: theme.colors.surfaceVariant }]}>
@@ -611,6 +614,7 @@ export default function TransactionsScreen() {
         <SectionList
           sections={getGroupedTransactions()}
           keyExtractor={item => item.id}
+          extraData={selectedTransactionIds}
           renderSectionHeader={({ section: { id, title, total } }) => (
             <Pressable onPress={() => toggleCategoryCollapse(id)}>
               <View style={[styles.sectionHeader, { backgroundColor: theme.colors.surfaceVariant }]}>

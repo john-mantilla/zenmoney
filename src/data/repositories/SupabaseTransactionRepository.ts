@@ -129,15 +129,17 @@ export class SupabaseTransactionRepository implements TransactionRepository {
   async update(id: string, data: Partial<CreateTransactionInput>): Promise<Transaction> {
     const dbData = Mapper.toDbTransaction(data);
 
-    const { data: updated, error } = await supabase
-      .from('transactions')
-      .update(dbData)
-      .eq('id', id)
-      .select('*')
-      .single();
+    if (Object.keys(dbData).length > 0) {
+      const { data: updated, error } = await supabase
+        .from('transactions')
+        .update(dbData)
+        .eq('id', id)
+        .select('*')
+        .single();
 
-    if (error || !updated) {
-      throw new Error(`Error al actualizar la transacción: ${error?.message}`);
+      if (error || !updated) {
+        throw new Error(`Error al actualizar la transacción: ${error?.message}`);
+      }
     }
 
     if (data.tags !== undefined) {

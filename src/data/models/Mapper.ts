@@ -219,42 +219,46 @@ export class Mapper {
   }
 
   static toDbTransaction(entity: Partial<Transaction>): any {
-    let ai_metadata = null;
-    if (entity.aiMetadata) {
-      const meta = entity.aiMetadata;
-      ai_metadata = {
-        raw_input: meta.rawInput,
-        parsed_amount: meta.parsedAmount,
-        parsed_category: meta.parsedCategory,
-        parsed_account: meta.parsedAccount,
-        parsed_merchant: meta.parsedMerchant,
-        confidence: meta.confidence,
-        corrections: meta.corrections,
-        due_date: meta.dueDate || null,
-        installments: (meta as any).installments || null,
-        is_cc_statement: (meta as any).isCCStatement || false,
-      };
+    let ai_metadata = undefined;
+    if (entity.aiMetadata !== undefined) {
+      if (entity.aiMetadata === null) {
+        ai_metadata = null;
+      } else {
+        const meta = entity.aiMetadata;
+        ai_metadata = {
+          raw_input: meta.rawInput,
+          parsed_amount: meta.parsedAmount,
+          parsed_category: meta.parsedCategory,
+          parsed_account: meta.parsedAccount,
+          parsed_merchant: meta.parsedMerchant,
+          confidence: meta.confidence,
+          corrections: meta.corrections,
+          due_date: meta.dueDate || null,
+          installments: (meta as any).installments || null,
+          is_cc_statement: (meta as any).isCCStatement || false,
+        };
+      }
     }
 
     return {
       ...(entity.id && { id: entity.id }),
       ...(entity.familyGroupId && { family_group_id: entity.familyGroupId }),
       ...(entity.accountId && { account_id: entity.accountId }),
-      category_id: entity.categoryId || null,
+      ...(entity.categoryId !== undefined && { category_id: entity.categoryId || null }),
       ...(entity.createdByUserId && { created_by_user_id: entity.createdByUserId }),
       ...(entity.type && { type: entity.type }),
       ...(entity.amount !== undefined && { amount: entity.amount }),
       ...(entity.currency && { currency: entity.currency }),
-      description: entity.description || null,
-      merchant_name: entity.merchantName || null,
+      ...(entity.description !== undefined && { description: entity.description || null }),
+      ...(entity.merchantName !== undefined && { merchant_name: entity.merchantName || null }),
       ...(entity.transactionDate && { transaction_date: entity.transactionDate }),
-      transfer_to_account_id: entity.transferToAccountId || null,
+      ...(entity.transferToAccountId !== undefined && { transfer_to_account_id: entity.transferToAccountId || null }),
       ...(entity.isRecurringInstance !== undefined && { is_recurring_instance: entity.isRecurringInstance }),
-      recurring_rule_id: entity.recurringRuleId || null,
+      ...(entity.recurringRuleId !== undefined && { recurring_rule_id: entity.recurringRuleId || null }),
       ...(entity.status && { status: entity.status }),
       ...(entity.inputMethod && { input_method: entity.inputMethod }),
       ...(entity.isPrivate !== undefined && { is_private: entity.isPrivate }),
-      ai_metadata,
+      ...(ai_metadata !== undefined && { ai_metadata }),
     };
   }
 

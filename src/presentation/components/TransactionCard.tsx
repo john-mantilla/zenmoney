@@ -87,7 +87,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <Pressable
-        onPress={selectionMode ? onLongPress : onPress}
+        onPress={onPress}
         onLongPress={onLongPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}

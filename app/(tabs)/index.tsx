@@ -503,6 +503,101 @@ export default function DashboardScreen() {
           onPressAnalysis={() => setHealthModalVisible(true)}
         />
 
+        {/* ─── SECCIÓN ACCIONES RÁPIDAS (Justo debajo de la tarjeta de balance) ── */}
+        <View style={{ marginTop: 14, marginBottom: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {/* 1. Escanear Recibo */}
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { action: 'camera' } })}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                paddingVertical: 12,
+                paddingHorizontal: 8,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.colors.outline + '25',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                elevation: 1,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+              }}
+            >
+              <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="camera" size={20} color={theme.colors.primary} />
+              </View>
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 12 }]}>
+                Escanear
+              </Text>
+            </TouchableOpacity>
+
+            {/* 2. Dictar por Voz */}
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'ai', action: 'voice' } })}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                paddingVertical: 12,
+                paddingHorizontal: 8,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.colors.outline + '25',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                elevation: 1,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+              }}
+            >
+              <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="microphone" size={20} color={theme.colors.primary} />
+              </View>
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 12 }]}>
+                Voz
+              </Text>
+            </TouchableOpacity>
+
+            {/* 3. Transferir */}
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'manual', type: 'transfer' } })}
+              style={{
+                flex: 1,
+                backgroundColor: theme.colors.surface,
+                paddingVertical: 12,
+                paddingHorizontal: 8,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.colors.outline + '25',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                elevation: 1,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 2,
+              }}
+            >
+              <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <MaterialCommunityIcons name="swap-horizontal" size={20} color={theme.colors.primary} />
+              </View>
+              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 12 }]}>
+                Transferir
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Aviso de posible vacío en el registro: lleva más días de lo habitual sin anotar nada */}
         {registrationGapDays !== null && (
           <Card
@@ -763,89 +858,6 @@ export default function DashboardScreen() {
               })}
             </List.Accordion>
           )}
-        </View>
-
-        {/* ─── SECCIÓN ACCIONES RÁPIDAS (1 sola fila compacta de 3 botones) ── */}
-        <View style={{ marginTop: 16, marginBottom: 8 }}>
-          <Text style={[styles.sectionTitle, theme.typography.h3, { color: theme.colors.onSurface, marginBottom: 10 }]}>
-            Acciones rápidas
-          </Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {/* 1. Escanear Recibo */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => router.push({ pathname: '/transaction/new', params: { action: 'camera' } })}
-              style={{
-                flex: 1,
-                backgroundColor: theme.colors.surface,
-                paddingVertical: 12,
-                paddingHorizontal: 6,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: theme.colors.outline + '30',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-              }}
-            >
-              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="camera" size={18} color={theme.colors.primary} />
-              </View>
-              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 11 }]}>
-                Escanear
-              </Text>
-            </TouchableOpacity>
-
-            {/* 2. Dictar por Voz */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'ai', action: 'voice' } })}
-              style={{
-                flex: 1,
-                backgroundColor: theme.colors.surface,
-                paddingVertical: 12,
-                paddingHorizontal: 6,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: theme.colors.outline + '30',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-              }}
-            >
-              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="microphone" size={18} color={theme.colors.primary} />
-              </View>
-              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 11 }]}>
-                Voz
-              </Text>
-            </TouchableOpacity>
-
-            {/* 3. Transferir */}
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => router.push({ pathname: '/transaction/new', params: { mode: 'manual', type: 'transfer' } })}
-              style={{
-                flex: 1,
-                backgroundColor: theme.colors.surface,
-                paddingVertical: 12,
-                paddingHorizontal: 6,
-                borderRadius: 14,
-                borderWidth: 1,
-                borderColor: theme.colors.outline + '30',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-              }}
-            >
-              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.primaryContainer, justifyContent: 'center', alignItems: 'center' }}>
-                <MaterialCommunityIcons name="swap-horizontal" size={18} color={theme.colors.primary} />
-              </View>
-              <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface, fontSize: 11 }]}>
-                Transferir
-              </Text>
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* ─── MOVIMIENTOS RECIENTES (ÚLTIMOS 3) ───────────────────────────── */}

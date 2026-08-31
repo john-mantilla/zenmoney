@@ -124,6 +124,20 @@ describe('Mapper — Pruebas de Integración Bidireccional (DB snake_case ↔ Do
       expect(dbRow.amount).toBe(800);
       expect(dbRow.ai_metadata.raw_input).toBe('Arriendo');
     });
+
+    it('no incluye campos nulos cuando se actualiza un objeto parcial (ej. solo tags)', () => {
+      const partialUpdate = {
+        amount: 250,
+      };
+
+      const dbRow = Mapper.toDbTransaction(partialUpdate);
+
+      expect(dbRow.amount).toBe(250);
+      expect(dbRow).not.toHaveProperty('category_id');
+      expect(dbRow).not.toHaveProperty('description');
+      expect(dbRow).not.toHaveProperty('merchant_name');
+      expect(dbRow).not.toHaveProperty('ai_metadata');
+    });
   });
 
   describe('Account Mapping', () => {

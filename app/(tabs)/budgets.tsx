@@ -21,6 +21,8 @@ import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useFocusEffect } from 'expo-router';
+import { AppAlert } from '@/src/presentation/services/AppAlert';
+import { hapticSuccess } from '@/src/infrastructure/utils/haptics';
 
 export interface CreateBudgetData {
   categoryId: string;
@@ -553,10 +555,66 @@ export default function BudgetsScreen() {
               key={sug.categoryId}
               suggestion={sug}
               onApplySuggestion={async (newAmount) => {
-                const targetItem = budgetsProgress.find((bp) => bp.categoryId === sug.categoryId);
-                if (targetItem?.budget) {
-                  await budgetRepo.update(targetItem.budget.id, { amountLimit: newAmount });
-                  loadData(true);
+                try {
+                  setIsLoading(true);
+                  const { userProfile } = require('@/src/infrastructure/auth/authStore').useAuthStore.getState();
+                  const currentUserId = userProfile?.id;
+
+                  // 1. Buscar si existe un presupuesto objetivo en los ítems principales o en subcategorías
+                  let targetBudget: Budget | undefined = undefined;
+                  for (const bp of budgetsProgress) {
+                    if (bp.categoryId === sug.categoryId && bp.budget) {
+                      targetBudget = bp.budget;
+                      break;
+                    }
+                    const child = bp.children.find(c => c.categoryId === sug.categoryId || c.budget.categoryId === sug.categoryId);
+                    if (child?.budget) {
+                      targetBudget = child.budget;
+                      break;
+                    }
+                  }
+
+                  const scopeToUse = targetBudget?.scope || 'family';
+                  const ownerUserId = scopeToUse === 'individual' ? (targetBudget?.ownerUserId || currentUserId) : null;
+
+                  // 2. Verificar si ya existe un registro explícito de presupuesto para este mes y año
+                  const existingTargetBudgets = await budgetRepo.getByMonth(selectedYear, selectedMonth);
+                  const exists = existingTargetBudgets.find(b => 
+                    b.categoryId === sug.categoryId && 
+                    b.scope === scopeToUse && 
+                    (scopeToUse === 'family' || b.ownerUserId === ownerUserId)
+                  );
+
+                  if (exists) {
+                    await budgetRepo.update(exists.id, {
+                      amountLimit: newAmount,
+                      scope: scopeToUse,
+                      ownerUserId,
+                    });
+                  } else {
+                    await budgetRepo.create({
+                      categoryId: sug.categoryId,
+                      amountLimit: newAmount,
+                      year: selectedYear,
+                      month: selectedMonth,
+                      scope: scopeToUse,
+                      ownerUserId,
+                    });
+                  }
+
+                  // 3. Ocultar la sugerencia aplicada
+                  setDismissedCalibrations(prev => ({ ...prev, [sug.categoryId]: true }));
+                  
+                  // Feedback táctil y visual
+                  hapticSuccess();
+                  AppAlert.alert('Presupuesto Actualizado', `Se ha aplicado la meta de $${newAmount.toLocaleString('es-CO')} a ${sug.categoryName} exitosamente.`);
+                  
+                  await loadData(true);
+                } catch (err) {
+                  console.error('[Budgets] Error al aplicar sugerencia inteligente:', err);
+                  setErrorMsg('No se pudo aplicar la sugerencia de presupuesto.');
+                } finally {
+                  setIsLoading(false);
                 }
               }}
               onDismiss={() => {
