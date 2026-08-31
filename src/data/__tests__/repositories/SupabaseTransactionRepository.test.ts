@@ -134,6 +134,7 @@ describe('SupabaseTransactionRepository — Pruebas de Integración con Mock de 
     const mockInsertBuilder = {
       insert: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: mockInsertedRow, error: null }),
     };
 

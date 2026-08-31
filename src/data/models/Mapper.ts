@@ -15,8 +15,31 @@ import { SavingsGoal } from '@domain/entities/SavingsGoal';
 import { CategorizationRule } from '@domain/entities/CategorizationRule';
 import { AssistantMessage } from '@domain/entities/AssistantMessage';
 
+import { Tag } from '@domain/entities/Tag';
+
 export class Mapper {
   
+  // ─── Tags ──────────────────────────────────────────────────────────────
+
+  static toDomainTag(row: any): Tag {
+    return {
+      id: row.id,
+      familyGroupId: row.family_group_id,
+      name: row.name,
+      color: row.color,
+      createdAt: row.created_at,
+    };
+  }
+
+  static toDbTag(entity: Partial<Tag>): any {
+    return {
+      ...(entity.id && { id: entity.id }),
+      ...(entity.familyGroupId && { family_group_id: entity.familyGroupId }),
+      ...(entity.name && { name: entity.name }),
+      ...(entity.color && { color: entity.color }),
+    };
+  }
+
   // ─── User Profile & Family Group ──────────────────────────────────────
 
   static toDomainUserProfile(row: any): UserProfile {
@@ -119,6 +142,11 @@ export class Mapper {
     let merchantName = row.merchant_name;
     let categoryId = row.category_id;
     let aiMetadata: AIMetadata | null = null;
+    let tags: Tag[] | undefined = undefined;
+
+    if (row.tags && Array.isArray(row.tags)) {
+      tags = row.tags.map(Mapper.toDomainTag);
+    }
 
     let isOwner = true;
     if (isPrivate) {
@@ -183,6 +211,7 @@ export class Mapper {
       inputMethod: row.input_method,
       aiMetadata,
       isPrivate,
+      tags,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       syncedAt: row.synced_at,

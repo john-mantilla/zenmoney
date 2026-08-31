@@ -2,6 +2,8 @@
  * ZenMoney — Entidad Transaction
  */
 
+import { Tag } from './Tag';
+
 export type TransactionType = 'income' | 'expense' | 'transfer';
 export type TransactionStatus = 'confirmed' | 'pending' | 'archived';
 export type InputMethod = 'manual' | 'voice' | 'nlq' | 'email' | 'photo';
@@ -40,6 +42,7 @@ export interface Transaction {
   aiMetadata: AIMetadata | null;
   /** Si es true, solo el creador puede verla — el resto de la familia no (RLS). */
   isPrivate: boolean;
+  tags?: Tag[]; // Etiquetas de la transacción
   createdAt: string;
   updatedAt: string;
   syncedAt: string | null;
@@ -59,6 +62,7 @@ export interface CreateTransactionInput {
   inputMethod?: InputMethod;
   aiMetadata?: AIMetadata | null;
   isPrivate?: boolean;
+  tags?: string[]; // IDs de los tags a asociar
 }
 
 export interface TransactionFilters {
@@ -69,6 +73,7 @@ export interface TransactionFilters {
   endDate?: string;
   search?: string;
   status?: TransactionStatus;
+  tagIds?: string[];
   limit?: number;
   offset?: number;
 }

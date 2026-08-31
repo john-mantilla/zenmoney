@@ -100,6 +100,26 @@ export class LocalDatabase {
         created_at TEXT NOT NULL
       );
     `);
+
+    // Tabla de etiquetas (Tags)
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id TEXT PRIMARY KEY,
+        family_group_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT '#808080',
+        created_at TEXT NOT NULL
+      );
+    `);
+
+    // Tabla intermedia transacciones-etiquetas
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS transaction_tags (
+        transaction_id TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        PRIMARY KEY (transaction_id, tag_id)
+      );
+    `);
   }
 
   static async clearAll(): Promise<void> {
@@ -108,6 +128,8 @@ export class LocalDatabase {
     await database.execAsync('DELETE FROM accounts;');
     await database.execAsync('DELETE FROM categories;');
     await database.execAsync('DELETE FROM budgets;');
+    await database.execAsync('DELETE FROM tags;');
+    await database.execAsync('DELETE FROM transaction_tags;');
     await database.execAsync('DELETE FROM sync_actions_queue;');
   }
 }

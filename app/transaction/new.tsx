@@ -35,7 +35,9 @@ import { BudgetAlertService } from '@/src/infrastructure/services/BudgetAlertSer
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
+import { Tag } from '@/src/domain/entities/Tag';
 import { CategorizationRule } from '@/src/domain/entities/CategorizationRule';
+import { HybridTagRepository } from '@/src/data/repositories/HybridTagRepository';
 import { GeminiFlashProvider } from '@/src/infrastructure/ai/GeminiFlashProvider';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
@@ -89,6 +91,8 @@ export default function NewTransactionScreen() {
   const [mode, setMode] = useState<'quick' | 'ai' | 'manual'>('quick');
   const [suggestions, setSuggestions] = useState<QuickAddSuggestions | null>(null);
   const [categorizationRules, setCategorizationRules] = useState<CategorizationRule[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   // Categoría que sugirieron la IA o una regla aprendida, para detectar si el usuario la corrige al guardar
   const [suggestedCategoryId, setSuggestedCategoryId] = useState<string | null>(null);
   const [purchaseCurrency, setPurchaseCurrency] = useState<'COP' | 'USD'>('COP');
@@ -134,6 +138,9 @@ export default function NewTransactionScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [isOptionalDetailsExpanded, setIsOptionalDetailsExpanded] = useState(false);
+  const [isTagModalVisible, setIsTagModalVisible] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [isCreatingTag, setIsCreatingTag] = useState(false);
 
   // Entrada para IA
   const [aiInput, setAiInput] = useState('');
@@ -146,6 +153,7 @@ export default function NewTransactionScreen() {
   const categorizationRuleRepo = new SupabaseCategorizationRuleRepository();
   const budgetRepo = new HybridBudgetRepository();
   const recurringRuleRepo = new SupabaseRecurringRuleRepository();
+  const tagRepo = new HybridTagRepository();
   const aiProvider = new GeminiFlashProvider();
   const validator = new ValidateTransaction();
   const quickAddUseCase = new GetQuickAddSuggestions(transactionRepo);
@@ -157,14 +165,16 @@ export default function NewTransactionScreen() {
     async function loadData() {
       try {
         // 1. Carga Crítica Ultrarrápida (<30ms): Cuentas y Categorías básicas
-        const [loadedAccs, loadedCats] = await Promise.all([
+        const [loadedAccs, loadedCats, loadedTags] = await Promise.all([
           accountRepo.getAll(),
           categoryRepo.getAll(true),
+          tagRepo.getAll(),
         ]);
 
         const activeAccs = loadedAccs.filter(a => a.isActive);
         setAccounts(activeAccs);
         setCategories(loadedCats);
+        setTags(loadedTags);
 
         if (isEditing && id) {
           setMode('manual');
@@ -179,6 +189,9 @@ export default function NewTransactionScreen() {
             setTransferToAccountId(tx.transferToAccountId || '');
             setTransactionDate(tx.transactionDate);
             setIsPrivate(tx.isPrivate);
+            if (tx.tags && tx.tags.length > 0) {
+              setSelectedTagIds(tx.tags.map(t => t.id));
+            }
 
             if (tx.categoryId) {
               const cat = loadedCats.find(c => c.id === tx.categoryId);
@@ -733,6 +746,25 @@ export default function NewTransactionScreen() {
     }
   };
 
+  const handleCreateTag = async () => {
+    if (!newTagName.trim()) return;
+    setIsCreatingTag(true);
+    try {
+      const newTag = await tagRepo.create({
+        name: newTagName.trim(),
+        color: theme.colors.primary,
+      });
+      setTags(prev => [...prev, newTag]);
+      setSelectedTagIds(prev => [...prev, newTag.id]);
+      setNewTagName('');
+      setIsTagModalVisible(false);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Error al crear la etiqueta');
+    } finally {
+      setIsCreatingTag(false);
+    }
+  };
+
   // Guardar
   const handleSaveTransaction = async () => {
     setIsLoading(true);
@@ -830,6 +862,7 @@ export default function NewTransactionScreen() {
       // Nunca confiar ciegamente en el estado local: solo se envía true si de verdad
       // aplica hoy (cuenta propia, no transferencia). La base de datos también lo valida.
       isPrivate: canBePrivate ? isPrivate : false,
+      tags: selectedTagIds,
       inputMethod: isEditing
         ? (originalTx?.inputMethod || 'manual')
         : aiPreviewData
@@ -1705,6 +1738,69 @@ export default function NewTransactionScreen() {
               </View>
             )}
 
+            {/* 4.5 Etiquetas (Tags) */}
+            <View style={{ marginBottom: 16 }}>
+              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 6, fontWeight: '600' }]}>
+                Etiquetas
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
+                {tags.map(tag => {
+                  const isSelected = selectedTagIds.includes(tag.id);
+                  return (
+                    <Pressable
+                      key={tag.id}
+                      onPress={() => {
+                        if (isSelected) {
+                          setSelectedTagIds(prev => prev.filter(id => id !== tag.id));
+                        } else {
+                          setSelectedTagIds(prev => [...prev, tag.id]);
+                        }
+                      }}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 12,
+                        backgroundColor: isSelected ? tag.color + '30' : theme.colors.surface,
+                        borderWidth: 1,
+                        borderColor: isSelected ? tag.color : theme.colors.outline + '40',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4
+                      }}
+                    >
+                      <MaterialCommunityIcons name="tag" size={14} color={isSelected ? tag.color : theme.customColors.textSecondary} />
+                      <Text style={[theme.typography.caption, { fontWeight: isSelected ? '700' : '500', color: isSelected ? tag.color : theme.colors.onSurface }]}>
+                        {tag.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                {/* Botón para crear nueva etiqueta temporalmente como un prompt, pero 
+                    para mantenerlo simple, sugerimos crearla en configuraciones o añadimos un diálogo */}
+                <Pressable
+                  onPress={() => {
+                    setIsTagModalVisible(true);
+                  }}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 12,
+                    backgroundColor: theme.colors.surfaceVariant,
+                    borderWidth: 1,
+                    borderColor: theme.colors.outline + '40',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                >
+                  <MaterialCommunityIcons name="plus" size={16} color={theme.colors.primary} />
+                  <Text style={[theme.typography.caption, { fontWeight: '500', color: theme.colors.primary }]}>
+                    Añadir
+                  </Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+
             {/* 5. Tarjeta Agrupada: Detalles opcionales (Fecha, Notas, Transacción Privada - Colapsable) */}
             <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: theme.colors.outline + '40', marginBottom: 16 }]}>
               <Pressable
@@ -1972,6 +2068,36 @@ export default function NewTransactionScreen() {
           }}
         />
       )}
+
+      {/* Modal para crear etiquetas (Tags) */}
+      <Portal>
+        <Dialog visible={isTagModalVisible} onDismiss={() => setIsTagModalVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
+          <Dialog.Title style={[theme.typography.h3, { color: theme.colors.onSurface }]}>Nueva Etiqueta</Dialog.Title>
+          <Dialog.Content>
+            <Text style={[theme.typography.body, { color: theme.customColors.textSecondary, marginBottom: 12 }]}>
+              Escribe un nombre corto para tu etiqueta. (Ej. "Viaje a Cartagena", "Sin conciliar").
+            </Text>
+            <TextInput
+              label="Nombre de la etiqueta"
+              value={newTagName}
+              onChangeText={setNewTagName}
+              mode="outlined"
+              autoFocus
+              maxLength={25}
+              disabled={isCreatingTag}
+              onSubmitEditing={handleCreateTag}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setIsTagModalVisible(false)} disabled={isCreatingTag} textColor={theme.customColors.textSecondary}>
+              Cancelar
+            </Button>
+            <Button onPress={handleCreateTag} loading={isCreatingTag} disabled={!newTagName.trim() || isCreatingTag} textColor={theme.colors.primary}>
+              Guardar
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </KeyboardAvoidingView>
   );
 }

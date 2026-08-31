@@ -3,7 +3,8 @@ import { SupabaseTransactionRepository } from '../../data/repositories/SupabaseT
 import { SupabaseAccountRepository } from '../../data/repositories/SupabaseAccountRepository';
 import { SupabaseCategoryRepository } from '../../data/repositories/SupabaseCategoryRepository';
 import { SupabaseBudgetRepository } from '../../data/repositories/SupabaseBudgetRepository';
-import NetInfo from '@react-native-community/netinfo';
+import { SupabaseTagRepository } from '../../data/repositories/SupabaseTagRepository';
+import { isOnlineFast } from '../utils/network';
 import { Platform } from 'react-native';
 
 export class SyncService {
@@ -12,14 +13,14 @@ export class SyncService {
   private static remoteAccountRepo = new SupabaseAccountRepository();
   private static remoteCategoryRepo = new SupabaseCategoryRepository();
   private static remoteBudgetRepo = new SupabaseBudgetRepository();
+  private static remoteTagRepo = new SupabaseTagRepository();
 
   static async syncPendingActions(): Promise<void> {
     if (Platform.OS === 'web') return;
     if (this.isSyncing) return;
     
-    // Verificar si hay conexión a internet
-    const netState = await NetInfo.fetch();
-    if (!netState.isConnected) {
+    // Verificar si hay conexión a internet real
+    if (!(await isOnlineFast())) {
       console.log('[SyncService] Sync aborted: Device is offline.');
       return;
     }
@@ -86,6 +87,13 @@ export class SyncService {
               await this.remoteBudgetRepo.update(recordId, cleanPayload);
             } else if (type === 'DELETE') {
               await this.remoteBudgetRepo.delete(recordId);
+            }
+          } else if (table === 'tags') {
+            if (type === 'INSERT') {
+              const { familyGroupId, createdAt, ...cleanPayload } = payload;
+              await this.remoteTagRepo.create(cleanPayload);
+            } else if (type === 'DELETE') {
+              await this.remoteTagRepo.delete(recordId);
             }
           }
 

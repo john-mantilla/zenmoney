@@ -45,6 +45,10 @@ export default function TransactionsScreen() {
   const [selectedType, setSelectedType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
+  // Estados de selección múltiple
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     if (params.accountId) {
       setSelectedAccountId(params.accountId);
@@ -58,6 +62,11 @@ export default function TransactionsScreen() {
   const transactionRepo = new HybridTransactionRepository();
   const accountRepo = new HybridAccountRepository();
   const categoryRepo = new HybridCategoryRepository();
+  const tagRepo = require('@/src/data/repositories/HybridTagRepository').HybridTagRepository;
+  const tagRepoInstance = new tagRepo();
+
+  const [tags, setTags] = useState<any[]>([]);
+  const [isBulkTagModalVisible, setIsBulkTagModalVisible] = useState(false);
 
   const lastLoadRef = useRef<number>(0);
   const lastLoadedMonthRef = useRef<number | null>(null);
@@ -78,6 +87,9 @@ export default function TransactionsScreen() {
 
       const loadedCats = await categoryRepo.getAll(true);
       setCategories(loadedCats);
+
+      const loadedTags = await tagRepoInstance.getAll();
+      setTags(loadedTags);
 
       // Cargar familiares
       const store = require('@/src/infrastructure/auth/authStore');
@@ -160,13 +172,14 @@ export default function TransactionsScreen() {
       result = result.filter(tx => tx.type === selectedType);
     }
 
-    // Filtro por buscador (descripción o comercio)
+    // Filtro por buscador (descripción, comercio o etiqueta)
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
         tx => 
           (tx.description && tx.description.toLowerCase().includes(q)) ||
-          (tx.merchantName && tx.merchantName.toLowerCase().includes(q))
+          (tx.merchantName && tx.merchantName.toLowerCase().includes(q)) ||
+          (tx.tags && tx.tags.some(tag => tag.name.toLowerCase().includes(q)))
       );
     }
 
@@ -335,6 +348,67 @@ export default function TransactionsScreen() {
 
   const getAccountName = (id: string) => accounts.find(a => a.id === id)?.name || 'Cuenta';
 
+  const handleLongPress = (id: string) => {
+    if (!isSelectionMode) {
+      setIsSelectionMode(true);
+      setSelectedTransactionIds(new Set([id]));
+    }
+  };
+
+  const toggleSelection = (id: string) => {
+    setSelectedTransactionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        if (next.size === 0) setIsSelectionMode(false);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleBulkClearTags = async () => {
+    setIsLoading(true);
+    try {
+      const promises = Array.from(selectedTransactionIds).map(id => 
+        transactionRepo.update(id, { tags: [] })
+      );
+      await Promise.all(promises);
+      setSelectedTransactionIds(new Set());
+      setIsSelectionMode(false);
+      await loadData(true);
+    } catch (e) {
+      console.error('[Transactions] Error clearing tags', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBulkAddTag = async (tag: any) => {
+    setIsLoading(true);
+    setIsBulkTagModalVisible(false);
+    try {
+      const promises = Array.from(selectedTransactionIds).map(async id => {
+        const tx = transactions.find(t => t.id === id);
+        if (tx) {
+          const currentTagIds = tx.tags?.map(t => t.id) || [];
+          if (!currentTagIds.includes(tag.id)) {
+            await transactionRepo.update(id, { tags: [...currentTagIds, tag.id] });
+          }
+        }
+      });
+      await Promise.all(promises);
+      setSelectedTransactionIds(new Set());
+      setIsSelectionMode(false);
+      await loadData(true);
+    } catch (e) {
+      console.error('[Transactions] Error adding tags', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (isLoading && !refreshing) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
@@ -349,28 +423,70 @@ export default function TransactionsScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <NetworkStatusBar />
       
-      {/* ─── OPICÓN 1: BARRA COMPACTA DE BÚSQUEDA Y BOTÓN DE FILTROS ───────── */}
-      <Surface style={[styles.filterHeader, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline + '20' }]} elevation={1}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Searchbar
-            placeholder="Buscar..."
-            onChangeText={setSearchQuery}
-            value={searchQuery}
-            style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42 }]}
-            inputStyle={[theme.typography.body, { fontSize: 13, minHeight: 0 }]}
-          />
+      {isSelectionMode ? (
+        <Surface style={[styles.filterHeader, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline + '20', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 60 }]} elevation={1}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <MaterialCommunityIcons name="close" size={24} color={theme.colors.onSurface} onPress={() => { setIsSelectionMode(false); setSelectedTransactionIds(new Set()); }} />
+            <Text style={[theme.typography.h3, { color: theme.colors.onSurface }]}>
+              {selectedTransactionIds.size} seleccionados
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Button
+              mode="outlined"
+              icon="tag-plus-outline"
+              onPress={() => setIsBulkTagModalVisible(true)}
+              disabled={isLoading || selectedTransactionIds.size === 0}
+              style={{ borderRadius: 8, borderColor: theme.colors.outline }}
+              textColor={theme.colors.onSurface}
+            >
+              Añadir
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={theme.colors.error}
+              icon="tag-off-outline"
+              onPress={handleBulkClearTags}
+              loading={isLoading}
+              disabled={isLoading || selectedTransactionIds.size === 0}
+              style={{ borderRadius: 8 }}
+              labelStyle={{ fontWeight: '700' }}
+            >
+              Quitar
+            </Button>
+          </View>
+        </Surface>
+      ) : (
+        <Surface style={[styles.filterHeader, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline + '20' }]} elevation={1}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Searchbar
+              placeholder="Buscar..."
+              onChangeText={setSearchQuery}
+              value={searchQuery}
+              style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42 }]}
+              inputStyle={[theme.typography.body, { fontSize: 13, minHeight: 0 }]}
+            />
 
-          <Button
-            mode={activeFiltersCount > 0 ? 'contained' : 'outlined'}
-            icon="tune-variant"
-            onPress={() => setIsFilterModalOpen(true)}
-            style={{ borderRadius: 12, height: 42, justifyContent: 'center' }}
-            contentStyle={{ height: 42, paddingHorizontal: 4 }}
-            labelStyle={{ fontSize: 12, fontWeight: '700' }}
-          >
-            {activeFiltersCount > 0 ? `Filtros (${activeFiltersCount})` : 'Filtros'}
-          </Button>
-        </View>
+            <Button
+              mode={activeFiltersCount > 0 ? 'contained' : 'outlined'}
+              icon="tune-variant"
+              onPress={() => setIsFilterModalOpen(true)}
+              style={{ borderRadius: 12, height: 42, justifyContent: 'center' }}
+              contentStyle={{ height: 42, paddingHorizontal: 4 }}
+              labelStyle={{ fontSize: 12, fontWeight: '700' }}
+            >
+              {activeFiltersCount > 0 ? `Filtros (${activeFiltersCount})` : 'Filtros'}
+            </Button>
+            <Button
+              mode="outlined"
+              icon="checkbox-multiple-marked-outline"
+              onPress={() => setIsSelectionMode(true)}
+              style={{ borderRadius: 12, height: 42, justifyContent: 'center', minWidth: 42, padding: 0 }}
+              contentStyle={{ height: 42, paddingHorizontal: 0 }}
+            >
+              {''}
+            </Button>
+          </View>
 
         {/* Fila delgada con chips de filtros activos si existe alguno */}
         {activeFiltersCount > 0 && (
@@ -431,6 +547,7 @@ export default function TransactionsScreen() {
           </ScrollView>
         )}
       </Surface>
+      )}
 
       {/* Listado de movimientos */}
       {viewMode === 'date' ? (
@@ -466,7 +583,10 @@ export default function TransactionsScreen() {
                 accountName={accName}
                 destinationAccountName={item.transferToAccountId ? getAccountName(item.transferToAccountId) : null}
                 authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
-                onPress={() => router.push(`/transaction/new?id=${item.id}`)}
+                isSelected={selectedTransactionIds.has(item.id)}
+                selectionMode={isSelectionMode}
+                onLongPress={() => handleLongPress(item.id)}
+                onPress={() => isSelectionMode ? toggleSelection(item.id) : router.push(`/transaction/new?id=${item.id}`)}
               />
             );
           }}
@@ -520,7 +640,10 @@ export default function TransactionsScreen() {
                 accountName={accName}
                 destinationAccountName={item.transferToAccountId ? getAccountName(item.transferToAccountId) : null}
                 authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
-                onPress={() => router.push(`/transaction/new?id=${item.id}`)}
+                isSelected={selectedTransactionIds.has(item.id)}
+                selectionMode={isSelectionMode}
+                onLongPress={() => handleLongPress(item.id)}
+                onPress={() => isSelectionMode ? toggleSelection(item.id) : router.push(`/transaction/new?id=${item.id}`)}
               />
             );
           }}
@@ -639,6 +762,37 @@ export default function TransactionsScreen() {
           setViewMode('date');
         }}
       />
+
+      <Portal>
+        <Dialog visible={isBulkTagModalVisible} onDismiss={() => setIsBulkTagModalVisible(false)} style={{ backgroundColor: theme.colors.surface }}>
+          <Dialog.Title style={[theme.typography.h3, { color: theme.colors.onSurface }]}>Añadir Etiqueta Múltiple</Dialog.Title>
+          <Dialog.Content>
+            <Text style={[theme.typography.body, { color: theme.customColors.textSecondary, marginBottom: 16 }]}>
+              Selecciona la etiqueta que deseas asignar a los {selectedTransactionIds.size} gastos seleccionados:
+            </Text>
+            {tags.length === 0 ? (
+              <Text style={{ fontStyle: 'italic', color: theme.customColors.textSecondary }}>No hay etiquetas creadas aún.</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 200 }}>
+                {tags.map(tag => (
+                  <Button
+                    key={tag.id}
+                    mode="outlined"
+                    onPress={() => handleBulkAddTag(tag)}
+                    style={{ marginBottom: 8, borderColor: tag.color + '40' }}
+                    textColor={tag.color}
+                  >
+                    {tag.name}
+                  </Button>
+                ))}
+              </ScrollView>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setIsBulkTagModalVisible(false)} textColor={theme.customColors.textSecondary}>Cancelar</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }

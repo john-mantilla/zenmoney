@@ -2,7 +2,7 @@ import { AccountRepository } from '@domain/repositories/AccountRepository';
 import { Account, CreateAccountInput } from '@domain/entities/Account';
 import { SupabaseAccountRepository } from './SupabaseAccountRepository';
 import { SqliteAccountRepository } from './SqliteAccountRepository';
-import NetInfo from '@react-native-community/netinfo';
+import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 
@@ -13,8 +13,7 @@ export class HybridAccountRepository implements AccountRepository {
   private localRepo = Platform.OS === 'web' ? null : new SqliteAccountRepository();
 
   private async isOnline(): Promise<boolean> {
-    const state = await NetInfo.fetch();
-    return !!state.isConnected;
+    return isOnlineFast();
   }
 
   async getById(id: string): Promise<Account | null> {
@@ -22,7 +21,7 @@ export class HybridAccountRepository implements AccountRepository {
     
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getById(id);
+        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
         if (remote) {
           await this.localRepo!.bulkSave([remote]);
           return remote;
@@ -46,16 +45,18 @@ export class HybridAccountRepository implements AccountRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getAll();
-        await (this.localRepo as any).syncWithRemote(remote);
+        const remote = await withTimeout(this.remoteRepo.getAll(), 2500);
+        if (remote) {
+          await (this.localRepo as any).syncWithRemote(remote);
 
-        // Mezclar con cuentas locales no sincronizadas
-        const unsynced = await this.localRepo!.getUnsynced();
-        const combinedMap = new Map<string, Account>();
-        remote.forEach(acc => combinedMap.set(acc.id, acc));
-        unsynced.forEach(acc => combinedMap.set(acc.id, acc));
+          // Mezclar con cuentas locales no sincronizadas
+          const unsynced = await this.localRepo!.getUnsynced();
+          const combinedMap = new Map<string, Account>();
+          remote.forEach(acc => combinedMap.set(acc.id, acc));
+          unsynced.forEach(acc => combinedMap.set(acc.id, acc));
 
-        return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+          return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+        }
       } catch (err) {
         // Fallback silencioso
       }
@@ -81,8 +82,8 @@ export class HybridAccountRepository implements AccountRepository {
 
     if (await this.isOnline()) {
       try {
-        // 1. Intentar crear en la nube
-        const remote = await this.remoteRepo.create({ ...input, id: tempId });
+        // 1. Intentar crear en la nube con timeout
+        const remote = await withTimeout(this.remoteRepo.create({ ...input, id: tempId }), 2500);
         // 2. Guardar en SQLite local marcado como sincronizado
         await this.localRepo!.bulkSave([remote]);
         return remote;
@@ -111,7 +112,7 @@ export class HybridAccountRepository implements AccountRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.update(id, data);
+        const remote = await withTimeout(this.remoteRepo.update(id, data), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -137,7 +138,7 @@ export class HybridAccountRepository implements AccountRepository {
 
     if (await this.isOnline()) {
       try {
-        await this.remoteRepo.delete(id);
+        await withTimeout(this.remoteRepo.delete(id), 2500);
         await this.localRepo!.delete(id);
         return;
       } catch (err) {

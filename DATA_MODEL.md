@@ -17,6 +17,7 @@ erDiagram
     family_groups ||--o{ budgets : bounds
     family_groups ||--o{ savings_goals : tracks
     family_groups ||--o{ family_invitations : hosts
+    family_groups ||--o{ tags : defines
 
     user_profiles ||--o{ accounts : manages
     user_profiles ||--o{ transactions : creates
@@ -29,6 +30,8 @@ erDiagram
     categories ||--o{ recurring_rules : classifies
     categories ||--o{ budgets : limits
     recurring_rules ||--o{ transactions : spawns
+    transactions ||--o{ transaction_tags : has
+    tags ||--o{ transaction_tags : applied_to
 ```
 
 ---
@@ -187,6 +190,26 @@ erDiagram
   - `created_at`: `timestamptz DEFAULT now()`
 - **Restricciones**:
   - `UNIQUE (family_group_id, invited_email, status)`
+
+### 12. `tags`
+- **Propósito**: Etiquetas personalizables para agrupar o marcar gastos temporalmente (ej. 'Sin conciliar').
+- **Campos**:
+  - `id`: `uuid DEFAULT gen_random_uuid() PRIMARY KEY`
+  - `family_group_id`: `uuid NOT NULL REFERENCES family_groups(id) ON DELETE CASCADE`
+  - `name`: `text NOT NULL`
+  - `color`: `text NOT NULL DEFAULT '#808080'`
+  - `created_at`: `timestamptz DEFAULT now()`
+- **Restricciones**:
+  - `UNIQUE (family_group_id, name)`
+
+### 13. `transaction_tags`
+- **Propósito**: Tabla de relación muchos a muchos entre transacciones y etiquetas.
+- **Campos**:
+  - `transaction_id`: `uuid NOT NULL REFERENCES transactions(id) ON DELETE CASCADE`
+  - `tag_id`: `uuid NOT NULL REFERENCES tags(id) ON DELETE CASCADE`
+  - `created_at`: `timestamptz DEFAULT now()`
+- **Restricciones**:
+  - `PRIMARY KEY (transaction_id, tag_id)`
 
 ---
 

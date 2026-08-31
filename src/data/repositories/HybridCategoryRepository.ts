@@ -2,7 +2,7 @@ import { CategoryRepository } from '@domain/repositories/CategoryRepository';
 import { Category, CreateCategoryInput } from '@domain/entities/Category';
 import { SupabaseCategoryRepository } from './SupabaseCategoryRepository';
 import { SqliteCategoryRepository } from './SqliteCategoryRepository';
-import NetInfo from '@react-native-community/netinfo';
+import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 
@@ -13,8 +13,7 @@ export class HybridCategoryRepository implements CategoryRepository {
   private localRepo = Platform.OS === 'web' ? null : new SqliteCategoryRepository();
 
   private async isOnline(): Promise<boolean> {
-    const state = await NetInfo.fetch();
-    return !!state.isConnected;
+    return isOnlineFast();
   }
 
   async getById(id: string): Promise<Category | null> {
@@ -22,7 +21,7 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getById(id);
+        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
         if (remote) {
           await this.localRepo!.bulkSave([remote]);
           return remote;
@@ -46,21 +45,23 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getAll(includeSystem);
-        await this.localRepo!.bulkSave(remote);
+        const remote = await withTimeout(this.remoteRepo.getAll(includeSystem), 2500);
+        if (remote) {
+          await this.localRepo!.bulkSave(remote);
 
-        // Mezclar con categorías locales no sincronizadas
-        const unsynced = await this.localRepo!.getUnsynced();
-        let filteredUnsynced = unsynced;
-        if (!includeSystem) {
-          filteredUnsynced = filteredUnsynced.filter(c => !c.isSystem);
+          // Mezclar con categorías locales no sincronizadas
+          const unsynced = await this.localRepo!.getUnsynced();
+          let filteredUnsynced = unsynced;
+          if (!includeSystem) {
+            filteredUnsynced = filteredUnsynced.filter(c => !c.isSystem);
+          }
+
+          const combinedMap = new Map<string, Category>();
+          remote.forEach(cat => combinedMap.set(cat.id, cat));
+          filteredUnsynced.forEach(cat => combinedMap.set(cat.id, cat));
+
+          return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
         }
-
-        const combinedMap = new Map<string, Category>();
-        remote.forEach(cat => combinedMap.set(cat.id, cat));
-        filteredUnsynced.forEach(cat => combinedMap.set(cat.id, cat));
-
-        return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
       } catch (err) {
         // Fallback
       }
@@ -73,18 +74,20 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getByParentId(parentId);
-        await this.localRepo!.bulkSave(remote);
+        const remote = await withTimeout(this.remoteRepo.getByParentId(parentId), 2500);
+        if (remote) {
+          await this.localRepo!.bulkSave(remote);
 
-        // Mezclar con categorías locales no sincronizadas que tengan el mismo parentId
-        const unsynced = await this.localRepo!.getUnsynced();
-        const filteredUnsynced = unsynced.filter(c => c.parentCategoryId === parentId);
+          // Mezclar con categorías locales no sincronizadas que tengan el mismo parentId
+          const unsynced = await this.localRepo!.getUnsynced();
+          const filteredUnsynced = unsynced.filter(c => c.parentCategoryId === parentId);
 
-        const combinedMap = new Map<string, Category>();
-        remote.forEach(cat => combinedMap.set(cat.id, cat));
-        filteredUnsynced.forEach(cat => combinedMap.set(cat.id, cat));
+          const combinedMap = new Map<string, Category>();
+          remote.forEach(cat => combinedMap.set(cat.id, cat));
+          filteredUnsynced.forEach(cat => combinedMap.set(cat.id, cat));
 
-        return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+          return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+        }
       } catch (err) {
         // Fallback
       }
@@ -108,7 +111,7 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.create({ ...input, id: tempId });
+        const remote = await withTimeout(this.remoteRepo.create({ ...input, id: tempId }), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -134,7 +137,7 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.update(id, data);
+        const remote = await withTimeout(this.remoteRepo.update(id, data), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -160,7 +163,7 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        await this.remoteRepo.delete(id);
+        await withTimeout(this.remoteRepo.delete(id), 2500);
         await this.localRepo!.delete(id);
         return;
       } catch (err) {
@@ -184,9 +187,11 @@ export class HybridCategoryRepository implements CategoryRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.searchByName(query);
-        await this.localRepo!.bulkSave(remote);
-        return remote;
+        const remote = await withTimeout(this.remoteRepo.searchByName(query), 2500);
+        if (remote) {
+          await this.localRepo!.bulkSave(remote);
+          return remote;
+        }
       } catch (err) {
         // Fallback
       }

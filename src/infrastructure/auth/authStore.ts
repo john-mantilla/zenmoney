@@ -4,9 +4,11 @@
  * Conecta el estado de Zustand con el AuthService de Supabase.
  */
 import { create } from 'zustand';
+import { Platform } from 'react-native';
 import type { UserProfile, FamilyGroup } from '@domain/entities/User';
 import { AuthService } from './authService';
 import { supabase } from '../supabase/client';
+import { withTimeout } from '../utils/network';
 
 interface AuthState {
   isInitialized: boolean;
@@ -40,6 +42,43 @@ interface AuthActions {
 
 type AuthStore = AuthState & AuthActions;
 
+async function checkHasAccountsOfflineFirst(): Promise<boolean> {
+  // 1. Revisar primero en SQLite si no es web
+  if (Platform.OS !== 'web') {
+    try {
+      const { LocalDatabase } = require('@data/local/LocalDatabase');
+      const db = LocalDatabase.getDb();
+      const localAccs = await db.getAllAsync('SELECT id FROM accounts WHERE is_active = 1 LIMIT 1;');
+      if (localAccs && localAccs.length > 0) {
+        return true;
+      }
+    } catch (e) {
+      // Ignorar y consultar nube
+    }
+  }
+
+  // 2. Si no hay en local o es web, consultar Supabase con timeout de 2.5s
+  try {
+    const accPromise = supabase
+      .from('accounts')
+      .select('id')
+      .eq('is_active', true);
+    const { data: accounts } = await withTimeout(accPromise, 2500, { data: null } as any);
+    if (accounts && accounts.length > 0) {
+      return true;
+    }
+    // Si la consulta fue exitosa y vino vacía, efectivamente no tiene cuentas
+    if (accounts !== null) {
+      return false;
+    }
+  } catch {
+    // Error de red
+  }
+
+  // Si falló la red pero ya tiene perfil autenticado en sesión, asumir true para evitar onboarding espurio
+  return true;
+}
+
 export const useAuthStore = create<AuthStore>((set, get) => ({
   isInitialized: false,
   isAuthenticated: false,
@@ -55,11 +94,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const sessionData = await AuthService.getCurrentSession();
       if (sessionData) {
-        const { data: accounts } = await supabase
-          .from('accounts')
-          .select('id')
-          .eq('is_active', true);
-        const has = accounts ? accounts.length > 0 : false;
+        const has = await checkHasAccountsOfflineFirst();
 
         set({
           isAuthenticated: true,
@@ -78,11 +113,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
 
     // Escuchar cambios de sesión desde Supabase Auth (ej. token vencido, signout remoto).
-    // Supabase también dispara SIGNED_OUT/SIGNED_IN de forma espuria cada vez que la
-    // pestaña recupera el foco (revisa/refresca el token en segundo plano), aunque la
-    // sesión siga siendo la misma. Sin este filtro, esos eventos falsos expulsaban al
-    // usuario a /login y destruían cualquier pantalla abierta (ej. un formulario a medio
-    // llenar), aparentando una "recarga". Ver: github.com/supabase/supabase-js/issues/716
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         // Confirmar que de verdad no queda sesión antes de cerrar sesión localmente
@@ -93,11 +123,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         if (get().isAuthenticated) return; // Ya autenticado: fue solo un refresco de token
         const sessionData = await AuthService.getCurrentSession();
         if (sessionData) {
-          const { data: accounts } = await supabase
-            .from('accounts')
-            .select('id')
-            .eq('is_active', true);
-          const has = accounts ? accounts.length > 0 : false;
+          const has = await checkHasAccountsOfflineFirst();
 
           set({
             isAuthenticated: true,

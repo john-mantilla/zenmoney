@@ -11,6 +11,24 @@ vi.mock('react-native', () => ({
   Platform: { OS: 'web' },
 }));
 
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getItem: vi.fn(),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+    multiGet: vi.fn().mockResolvedValue([['@zenmoney_cached_user_profile', null], ['@zenmoney_cached_family_group', null]]),
+    multiSet: vi.fn().mockResolvedValue(null),
+    multiRemove: vi.fn().mockResolvedValue(null),
+  },
+}));
+
+vi.mock('@react-native-community/netinfo', () => ({
+  default: {
+    fetch: vi.fn().mockResolvedValue({ isConnected: true, isInternetReachable: true }),
+    addEventListener: vi.fn(() => vi.fn()),
+  },
+}));
+
 vi.mock('../supabase/client', () => ({
   supabase: {
     auth: {

@@ -10,8 +10,49 @@ import { UserProfile, FamilyGroup } from '@domain/entities/User';
 import { Mapper } from '@data/models/Mapper';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { withTimeout } from '../utils/network';
 
-let Linking: typeof import('expo-linking') | null = null;
+const AUTH_PROFILE_CACHE_KEY = '@zenmoney_cached_user_profile';
+const AUTH_FAMILY_CACHE_KEY = '@zenmoney_cached_family_group';
+
+async function saveCachedSessionData(profile: UserProfile, family: FamilyGroup): Promise<void> {
+  try {
+    await AsyncStorage.multiSet([
+      [AUTH_PROFILE_CACHE_KEY, JSON.stringify(profile)],
+      [AUTH_FAMILY_CACHE_KEY, JSON.stringify(family)],
+    ]);
+  } catch (err) {
+    console.warn('[AuthService] Error caching session data:', err);
+  }
+}
+
+async function getCachedSessionData(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup } | null> {
+  try {
+    const pairs = await AsyncStorage.multiGet([AUTH_PROFILE_CACHE_KEY, AUTH_FAMILY_CACHE_KEY]);
+    const profileStr = pairs[0][1];
+    const familyStr = pairs[1][1];
+    if (profileStr && familyStr) {
+      return {
+        userProfile: JSON.parse(profileStr),
+        familyGroup: JSON.parse(familyStr),
+      };
+    }
+  } catch (err) {
+    console.warn('[AuthService] Error reading cached session data:', err);
+  }
+  return null;
+}
+
+async function clearCachedSessionData(): Promise<void> {
+  try {
+    await AsyncStorage.multiRemove([AUTH_PROFILE_CACHE_KEY, AUTH_FAMILY_CACHE_KEY]);
+  } catch (err) {
+    console.warn('[AuthService] Error clearing cached session data:', err);
+  }
+}
+
+let Linking: any = null;
 try {
   Linking = require('expo-linking');
 } catch (e) {
@@ -129,9 +170,13 @@ export class AuthService {
         throw new Error(`Error al crear el perfil de usuario: ${profileError?.message}`);
       }
 
+      const userProfile = Mapper.toDomainUserProfile(dbProfile);
+      const familyGroup = Mapper.toDomainFamilyGroup(familyGroupObj);
+      await saveCachedSessionData(userProfile, familyGroup);
+
       return {
-        userProfile: Mapper.toDomainUserProfile(dbProfile),
-        familyGroup: Mapper.toDomainFamilyGroup(familyGroupObj),
+        userProfile,
+        familyGroup,
       };
     } catch (err) {
       throw err;
@@ -176,14 +221,19 @@ export class AuthService {
       throw new Error('No se encontró el grupo familiar asociado.');
     }
 
+    const userProfile = Mapper.toDomainUserProfile(dbProfile);
+    const familyGroup = Mapper.toDomainFamilyGroup(dbFamilyGroup);
+    await saveCachedSessionData(userProfile, familyGroup);
+
     return {
-      userProfile: Mapper.toDomainUserProfile(dbProfile),
-      familyGroup: Mapper.toDomainFamilyGroup(dbFamilyGroup),
+      userProfile,
+      familyGroup,
     };
   }
 
   /**
    * Obtiene la sesión actual y sus datos de perfil/familia correspondientes.
+   * Si el dispositivo está sin conexión o en modo avión, recurre a la caché local.
    */
   static async getCurrentSession(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
     const { data: { session }, error } = await supabase.auth.getSession();
@@ -192,71 +242,96 @@ export class AuthService {
       return null;
     }
 
-    // Cargar perfil
-    let { data: dbProfile } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('auth_user_id', session.user.id)
-      .maybeSingle();
-
-    // Si es un usuario nuevo de Google SSO sin perfil aún, creamos su grupo familiar y perfil automáticamente
-    if (!dbProfile && session.user.email) {
-      const displayName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
-      const familyGroupName = `Familia de ${displayName}`;
-
-      const { data: newFam } = await supabase
-        .from('family_groups')
-        .insert({ name: familyGroupName, currency_default: 'COP' })
-        .select('*')
-        .single();
-
-      if (newFam) {
-        const { data: newProf } = await supabase
-          .from('user_profiles')
-          .insert({
-            auth_user_id: session.user.id,
-            family_group_id: newFam.id,
-            display_name: displayName,
-            email: session.user.email.trim().toLowerCase(),
-            role: 'admin',
-          })
-          .select('*')
-          .single();
-
-        dbProfile = newProf;
-      }
-    }
-
-    if (!dbProfile) {
-      return null;
-    }
-
-    // Cargar grupo familiar
-    const { data: dbFamilyGroup, error: familyError } = await supabase
-      .from('family_groups')
-      .select('*')
-      .eq('id', dbProfile.family_group_id)
-      .single();
-
-    if (familyError || !dbFamilyGroup) {
-      return null;
-    }
-
     const providers = session.user.app_metadata?.providers || [];
     const identities = session.user.identities || [];
     const isGoogleLinked = providers.includes('google') || identities.some((i: any) => i.provider === 'google');
 
-    return {
-      userProfile: Mapper.toDomainUserProfile(dbProfile),
-      familyGroup: Mapper.toDomainFamilyGroup(dbFamilyGroup),
-      isGoogleLinked,
-    };
+    try {
+      // 1. Intentar consultar perfil desde Supabase con timeout de 2.5s
+      const profilePromise = supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('auth_user_id', session.user.id)
+        .maybeSingle();
+
+      const { data: dbProfile } = await withTimeout(profilePromise, 2500, { data: null } as any);
+
+      // Si es un usuario nuevo de Google SSO sin perfil aún, creamos su grupo familiar y perfil automáticamente
+      if (!dbProfile && session.user.email) {
+        const displayName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
+        const familyGroupName = `Familia de ${displayName}`;
+
+        const { data: newFam } = await supabase
+          .from('family_groups')
+          .insert({ name: familyGroupName, currency_default: 'COP' })
+          .select('*')
+          .single();
+
+        if (newFam) {
+          const { data: newProf } = await supabase
+            .from('user_profiles')
+            .insert({
+              auth_user_id: session.user.id,
+              family_group_id: newFam.id,
+              display_name: displayName,
+              email: session.user.email.trim().toLowerCase(),
+              role: 'admin',
+            })
+            .select('*')
+            .single();
+
+          if (newProf) {
+            const userProfile = Mapper.toDomainUserProfile(newProf);
+            const familyGroup = Mapper.toDomainFamilyGroup(newFam);
+            await saveCachedSessionData(userProfile, familyGroup);
+            return { userProfile, familyGroup, isGoogleLinked };
+          }
+        }
+      }
+
+      if (dbProfile) {
+        // Cargar grupo familiar
+        const famPromise = supabase
+          .from('family_groups')
+          .select('*')
+          .eq('id', dbProfile.family_group_id)
+          .single();
+
+        const { data: dbFamilyGroup } = await withTimeout(famPromise, 2500, { data: null } as any);
+
+        if (dbFamilyGroup) {
+          const userProfile = Mapper.toDomainUserProfile(dbProfile);
+          const familyGroup = Mapper.toDomainFamilyGroup(dbFamilyGroup);
+          await saveCachedSessionData(userProfile, familyGroup);
+          return {
+            userProfile,
+            familyGroup,
+            isGoogleLinked,
+          };
+        }
+      }
+    } catch (err) {
+      console.log('[AuthService] Error o timeout al consultar Supabase en getCurrentSession, usando caché local...');
+    }
+
+    // 2. Fallback Modo Avión / Sin Internet: Recuperar sesión cacheada localmente
+    const cached = await getCachedSessionData();
+    if (cached) {
+      console.log('[AuthService] Sesión recuperada desde caché local para modo offline.');
+      return {
+        ...cached,
+        isGoogleLinked,
+      };
+    }
+
+    return null;
   }
 
   /**
    * Cierra la sesión del usuario en el dispositivo actual.
    */
   static async signOut(): Promise<void> {
+    await clearCachedSessionData();
     const { error } = await supabase.auth.signOut();
     if (error) {
       throw new Error(error.message);
@@ -267,6 +342,7 @@ export class AuthService {
    * Cierra la sesión e invalida los tokens en TODOS los dispositivos activos.
    */
   static async signOutAllDevices(): Promise<void> {
+    await clearCachedSessionData();
     const { error } = await supabase.auth.signOut({ scope: 'global' });
     if (error) {
       throw new Error(error.message);

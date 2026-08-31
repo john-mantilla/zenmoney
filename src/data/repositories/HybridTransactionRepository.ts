@@ -2,7 +2,7 @@ import { TransactionRepository, TransactionFilters } from '@domain/repositories/
 import { Transaction, CreateTransactionInput } from '@domain/entities/Transaction';
 import { SupabaseTransactionRepository } from './SupabaseTransactionRepository';
 import { SqliteTransactionRepository } from './SqliteTransactionRepository';
-import NetInfo from '@react-native-community/netinfo';
+import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 
@@ -13,8 +13,7 @@ export class HybridTransactionRepository implements TransactionRepository {
   private localRepo = Platform.OS === 'web' ? null : new SqliteTransactionRepository();
 
   private async isOnline(): Promise<boolean> {
-    const state = await NetInfo.fetch();
-    return !!state.isConnected;
+    return isOnlineFast();
   }
 
   async getById(id: string): Promise<Transaction | null> {
@@ -22,7 +21,7 @@ export class HybridTransactionRepository implements TransactionRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getById(id);
+        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
         if (remote) {
           await this.localRepo!.bulkSave([remote]);
           return remote;
@@ -46,8 +45,8 @@ export class HybridTransactionRepository implements TransactionRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getAll(filters);
-        if (this.localRepo) {
+        const remote = await withTimeout(this.remoteRepo.getAll(filters), 2500);
+        if (this.localRepo && remote) {
           await (this.localRepo as any).syncWithRemote(remote, filters);
         }
 
@@ -116,7 +115,7 @@ export class HybridTransactionRepository implements TransactionRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.create({ ...input, id: tempId });
+        const remote = await withTimeout(this.remoteRepo.create({ ...input, id: tempId }), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -142,7 +141,7 @@ export class HybridTransactionRepository implements TransactionRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.update(id, data);
+        const remote = await withTimeout(this.remoteRepo.update(id, data), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -168,7 +167,7 @@ export class HybridTransactionRepository implements TransactionRepository {
 
     if (await this.isOnline()) {
       try {
-        await this.remoteRepo.delete(id);
+        await withTimeout(this.remoteRepo.delete(id), 2500);
         await this.localRepo!.delete(id);
         return;
       } catch (err) {

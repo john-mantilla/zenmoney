@@ -22,6 +22,9 @@ interface TransactionCardProps {
   destinationAccountName?: string | null;
   authorInitials?: string | null;
   onPress?: () => void;
+  onLongPress?: () => void;
+  isSelected?: boolean;
+  selectionMode?: boolean;
 }
 
 export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
@@ -33,6 +36,9 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   destinationAccountName,
   authorInitials,
   onPress,
+  onLongPress,
+  isSelected = false,
+  selectionMode = false,
 }) => {
   const theme = useAppTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -81,19 +87,29 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   return (
     <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
       <Pressable
-        onPress={onPress}
+        onPress={selectionMode ? onLongPress : onPress}
+        onLongPress={onLongPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={({ pressed }) => [
           styles.container,
           {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.outline,
+            backgroundColor: isSelected ? theme.colors.primaryContainer + '40' : theme.colors.surface,
+            borderColor: isSelected ? theme.colors.primary : theme.colors.outline,
           },
           pressed && styles.pressed,
         ]}
       >
         <View style={styles.leftSection}>
+          {selectionMode && (
+            <View style={{ marginRight: 12 }}>
+              <MaterialCommunityIcons 
+                name={isSelected ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"} 
+                size={24} 
+                color={isSelected ? theme.colors.primary : theme.colors.outline} 
+              />
+            </View>
+          )}
           <CategoryIcon icon={finalIcon} color={finalColor} />
           <View style={styles.meta}>
             <Text
@@ -111,6 +127,13 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
                 {formattedDate} • {finalAccountMeta}
               </Text>
               
+              {/* Etiquetas (Tags) asignadas al gasto */}
+              {transaction.tags && transaction.tags.map(tag => (
+                <View key={tag.id} style={[styles.badge, { backgroundColor: tag.color + '20', borderColor: tag.color + '40', borderWidth: 1 }]}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: tag.color }}>{tag.name}</Text>
+                </View>
+              ))}
+
               {/* Badges de entrada inteligente (Voz / NLQ) */}
               {transaction.inputMethod === 'voice' && (
                 <View style={[styles.badge, { backgroundColor: theme.customColors.primaryLight + '20' }]}>

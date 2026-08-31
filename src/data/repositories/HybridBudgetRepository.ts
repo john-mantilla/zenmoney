@@ -2,7 +2,7 @@ import { BudgetRepository } from '@domain/repositories/BudgetRepository';
 import { Budget, CreateBudgetInput } from '@domain/entities/Budget';
 import { SupabaseBudgetRepository } from './SupabaseBudgetRepository';
 import { SqliteBudgetRepository } from './SqliteBudgetRepository';
-import NetInfo from '@react-native-community/netinfo';
+import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 
@@ -13,8 +13,7 @@ export class HybridBudgetRepository implements BudgetRepository {
   private localRepo = Platform.OS === 'web' ? null : new SqliteBudgetRepository();
 
   private async isOnline(): Promise<boolean> {
-    const state = await NetInfo.fetch();
-    return !!state.isConnected;
+    return isOnlineFast();
   }
 
   async getById(id: string): Promise<Budget | null> {
@@ -22,7 +21,7 @@ export class HybridBudgetRepository implements BudgetRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getById(id);
+        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
         if (remote) {
           await this.localRepo!.bulkSave([remote]);
           return remote;
@@ -39,15 +38,17 @@ export class HybridBudgetRepository implements BudgetRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getAll();
-        await this.localRepo!.bulkSave(remote);
+        const remote = await withTimeout(this.remoteRepo.getAll(), 2500);
+        if (remote) {
+          await this.localRepo!.bulkSave(remote);
 
-        const unsynced = await this.localRepo!.getUnsynced();
-        const combinedMap = new Map<string, Budget>();
-        remote.forEach(b => combinedMap.set(b.id, b));
-        unsynced.forEach(b => combinedMap.set(b.id, b));
+          const unsynced = await this.localRepo!.getUnsynced();
+          const combinedMap = new Map<string, Budget>();
+          remote.forEach(b => combinedMap.set(b.id, b));
+          unsynced.forEach(b => combinedMap.set(b.id, b));
 
-        return Array.from(combinedMap.values());
+          return Array.from(combinedMap.values());
+        }
       } catch (err) {
         // Fallback
       }
@@ -67,18 +68,20 @@ export class HybridBudgetRepository implements BudgetRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.getByMonth(year, month);
-        await this.localRepo!.bulkSave(remote);
+        const remote = await withTimeout(this.remoteRepo.getByMonth(year, month), 2500);
+        if (remote) {
+          await this.localRepo!.bulkSave(remote);
 
-        // Mezclar con presupuestos locales no sincronizados
-        const unsynced = await this.localRepo!.getUnsynced();
-        const filteredUnsynced = unsynced.filter(b => b.year === year && b.month === month);
+          // Mezclar con presupuestos locales no sincronizados
+          const unsynced = await this.localRepo!.getUnsynced();
+          const filteredUnsynced = unsynced.filter(b => b.year === year && b.month === month);
 
-        const combinedMap = new Map<string, Budget>();
-        remote.forEach(b => combinedMap.set(b.id, b));
-        filteredUnsynced.forEach(b => combinedMap.set(b.id, b));
+          const combinedMap = new Map<string, Budget>();
+          remote.forEach(b => combinedMap.set(b.id, b));
+          filteredUnsynced.forEach(b => combinedMap.set(b.id, b));
 
-        return Array.from(combinedMap.values());
+          return Array.from(combinedMap.values());
+        }
       } catch (err) {
         // Fallback
       }
@@ -102,7 +105,7 @@ export class HybridBudgetRepository implements BudgetRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.create({ ...input, id: tempId });
+        const remote = await withTimeout(this.remoteRepo.create({ ...input, id: tempId }), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -128,7 +131,7 @@ export class HybridBudgetRepository implements BudgetRepository {
 
     if (await this.isOnline()) {
       try {
-        const remote = await this.remoteRepo.update(id, data);
+        const remote = await withTimeout(this.remoteRepo.update(id, data), 2500);
         await this.localRepo!.bulkSave([remote]);
         return remote;
       } catch (err) {
@@ -154,7 +157,7 @@ export class HybridBudgetRepository implements BudgetRepository {
 
     if (await this.isOnline()) {
       try {
-        await this.remoteRepo.delete(id);
+        await withTimeout(this.remoteRepo.delete(id), 2500);
         await this.localRepo!.delete(id);
         return;
       } catch (err) {
