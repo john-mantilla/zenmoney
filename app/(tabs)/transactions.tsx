@@ -11,7 +11,7 @@ import { View, StyleSheet, FlatList, SectionList, RefreshControl, Pressable, Scr
 import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons, Portal, Dialog } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
-import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, TransactionFilterModal } from '@/src/presentation/components';
+import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, TransactionFilterModal, DailySpendingAnalysisModal } from '@/src/presentation/components';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
@@ -48,6 +48,7 @@ export default function TransactionsScreen() {
   // Estados de selección múltiple
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedTransactionIds, setSelectedTransactionIds] = useState<Set<string>>(new Set());
+  const [isAnalysisModalVisible, setIsAnalysisModalVisible] = useState(false);
 
   useEffect(() => {
     if (params.accountId) {
@@ -481,10 +482,21 @@ export default function TransactionsScreen() {
             </Button>
             <Button
               mode="outlined"
+              icon="chart-box-outline"
+              onPress={() => setIsAnalysisModalVisible(true)}
+              style={{ borderRadius: 12, height: 42, justifyContent: 'center', minWidth: 42, padding: 0 }}
+              contentStyle={{ height: 42, paddingHorizontal: 0 }}
+              accessibilityLabel="Ver comportamiento diario de gastos"
+            >
+              {''}
+            </Button>
+            <Button
+              mode="outlined"
               icon="checkbox-multiple-marked-outline"
               onPress={() => setIsSelectionMode(true)}
               style={{ borderRadius: 12, height: 42, justifyContent: 'center', minWidth: 42, padding: 0 }}
               contentStyle={{ height: 42, paddingHorizontal: 0 }}
+              accessibilityLabel="Modo selección múltiple"
             >
               {''}
             </Button>
@@ -765,6 +777,16 @@ export default function TransactionsScreen() {
           setSelectedType('all');
           setViewMode('date');
         }}
+      />
+
+      {/* ─── MODAL: COMPORTAMIENTO DIARIO Y PATRONES DE GASTO ────────────────── */}
+      <DailySpendingAnalysisModal
+        visible={isAnalysisModalVisible}
+        onDismiss={() => setIsAnalysisModalVisible(false)}
+        transactions={transactions}
+        categories={categories}
+        year={selectedYear}
+        month={selectedMonth}
       />
 
       <Portal>

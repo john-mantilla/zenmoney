@@ -26,6 +26,7 @@ export * from './CreateAccountModal';
 export * from './CreateBudgetModal';
 export * from './CreateCategoryModal';
 export * from './TransactionFilterModal';
+export * from './DailySpendingAnalysisModal';
 
 
 
