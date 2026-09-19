@@ -156,4 +156,10 @@ export class HybridAccountRepository implements AccountRepository {
       [actionId, 'DELETE', 'accounts', id, '{}', new Date().toISOString()]
     );
   }
+
+  async updateBalance(id: string, balance: number): Promise<void> {
+    if (this.localRepo) {
+      await this.localRepo.updateBalance(id, balance);
+    }
+  }
 }

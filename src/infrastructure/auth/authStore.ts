@@ -121,16 +121,30 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         set({ isAuthenticated: false, userProfile: null, familyGroup: null });
       } else if (event === 'SIGNED_IN' && session) {
         if (get().isAuthenticated) return; // Ya autenticado: fue solo un refresco de token
-        const sessionData = await AuthService.getCurrentSession();
-        if (sessionData) {
-          const has = await checkHasAccountsOfflineFirst();
+        try {
+          const sessionData = await AuthService.getCurrentSession();
+          if (sessionData) {
+            const has = await checkHasAccountsOfflineFirst();
 
+            set({
+              isAuthenticated: true,
+              userProfile: sessionData.userProfile,
+              familyGroup: sessionData.familyGroup,
+              hasAccounts: has,
+              isGoogleLinked: sessionData.isGoogleLinked,
+              isLoading: false,
+              error: null,
+            });
+          } else {
+            set({
+              isLoading: false,
+              error: 'No se pudo configurar el perfil. Intenta nuevamente.',
+            });
+          }
+        } catch (err) {
           set({
-            isAuthenticated: true,
-            userProfile: sessionData.userProfile,
-            familyGroup: sessionData.familyGroup,
-            hasAccounts: has,
-            isGoogleLinked: sessionData.isGoogleLinked,
+            isLoading: false,
+            error: err instanceof Error ? err.message : 'Error al procesar sesión',
           });
         }
       }
@@ -236,6 +250,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         isLoading: false,
         error: err instanceof Error ? err.message : 'Error al iniciar sesión con Google',
       });
+    } finally {
+      if (!get().isAuthenticated) {
+        set({ isLoading: false });
+      }
     }
   },
 

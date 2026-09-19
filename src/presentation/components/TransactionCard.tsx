@@ -23,6 +23,7 @@ interface TransactionCardProps {
   authorInitials?: string | null;
   onPress?: () => void;
   onLongPress?: () => void;
+  onPressTag?: (tag: any) => void;
   isSelected?: boolean;
   selectionMode?: boolean;
 }
@@ -37,6 +38,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   authorInitials,
   onPress,
   onLongPress,
+  onPressTag,
   isSelected = false,
   selectionMode = false,
 }) => {
@@ -129,9 +131,25 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
               
               {/* Etiquetas (Tags) asignadas al gasto */}
               {transaction.tags && transaction.tags.map(tag => (
-                <View key={tag.id} style={[styles.badge, { backgroundColor: tag.color + '20', borderColor: tag.color + '40', borderWidth: 1 }]}>
+                <Pressable
+                  key={tag.id}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onPressTag?.(tag);
+                  }}
+                  hitSlop={4}
+                  style={({ pressed }) => [
+                    styles.badge,
+                    {
+                      backgroundColor: tag.color + '20',
+                      borderColor: tag.color + '40',
+                      borderWidth: 1,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
                   <Text style={{ fontSize: 9, fontWeight: '700', color: tag.color }}>{tag.name}</Text>
-                </View>
+                </Pressable>
               ))}
 
               {/* Badges de entrada inteligente (Voz / NLQ) */}

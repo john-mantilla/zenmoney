@@ -8,7 +8,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, StyleSheet, FlatList, SectionList, RefreshControl, Pressable, ScrollView, Platform, TouchableOpacity } from 'react-native';
-import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons, Portal, Dialog } from 'react-native-paper';
+import { Text, Searchbar, Button, Surface, ActivityIndicator, Chip, FAB, SegmentedButtons, Portal, Dialog, IconButton } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
 import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, TransactionFilterModal, DailySpendingAnalysisModal } from '@/src/presentation/components';
@@ -43,6 +43,7 @@ export default function TransactionsScreen() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   // Estados de selección múltiple
@@ -173,6 +174,11 @@ export default function TransactionsScreen() {
       result = result.filter(tx => tx.type === selectedType);
     }
 
+    // Filtro por etiqueta seleccionada
+    if (selectedTagId) {
+      result = result.filter(tx => tx.tags && tx.tags.some(tag => tag.id === selectedTagId));
+    }
+
     // Filtro por buscador (descripción, comercio o etiqueta)
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase();
@@ -185,7 +191,7 @@ export default function TransactionsScreen() {
     }
 
     setFilteredTransactions(result);
-  }, [searchQuery, selectedAccountId, selectedMemberId, selectedType, transactions]);
+  }, [searchQuery, selectedAccountId, selectedMemberId, selectedType, selectedTagId, transactions]);
 
   const getFilteredSums = () => {
     let incomeSum = 0;
@@ -420,7 +426,7 @@ export default function TransactionsScreen() {
     );
   }
 
-  const activeFiltersCount = (selectedAccountId ? 1 : 0) + (selectedMemberId ? 1 : 0) + (selectedType !== 'all' ? 1 : 0) + (viewMode !== 'date' ? 1 : 0);
+  const activeFiltersCount = (selectedAccountId ? 1 : 0) + (selectedMemberId ? 1 : 0) + (selectedType !== 'all' ? 1 : 0) + (viewMode !== 'date' ? 1 : 0) + (selectedTagId ? 1 : 0);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -461,12 +467,12 @@ export default function TransactionsScreen() {
         </Surface>
       ) : (
         <Surface style={[styles.filterHeader, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline + '20' }]} elevation={1}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Searchbar
-              placeholder="Buscar..."
+              placeholder="Buscar en movimientos..."
               onChangeText={setSearchQuery}
               value={searchQuery}
-              style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42 }]}
+              style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42, borderRadius: 12 }]}
               inputStyle={[theme.typography.body, { fontSize: 13, minHeight: 0 }]}
             />
 
@@ -475,92 +481,159 @@ export default function TransactionsScreen() {
               icon="tune-variant"
               onPress={() => setIsFilterModalOpen(true)}
               style={{ borderRadius: 12, height: 42, justifyContent: 'center' }}
-              contentStyle={{ height: 42, paddingHorizontal: 4 }}
-              labelStyle={{ fontSize: 12, fontWeight: '700' }}
+              contentStyle={{ height: 42, paddingHorizontal: 8 }}
+              labelStyle={{ fontSize: 11, fontWeight: '700' }}
             >
-              {activeFiltersCount > 0 ? `Filtros (${activeFiltersCount})` : 'Filtros'}
+              {activeFiltersCount > 0 ? `(${activeFiltersCount})` : 'Filtros'}
             </Button>
-            <Button
-              mode="outlined"
+
+            <IconButton
               icon="chart-box-outline"
-              onPress={() => setIsAnalysisModalVisible(true)}
-              style={{ borderRadius: 12, height: 42, justifyContent: 'center', minWidth: 42, padding: 0 }}
-              contentStyle={{ height: 42, paddingHorizontal: 0 }}
-              accessibilityLabel="Ver comportamiento diario de gastos"
-            >
-              {''}
-            </Button>
-            <Button
               mode="outlined"
+              size={18}
+              iconColor={theme.colors.onSurfaceVariant}
+              onPress={() => setIsAnalysisModalVisible(true)}
+              style={{ margin: 0, width: 40, height: 40, borderRadius: 12 }}
+              accessibilityLabel="Ver comportamiento diario de gastos"
+            />
+
+            <IconButton
               icon="checkbox-multiple-marked-outline"
+              mode="outlined"
+              size={18}
+              iconColor={theme.colors.onSurfaceVariant}
               onPress={() => setIsSelectionMode(true)}
-              style={{ borderRadius: 12, height: 42, justifyContent: 'center', minWidth: 42, padding: 0 }}
-              contentStyle={{ height: 42, paddingHorizontal: 0 }}
+              style={{ margin: 0, width: 40, height: 40, borderRadius: 12 }}
               accessibilityLabel="Modo selección múltiple"
-            >
-              {''}
-            </Button>
+            />
           </View>
 
-        {/* Fila delgada con chips de filtros activos si existe alguno */}
-        {activeFiltersCount > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
-            {selectedType !== 'all' && (
-              <Chip
-                compact
-                onClose={() => setSelectedType('all')}
-                style={{ backgroundColor: selectedType === 'income' ? '#05966920' : selectedType === 'expense' ? '#DC262620' : '#2563EB20' }}
-                textStyle={{ fontSize: 11, color: selectedType === 'income' ? '#059669' : selectedType === 'expense' ? '#DC2626' : '#2563EB', fontWeight: '700' }}
-              >
-                {selectedType === 'income' ? '🟢 Solo Ingresos' : selectedType === 'expense' ? '🔴 Solo Gastos' : '🔵 Transferencias'}
-              </Chip>
-            )}
-            {selectedAccountId && (
-              <Chip
-                compact
-                onClose={() => setSelectedAccountId(null)}
-                style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
-                textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
-              >
-                {accounts.find(a => a.id === selectedAccountId)?.name || 'Cuenta'}
-              </Chip>
-            )}
-            {selectedMemberId && (
-              <Chip
-                compact
-                onClose={() => setSelectedMemberId(null)}
-                style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
-                textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
-              >
-                {selectedMemberId === currentUserId ? '👤 Tú' : `👤 ${familyMembers[selectedMemberId] || 'Miembro'}`}
-              </Chip>
-            )}
-            {viewMode === 'category' && (
-              <Chip
-                compact
-                onClose={() => setViewMode('date')}
-                style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
-                textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
-              >
-                Por Categoría
-              </Chip>
-            )}
-            <Button
-              compact
-              mode="text"
-              onPress={() => {
-                setSelectedAccountId(null);
-                setSelectedMemberId(null);
-                setSelectedType('all');
-                setViewMode('date');
-              }}
-              labelStyle={{ fontSize: 11, color: theme.colors.error }}
+          {/* Barra rápida de etiquetas (Quick Tags Bar) */}
+          {tags && tags.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginTop: 8 }}
+              contentContainerStyle={{ gap: 6, alignItems: 'center', paddingRight: 8 }}
             >
-              Limpiar
-            </Button>
-          </ScrollView>
-        )}
-      </Surface>
+              <Chip
+                compact
+                selected={selectedTagId === null}
+                onPress={() => setSelectedTagId(null)}
+                style={{
+                  height: 28,
+                  borderRadius: 8,
+                  backgroundColor: selectedTagId === null ? theme.colors.primaryContainer : theme.colors.surfaceVariant + '60',
+                }}
+                textStyle={{
+                  fontSize: 11,
+                  fontWeight: selectedTagId === null ? '700' : '500',
+                  color: selectedTagId === null ? theme.colors.primary : theme.customColors.textSecondary,
+                }}
+              >
+                🏷️ Todas
+              </Chip>
+              {tags.map((tag) => {
+                const isSelected = selectedTagId === tag.id;
+                return (
+                  <Chip
+                    key={tag.id}
+                    compact
+                    selected={isSelected}
+                    onPress={() => setSelectedTagId(isSelected ? null : tag.id)}
+                    onClose={isSelected ? () => setSelectedTagId(null) : undefined}
+                    style={{
+                      height: 28,
+                      borderRadius: 8,
+                      backgroundColor: isSelected
+                        ? (tag.color ? tag.color + '25' : theme.colors.primaryContainer)
+                        : theme.colors.surfaceVariant + '60',
+                      borderColor: isSelected && tag.color ? tag.color + '60' : 'transparent',
+                      borderWidth: isSelected ? 1 : 0,
+                    }}
+                    textStyle={{
+                      fontSize: 11,
+                      fontWeight: isSelected ? '700' : '500',
+                      color: isSelected && tag.color ? tag.color : theme.colors.onSurface,
+                    }}
+                  >
+                    #{tag.name}
+                  </Chip>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {/* Fila delgada con chips de filtros activos si existe alguno */}
+          {activeFiltersCount > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 6, alignItems: 'center' }}>
+              {selectedType !== 'all' && (
+                <Chip
+                  compact
+                  onClose={() => setSelectedType('all')}
+                  style={{ backgroundColor: selectedType === 'income' ? '#05966920' : selectedType === 'expense' ? '#DC262620' : '#2563EB20' }}
+                  textStyle={{ fontSize: 11, color: selectedType === 'income' ? '#059669' : selectedType === 'expense' ? '#DC2626' : '#2563EB', fontWeight: '700' }}
+                >
+                  {selectedType === 'income' ? '🟢 Solo Ingresos' : selectedType === 'expense' ? '🔴 Solo Gastos' : '🔵 Transferencias'}
+                </Chip>
+              )}
+              {selectedAccountId && (
+                <Chip
+                  compact
+                  onClose={() => setSelectedAccountId(null)}
+                  style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                  textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
+                >
+                  {accounts.find(a => a.id === selectedAccountId)?.name || 'Cuenta'}
+                </Chip>
+              )}
+              {selectedMemberId && (
+                <Chip
+                  compact
+                  onClose={() => setSelectedMemberId(null)}
+                  style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                  textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
+                >
+                  {selectedMemberId === currentUserId ? '👤 Tú' : `👤 ${familyMembers[selectedMemberId] || 'Miembro'}`}
+                </Chip>
+              )}
+              {selectedTagId && (
+                <Chip
+                  compact
+                  onClose={() => setSelectedTagId(null)}
+                  style={{ backgroundColor: (tags.find(t => t.id === selectedTagId)?.color || theme.colors.primary) + '25' }}
+                  textStyle={{ fontSize: 11, color: tags.find(t => t.id === selectedTagId)?.color || theme.colors.primary, fontWeight: '700' }}
+                >
+                  🏷️ #{tags.find(t => t.id === selectedTagId)?.name || 'Etiqueta'}
+                </Chip>
+              )}
+              {viewMode === 'category' && (
+                <Chip
+                  compact
+                  onClose={() => setViewMode('date')}
+                  style={{ backgroundColor: theme.colors.primaryContainer + '40' }}
+                  textStyle={{ fontSize: 11, color: theme.colors.primary, fontWeight: '600' }}
+                >
+                  Por Categoría
+                </Chip>
+              )}
+              <Button
+                compact
+                mode="text"
+                onPress={() => {
+                  setSelectedAccountId(null);
+                  setSelectedMemberId(null);
+                  setSelectedType('all');
+                  setSelectedTagId(null);
+                  setViewMode('date');
+                }}
+                labelStyle={{ fontSize: 11, color: theme.colors.error }}
+              >
+                Limpiar
+              </Button>
+            </ScrollView>
+          )}
+        </Surface>
       )}
 
       {/* Listado de movimientos */}
@@ -602,6 +675,7 @@ export default function TransactionsScreen() {
                 selectionMode={isSelectionMode}
                 onLongPress={() => handleLongPress(item.id)}
                 onPress={() => isSelectionMode ? toggleSelection(item.id) : router.push(`/transaction/new?id=${item.id}`)}
+                onPressTag={(tag) => setSelectedTagId(tag.id)}
               />
             );
           }}
@@ -618,6 +692,7 @@ export default function TransactionsScreen() {
               onAction={() => {
                 setSearchQuery('');
                 setSelectedAccountId(null);
+                setSelectedTagId(null);
               }}
             />
           }
@@ -660,6 +735,7 @@ export default function TransactionsScreen() {
                 selectionMode={isSelectionMode}
                 onLongPress={() => handleLongPress(item.id)}
                 onPress={() => isSelectionMode ? toggleSelection(item.id) : router.push(`/transaction/new?id=${item.id}`)}
+                onPressTag={(tag) => setSelectedTagId(tag.id)}
               />
             );
           }}
@@ -676,6 +752,7 @@ export default function TransactionsScreen() {
               onAction={() => {
                 setSearchQuery('');
                 setSelectedAccountId(null);
+                setSelectedTagId(null);
               }}
             />
           }
@@ -768,6 +845,9 @@ export default function TransactionsScreen() {
         onSelectAccount={setSelectedAccountId}
         selectedMemberId={selectedMemberId}
         onSelectMember={setSelectedMemberId}
+        tags={tags}
+        selectedTagId={selectedTagId}
+        onSelectTag={setSelectedTagId}
         accounts={accounts}
         familyMembers={familyMembers}
         currentUserId={currentUserId}
@@ -775,6 +855,7 @@ export default function TransactionsScreen() {
           setSelectedAccountId(null);
           setSelectedMemberId(null);
           setSelectedType('all');
+          setSelectedTagId(null);
           setViewMode('date');
         }}
       />

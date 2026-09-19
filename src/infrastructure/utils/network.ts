@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ZenMoney — Network Utilities
  *
  * Provee funciones para verificación rápida de conectividad y límites
@@ -33,7 +33,7 @@ export async function isOnlineFast(): Promise<boolean> {
  * o devuelve el valor `fallbackValue` provisto.
  */
 export async function withTimeout<T>(
-  promise: Promise<T>,
+  promise: PromiseLike<T>,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   fallbackValue?: T
 ): Promise<T> {

@@ -12,6 +12,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withTimeout } from '../utils/network';
+import { generateUUID } from '../utils/uuid';
 
 const AUTH_PROFILE_CACHE_KEY = '@zenmoney_cached_user_profile';
 const AUTH_FAMILY_CACHE_KEY = '@zenmoney_cached_family_group';
@@ -46,11 +47,14 @@ async function getCachedSessionData(): Promise<{ userProfile: UserProfile; famil
 
 async function clearCachedSessionData(): Promise<void> {
   try {
+    inFlightCurrentSessionPromise = null;
     await AsyncStorage.multiRemove([AUTH_PROFILE_CACHE_KEY, AUTH_FAMILY_CACHE_KEY]);
   } catch (err) {
     console.warn('[AuthService] Error clearing cached session data:', err);
   }
 }
+
+let inFlightCurrentSessionPromise: Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> | null = null;
 
 let Linking: any = null;
 try {
@@ -65,7 +69,7 @@ if (Platform.OS === 'web' && typeof window !== 'undefined') {
 
 // Escuchar URLs entrantes de Deep Linking en nativo
 if (Platform.OS !== 'web' && Linking?.addEventListener) {
-  Linking.addEventListener('url', (event) => {
+  Linking.addEventListener('url', (event: any) => {
     if (event.url && event.url.includes('auth/callback')) {
       AuthService.handleOAuthRedirectUrl(event.url);
     }
@@ -132,21 +136,26 @@ export class AuthService {
         // al registrarse (fricción innecesaria para quien solo quiere llevar sus propias
         // finanzas) — se autogenera y se puede renombrar luego desde "Mi Grupo Familiar".
         const resolvedFamilyGroupName = familyGroupName?.trim() || `Familia de ${displayName.trim()}`;
-        const { data: dbFamilyGroup, error: familyError } = await supabase
+        const newFamilyGroupId = generateUUID();
+        const { error: familyError } = await supabase
           .from('family_groups')
           .insert({
+            id: newFamilyGroupId,
             name: resolvedFamilyGroupName,
             currency_default: 'COP',
-          })
-          .select('*')
-          .single();
+          });
 
-        if (familyError || !dbFamilyGroup) {
+        if (familyError) {
           throw new Error(`Error al crear el grupo familiar: ${familyError?.message}`);
         }
-        targetFamilyGroupId = dbFamilyGroup.id;
+        targetFamilyGroupId = newFamilyGroupId;
         assignedRole = 'admin';
-        familyGroupObj = dbFamilyGroup;
+        familyGroupObj = {
+          id: newFamilyGroupId,
+          name: resolvedFamilyGroupName,
+          currency_default: 'COP',
+          created_at: new Date().toISOString(),
+        };
       }
 
       // 3. Crear el perfil del usuario asociado a la cuenta y al grupo familiar
@@ -234,8 +243,25 @@ export class AuthService {
   /**
    * Obtiene la sesión actual y sus datos de perfil/familia correspondientes.
    * Si el dispositivo está sin conexión o en modo avión, recurre a la caché local.
+   * Deduplica llamadas concurrentes en vuelo (ej. initApp + onAuthStateChange).
    */
-  static async getCurrentSession(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
+  static getCurrentSession(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
+    if (inFlightCurrentSessionPromise) {
+      return inFlightCurrentSessionPromise;
+    }
+
+    inFlightCurrentSessionPromise = (async () => {
+      try {
+        return await AuthService._fetchCurrentSessionInternal();
+      } finally {
+        inFlightCurrentSessionPromise = null;
+      }
+    })();
+
+    return inFlightCurrentSessionPromise;
+  }
+
+  private static async _fetchCurrentSessionInternal(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
     const { data: { session }, error } = await supabase.auth.getSession();
     
     if (error || !session?.user) {
@@ -247,45 +273,93 @@ export class AuthService {
     const isGoogleLinked = providers.includes('google') || identities.some((i: any) => i.provider === 'google');
 
     try {
-      // 1. Intentar consultar perfil desde Supabase con timeout de 2.5s
+      // 1. Intentar consultar perfil desde Supabase con timeout defensivo de 3.5s
       const profilePromise = supabase
         .from('user_profiles')
         .select('*')
         .eq('auth_user_id', session.user.id)
         .maybeSingle();
 
-      const { data: dbProfile } = await withTimeout(profilePromise, 2500, { data: null } as any);
+      const profileRes = await withTimeout(profilePromise, 3500, null);
+      let dbProfile = profileRes?.data ?? null;
 
-      // Si es un usuario nuevo de Google SSO sin perfil aún, creamos su grupo familiar y perfil automáticamente
-      if (!dbProfile && session.user.email) {
+      // Si la consulta fue exitosa y explícitamente confirmó que NO existe perfil (data === null y sin error de red/timeout),
+      // es un usuario nuevo de Google SSO sin perfil aún.
+      if (!dbProfile && profileRes && !profileRes.error && session.user.email) {
         const displayName = session.user.user_metadata?.full_name || session.user.email.split('@')[0];
         const familyGroupName = `Familia de ${displayName}`;
+        const newFamilyGroupId = generateUUID();
 
-        const { data: newFam } = await supabase
+        const { error: famErr } = await supabase
           .from('family_groups')
-          .insert({ name: familyGroupName, currency_default: 'COP' })
-          .select('*')
-          .single();
+          .insert({ id: newFamilyGroupId, name: familyGroupName, currency_default: 'COP' });
 
-        if (newFam) {
-          const { data: newProf } = await supabase
+        if (!famErr) {
+          const newProfileId = generateUUID();
+          const { error: profErr } = await supabase
             .from('user_profiles')
             .insert({
+              id: newProfileId,
               auth_user_id: session.user.id,
-              family_group_id: newFam.id,
+              family_group_id: newFamilyGroupId,
               display_name: displayName,
               email: session.user.email.trim().toLowerCase(),
               role: 'admin',
-            })
-            .select('*')
-            .single();
+            });
 
-          if (newProf) {
-            const userProfile = Mapper.toDomainUserProfile(newProf);
-            const familyGroup = Mapper.toDomainFamilyGroup(newFam);
+          if (!profErr) {
+            const userProfile = Mapper.toDomainUserProfile({
+              id: newProfileId,
+              auth_user_id: session.user.id,
+              family_group_id: newFamilyGroupId,
+              display_name: displayName,
+              email: session.user.email.trim().toLowerCase(),
+              role: 'admin',
+              created_at: new Date().toISOString(),
+            });
+            const familyGroup = Mapper.toDomainFamilyGroup({
+              id: newFamilyGroupId,
+              name: familyGroupName,
+              currency_default: 'COP',
+              created_at: new Date().toISOString(),
+            });
             await saveCachedSessionData(userProfile, familyGroup);
             return { userProfile, familyGroup, isGoogleLinked };
+          } else {
+            // Manejo de concurrencia / duplicate key:
+            // Si el perfil ya existía (ej. uq_user_profiles_auth_user_id o código 23505),
+            // limpiamos el grupo familiar huérfano y recuperamos el perfil existente sin fallar.
+            if (profErr.code === '23505' || profErr.message?.includes('uq_user_profiles_auth_user_id')) {
+              await supabase.from('family_groups').delete().eq('id', newFamilyGroupId);
+
+              const { data: existingProfile } = await supabase
+                .from('user_profiles')
+                .select('*')
+                .eq('auth_user_id', session.user.id)
+                .maybeSingle();
+
+              if (existingProfile) {
+                dbProfile = existingProfile;
+              }
+            } else {
+              console.error('[AuthService] Error al crear perfil para usuario de Google:', profErr?.message);
+            }
           }
+        } else {
+          console.error('[AuthService] Error al crear grupo familiar para usuario de Google:', famErr.message);
+        }
+      }
+
+      // Si no tenemos dbProfile (ej. timeout en la consulta inicial), reintentar consultar directamente
+      if (!dbProfile) {
+        const { data: retryProfile } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('auth_user_id', session.user.id)
+          .maybeSingle();
+
+        if (retryProfile) {
+          dbProfile = retryProfile;
         }
       }
 
@@ -297,7 +371,8 @@ export class AuthService {
           .eq('id', dbProfile.family_group_id)
           .single();
 
-        const { data: dbFamilyGroup } = await withTimeout(famPromise, 2500, { data: null } as any);
+        const famRes = await withTimeout(famPromise, 3500, null);
+        const dbFamilyGroup = famRes?.data;
 
         if (dbFamilyGroup) {
           const userProfile = Mapper.toDomainUserProfile(dbProfile);
@@ -456,6 +531,24 @@ export class AuthService {
           await AuthService.handleOAuthRedirectUrl(result.url);
         }
       }
+    }
+  }
+
+  /**
+   * Envía un correo electrónico para restablecer la contraseña de una cuenta tradicional.
+   */
+  static async resetPassword(email: string): Promise<void> {
+    const isWeb = Platform.OS === 'web';
+    const redirectTo = isWeb
+      ? (typeof window !== 'undefined' && window.location ? `${window.location.origin}/reset-password` : '')
+      : 'zenmoney://auth/reset-password';
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo,
+    });
+
+    if (error) {
+      throw new Error(error.message);
     }
   }
 }

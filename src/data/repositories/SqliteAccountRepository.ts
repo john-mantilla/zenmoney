@@ -87,24 +87,34 @@ export class SqliteAccountRepository implements AccountRepository {
     await db.runAsync('UPDATE accounts SET is_active = 0 WHERE id = ?;', [id]);
   }
 
+  async updateBalance(id: string, balance: number): Promise<void> {
+    const db = this.getDb();
+    await db.runAsync('UPDATE accounts SET initial_balance = ? WHERE id = ?;', [balance, id]);
+  }
+
   async bulkSave(accounts: Account[]): Promise<void> {
     const db = this.getDb();
+    const nowIso = new Date().toISOString();
     for (const acc of accounts) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, currency, is_active, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-        [
-          acc.id,
-          acc.familyGroupId,
-          acc.ownerUserId,
-          acc.name,
-          acc.type,
-          acc.initialBalance,
-          acc.currency,
-          acc.isActive ? 1 : 0,
-          acc.createdAt
-        ]
-      );
+      try {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, currency, is_active, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [
+            acc.id,
+            acc.familyGroupId || 'offline-family',
+            acc.ownerUserId || 'offline-user',
+            acc.name,
+            acc.type,
+            acc.initialBalance,
+            acc.currency || 'COP',
+            acc.isActive ? 1 : 0,
+            acc.createdAt || nowIso
+          ]
+        );
+      } catch (err) {
+        console.warn(`[SqliteAccRepo] Error in bulkSave for account ${acc.id}:`, err);
+      }
     }
   }
 

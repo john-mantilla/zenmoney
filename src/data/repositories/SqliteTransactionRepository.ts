@@ -252,45 +252,50 @@ export class SqliteTransactionRepository implements TransactionRepository {
 
   async bulkSave(transactions: Transaction[]): Promise<void> {
     const db = this.getDb();
+    const nowIso = new Date().toISOString();
     for (const tx of transactions) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO transactions (
-          id, family_group_id, account_id, category_id, created_by_user_id,
-          type, amount, currency, description, merchant_name,
-          transaction_date, transfer_to_account_id, is_recurring_instance,
-          recurring_rule_id, status, input_method, ai_metadata, is_private,
-          synced, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-        [
-          tx.id,
-          tx.familyGroupId,
-          tx.accountId,
-          tx.categoryId || null,
-          tx.createdByUserId,
-          tx.type,
-          tx.amount,
-          tx.currency,
-          tx.description || null,
-          tx.merchantName || null,
-          tx.transactionDate,
-          tx.transferToAccountId || null,
-          tx.isRecurringInstance ? 1 : 0,
-          tx.recurringRuleId || null,
-          tx.status,
-          tx.inputMethod,
-          tx.aiMetadata ? JSON.stringify(tx.aiMetadata) : null,
-          tx.isPrivate ? 1 : 0,
-          1, // bulk saved are always synced = 1
-          tx.createdAt,
-          tx.updatedAt
-        ]
-      );
+      try {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO transactions (
+            id, family_group_id, account_id, category_id, created_by_user_id,
+            type, amount, currency, description, merchant_name,
+            transaction_date, transfer_to_account_id, is_recurring_instance,
+            recurring_rule_id, status, input_method, ai_metadata, is_private,
+            synced, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [
+            tx.id,
+            tx.familyGroupId || 'offline-family',
+            tx.accountId,
+            tx.categoryId || null,
+            tx.createdByUserId || 'offline-user',
+            tx.type,
+            tx.amount,
+            tx.currency || 'COP',
+            tx.description || null,
+            tx.merchantName || null,
+            tx.transactionDate,
+            tx.transferToAccountId || null,
+            tx.isRecurringInstance ? 1 : 0,
+            tx.recurringRuleId || null,
+            tx.status || 'confirmed',
+            tx.inputMethod || 'manual',
+            tx.aiMetadata ? JSON.stringify(tx.aiMetadata) : null,
+            tx.isPrivate ? 1 : 0,
+            1, // bulk saved are always synced = 1
+            tx.createdAt || nowIso,
+            tx.updatedAt || tx.createdAt || nowIso
+          ]
+        );
 
-      if (tx.tags && tx.tags.length > 0) {
-        await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [tx.id]);
-        for (const tag of tx.tags) {
-          await db.runAsync('INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);', [tx.id, tag.id]);
+        if (tx.tags && tx.tags.length > 0) {
+          await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [tx.id]);
+          for (const tag of tx.tags) {
+            await db.runAsync('INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);', [tx.id, tag.id]);
+          }
         }
+      } catch (err) {
+        console.warn(`[SqliteTxRepo] Error in bulkSave for tx ${tx.id}:`, err);
       }
     }
   }
@@ -299,24 +304,29 @@ export class SqliteTransactionRepository implements TransactionRepository {
     const db = this.getDb();
     await this.bulkSave(remoteTransactions);
 
-    // Eliminar de la base de datos local las transacciones ya sincronizadas que fueron borradas en la nube
+    // Solo eliminamos registros locales de forma segura si se especificó un rango delimitado
+    // para evitar borrados accidentales de otros periodos o cuentas.
+    if (!filters || (!filters.startDate && !filters.endDate && !filters.accountId)) {
+      return;
+    }
+
     const remoteIds = remoteTransactions.map(t => t.id);
     let deleteQuery = "DELETE FROM transactions WHERE synced = 1";
     const deleteParams: any[] = [];
 
-    if (filters?.accountId) {
+    if (filters.accountId) {
       deleteQuery += " AND (account_id = ? OR transfer_to_account_id = ?)";
       deleteParams.push(filters.accountId, filters.accountId);
     }
-    if (filters?.status) {
+    if (filters.status) {
       deleteQuery += " AND status = ?";
       deleteParams.push(filters.status);
     }
-    if (filters?.startDate) {
+    if (filters.startDate) {
       deleteQuery += " AND transaction_date >= ?";
       deleteParams.push(filters.startDate);
     }
-    if (filters?.endDate) {
+    if (filters.endDate) {
       deleteQuery += " AND transaction_date <= ?";
       deleteParams.push(filters.endDate);
     }
@@ -325,9 +335,11 @@ export class SqliteTransactionRepository implements TransactionRepository {
       const placeholders = remoteIds.map(() => '?').join(',');
       deleteQuery += ` AND id NOT IN (${placeholders})`;
       deleteParams.push(...remoteIds);
+      await db.runAsync(deleteQuery, deleteParams);
+    } else if (filters.startDate && filters.endDate) {
+      // Si explícitamente se consultó un rango de fechas y la nube no tiene transacciones en ese rango
+      await db.runAsync(deleteQuery, deleteParams);
     }
-
-    await db.runAsync(deleteQuery, deleteParams);
   }
 
   async syncPendingEmailInvoices(remotePendingList: Transaction[]): Promise<void> {

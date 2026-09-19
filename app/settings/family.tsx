@@ -179,39 +179,20 @@ export default function SettingsFamilyScreen() {
     setRemovingMember(true);
 
     try {
-      // 1. Crear un nuevo grupo familiar personal para el usuario expulsado
-      const { data: newGroup, error: grpErr } = await supabase
-        .from('family_groups')
-        .insert({ name: `Familia de ${targetMemberToRemove.displayName}` })
-        .select()
-        .single();
+      const { error } = await supabase.rpc('remove_family_member', {
+        member_profile_id: targetMemberToRemove.id,
+      });
 
-      if (grpErr) throw grpErr;
+      if (error) throw error;
 
-      // 2. Mover el perfil del usuario a su nuevo grupo como admin
-      const { error: profErr } = await supabase
-        .from('user_profiles')
-        .update({
-          family_group_id: newGroup.id,
-          role: 'admin'
-        })
-        .eq('id', targetMemberToRemove.id);
-
-      if (profErr) throw profErr;
-
-      // 3. Mover sus cuentas marcadas como privadas a su nuevo grupo
-      await supabase
-        .from('accounts')
-        .update({ family_group_id: newGroup.id })
-        .eq('created_by_user_id', targetMemberToRemove.id)
-        .eq('is_private', true);
-
+      const removedName = targetMemberToRemove.displayName;
       setIsRemoveMemberDialogVisible(false);
       setTargetMemberToRemove(null);
-      loadData();
-    } catch (err) {
+      await loadData();
+      Alert.alert('Éxito', `${removedName} ha sido desvinculado del grupo familiar.`);
+    } catch (err: any) {
       console.error('[Remove Member Error]:', err);
-      Alert.alert('Error', 'No se pudo desvincular al miembro. Inténtalo de nuevo.');
+      Alert.alert('Error', err?.message || 'No se pudo desvincular al miembro. Inténtalo de nuevo.');
     } finally {
       setRemovingMember(false);
     }

@@ -33,6 +33,7 @@ import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategory
 import { AnomalyDetectorService, SmartAlert } from '@/src/infrastructure/services/AnomalyDetectorService';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { FinancialHealthModal } from '@/src/presentation/components/FinancialHealthModal';
+import { isOnlineFast } from '@/src/infrastructure/utils/network';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -181,6 +182,10 @@ export default function DashboardScreen() {
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
 
+    if (isNewTimeframe) {
+      setIsLoading(true);
+    }
+
     const executeFetch = async (preferCache: boolean) => {
       const loadedAccounts = await accountRepo.getAll(preferCache);
       
@@ -194,6 +199,13 @@ export default function DashboardScreen() {
           };
         })
       );
+
+      if (!preferCache) {
+        // Persistir saldos consolidados en SQLite para lecturas offline confiables
+        accountsWithRealBalances.forEach((acc) => {
+          accountRepo.updateBalance(acc.id, acc.initialBalance).catch(() => {});
+        });
+      }
 
       const activeAccounts = accountsWithRealBalances.filter(acc => acc.isActive);
       setAllAccounts(activeAccounts);
@@ -295,10 +307,19 @@ export default function DashboardScreen() {
         BillAlertService.scheduleBillAlerts().catch(() => {});
       }
 
-      // 4. Calcular resumen financiero mensual
-      const summary = await summaryUseCase.execute(startDate, endDate, preferCache);
-      setMonthlyIncome(summary.totalIncome);
-      setMonthlyExpenses(summary.totalExpenses);
+      // 4. Calcular resumen financiero mensual directamente desde las transacciones del mes
+      let incomeSum = 0;
+      let expensesSum = 0;
+      for (const tx of loadedTransactions) {
+        const amt = Number(tx.amount) || 0;
+        if (tx.type === 'income') {
+          incomeSum += amt;
+        } else if (tx.type === 'expense') {
+          expensesSum += amt;
+        }
+      }
+      setMonthlyIncome(incomeSum);
+      setMonthlyExpenses(expensesSum);
 
       // 5. Escanear Anomalías Financieras
       const anomalyService = new AnomalyDetectorService();
@@ -307,16 +328,24 @@ export default function DashboardScreen() {
     };
 
     try {
-      // Pasada 1: Carga local ultra-rápida desde SQLite (<100ms) para omitir el spinner de inmediato
-      if (!force) {
-        await executeFetch(true);
-        setIsLoading(false);
-      }
+      const isOnline = await isOnlineFast();
 
-      // Pasada 2: Revalidación y sincronización en segundo plano con la nube Supabase
-      await executeFetch(false);
+      if (!isOnline) {
+        // Modo sin conexión: Cargar de inmediato desde la base SQLite local
+        await executeFetch(true);
+      } else {
+        // Modo con conexión: Carga limpia y atómica desde la nube hacia la base local
+        // evitando saltos o estados numéricos intermedios incorrectos
+        await executeFetch(false);
+      }
     } catch (err) {
       console.error('[Dashboard Load Error]:', err);
+      // Fallback seguro a lectura local
+      try {
+        await executeFetch(true);
+      } catch (fallbackErr) {
+        console.error('[Dashboard Fallback Error]:', fallbackErr);
+      }
     } finally {
       setIsLoading(false);
       setRefreshing(false);

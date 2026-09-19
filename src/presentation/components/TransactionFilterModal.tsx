@@ -26,6 +26,9 @@ export interface TransactionFilterModalProps {
   onSelectAccount: (accountId: string | null) => void;
   selectedMemberId: string | null;
   onSelectMember: (memberId: string | null) => void;
+  tags?: any[];
+  selectedTagId?: string | null;
+  onSelectTag?: (tagId: string | null) => void;
   accounts: Account[];
   familyMembers: Record<string, string>;
   currentUserId: string | null;
@@ -43,6 +46,9 @@ export const TransactionFilterModal: React.FC<TransactionFilterModalProps> = ({
   onSelectAccount,
   selectedMemberId,
   onSelectMember,
+  tags = [],
+  selectedTagId = null,
+  onSelectTag,
   accounts = [],
   familyMembers = {},
   currentUserId,
@@ -202,6 +208,51 @@ export const TransactionFilterModal: React.FC<TransactionFilterModalProps> = ({
                           👤 {id === currentUserId ? 'Tú' : initials}
                         </Chip>
                       ))}
+                    </ScrollView>
+                  </>
+                )}
+
+                {/* 5. Filtrar por Etiqueta */}
+                {tags && tags.length > 0 && (
+                  <>
+                    <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>
+                      FILTRAR POR ETIQUETA
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 18 }}>
+                      <Chip
+                        selected={selectedTagId === null}
+                        onPress={() => {
+                          triggerHaptic();
+                          onSelectTag?.(null);
+                        }}
+                        style={{ marginRight: 8, borderRadius: 12 }}
+                      >
+                        🏷️ Todas las Etiquetas
+                      </Chip>
+                      {tags.map((tag) => {
+                        const isSelected = selectedTagId === tag.id;
+                        return (
+                          <Chip
+                            key={tag.id}
+                            selected={isSelected}
+                            onPress={() => {
+                              triggerHaptic();
+                              onSelectTag?.(isSelected ? null : tag.id);
+                            }}
+                            style={{
+                              marginRight: 8,
+                              borderRadius: 12,
+                              backgroundColor: isSelected ? (tag.color ? tag.color + '25' : undefined) : undefined,
+                            }}
+                            textStyle={{
+                              color: isSelected && tag.color ? tag.color : undefined,
+                              fontWeight: isSelected ? '700' : '500',
+                            }}
+                          >
+                            🏷️ {tag.name}
+                          </Chip>
+                        );
+                      })}
                     </ScrollView>
                   </>
                 )}

@@ -4,8 +4,9 @@
 
 import React, { useState } from 'react';
 import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { TextInput, Button, Text, HelperText } from 'react-native-paper';
+import { TextInput, Button, Text, HelperText, Dialog, Portal } from 'react-native-paper';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
+import { AuthService } from '@/src/infrastructure/auth/authService';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Link, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +20,30 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [secureTextEntry, setSecureTextEntry] = useState(true);
+
+  // Estados del modal de recuperación de contraseña
+  const [isResetModalVisible, setIsResetModalVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  const handleResetPassword = async () => {
+    if (!resetEmail.trim() || !resetEmail.includes('@')) {
+      setResetError('Ingresa un correo electrónico válido.');
+      return;
+    }
+    setResetLoading(true);
+    setResetError(null);
+    try {
+      await AuthService.resetPassword(resetEmail.trim());
+      setResetSent(true);
+    } catch (err: any) {
+      setResetError(err?.message || 'Error al enviar correo de recuperación.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) return;
@@ -87,6 +112,22 @@ export default function LoginScreen() {
             }
           />
 
+          <View style={styles.forgotPasswordContainer}>
+            <Button
+              mode="text"
+              compact
+              onPress={() => {
+                setResetEmail(email.trim());
+                setResetSent(false);
+                setResetError(null);
+                setIsResetModalVisible(true);
+              }}
+              labelStyle={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '600' }]}
+            >
+              ¿Olvidaste tu contraseña?
+            </Button>
+          </View>
+
           <HelperText type="error" visible={!!error} style={styles.errorText}>
             {error}
           </HelperText>
@@ -132,6 +173,76 @@ export default function LoginScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Modal de Recuperación de Contraseña */}
+      <Portal>
+        <Dialog
+          visible={isResetModalVisible}
+          onDismiss={() => !resetLoading && setIsResetModalVisible(false)}
+          style={{ borderRadius: 16, maxWidth: 420, width: '90%', alignSelf: 'center' }}
+        >
+          <Dialog.Title style={theme.typography.h4}>Recuperar Contraseña</Dialog.Title>
+          <Dialog.Content>
+            {resetSent ? (
+              <View style={{ gap: 8 }}>
+                <Text style={[theme.typography.body, { color: theme.colors.primary, fontWeight: '700' }]}>
+                  ¡Correo enviado con éxito!
+                </Text>
+                <Text style={[theme.typography.bodySmall, { color: theme.customColors.textSecondary, lineHeight: 20 }]}>
+                  Hemos enviado un enlace a <Text style={{ fontWeight: '700' }}>{resetEmail}</Text> para restablecer tu contraseña. Revisa tu bandeja de entrada o la carpeta de spam.
+                </Text>
+              </View>
+            ) : (
+              <View>
+                <Text style={[theme.typography.bodySmall, { color: theme.customColors.textSecondary, marginBottom: 12 }]}>
+                  Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+                </Text>
+                <TextInput
+                  label="Correo electrónico"
+                  value={resetEmail}
+                  onChangeText={(txt) => {
+                    setResetEmail(txt);
+                    if (resetError) setResetError(null);
+                  }}
+                  mode="outlined"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  disabled={resetLoading}
+                  outlineColor={theme.colors.outline}
+                  activeOutlineColor={theme.colors.primary}
+                />
+                {resetError && (
+                  <HelperText type="error" visible={!!resetError} style={{ marginTop: 4 }}>
+                    {resetError}
+                  </HelperText>
+                )}
+              </View>
+            )}
+          </Dialog.Content>
+          <Dialog.Actions>
+            {resetSent ? (
+              <Button onPress={() => setIsResetModalVisible(false)}>
+                Entendido
+              </Button>
+            ) : (
+              <>
+                <Button onPress={() => setIsResetModalVisible(false)} disabled={resetLoading}>
+                  Cancelar
+                </Button>
+                <Button
+                  mode="contained"
+                  onPress={handleResetPassword}
+                  loading={resetLoading}
+                  disabled={resetLoading || !resetEmail.trim()}
+                  style={{ marginLeft: 8 }}
+                >
+                  Enviar enlace
+                </Button>
+              </>
+            )}
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </KeyboardAvoidingView>
   );
 }
@@ -164,6 +275,11 @@ const styles = StyleSheet.create({
   },
   input: {
     marginBottom: 16,
+  },
+  forgotPasswordContainer: {
+    alignItems: 'flex-end',
+    marginTop: -8,
+    marginBottom: 4,
   },
   errorText: {
     textAlign: 'center',

@@ -4,7 +4,12 @@ import { SupabaseAccountRepository } from '../../data/repositories/SupabaseAccou
 import { SupabaseCategoryRepository } from '../../data/repositories/SupabaseCategoryRepository';
 import { SupabaseBudgetRepository } from '../../data/repositories/SupabaseBudgetRepository';
 import { SupabaseTagRepository } from '../../data/repositories/SupabaseTagRepository';
-import { isOnlineFast } from '../utils/network';
+import { SqliteAccountRepository } from '../../data/repositories/SqliteAccountRepository';
+import { SqliteTransactionRepository } from '../../data/repositories/SqliteTransactionRepository';
+import { CalculateAccountBalance } from '../../domain/usecases/CalculateAccountBalance';
+import { Account } from '../../domain/entities/Account';
+import { Transaction } from '../../domain/entities/Transaction';
+import { isOnlineFast, withTimeout } from '../utils/network';
 import { Platform } from 'react-native';
 
 export class SyncService {
@@ -135,6 +140,80 @@ export class SyncService {
       console.error('[SyncService] Global sync error:', err);
     } finally {
       this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Sincroniza de manera atómica y en lote los datos requeridos por el Dashboard:
+   * 1. Cuentas y sus balances reales consolidados.
+   * 2. Todas las transacciones confirmadas (ingresos y gastos) del mes seleccionado.
+   * Guarda todo de forma segura en SQLite para que la lectura local siempre sea coherente.
+   */
+  static async syncDashboardData(year: number, month: number): Promise<{
+    accounts: Account[];
+    monthTransactions: Transaction[];
+  } | null> {
+    if (Platform.OS === 'web') return null;
+
+    if (!(await isOnlineFast())) {
+      return null;
+    }
+
+    try {
+      const localAccountRepo = new SqliteAccountRepository();
+      const localTxRepo = new SqliteTransactionRepository();
+      const balanceUseCase = new CalculateAccountBalance(this.remoteTransactionRepo);
+
+      // 1. Obtener cuentas de la nube
+      const remoteAccounts = await withTimeout(this.remoteAccountRepo.getAll(), 3500);
+      if (!remoteAccounts || remoteAccounts.length === 0) {
+        return null;
+      }
+
+      // 2. Calcular saldos reales con timeout seguro
+      const accountsWithRealBalances = await Promise.all(
+        remoteAccounts.map(async (acc) => {
+          try {
+            const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 3500, acc.initialBalance);
+            return {
+              ...acc,
+              initialBalance: realBalance,
+            };
+          } catch {
+            return acc;
+          }
+        })
+      );
+
+      // 3. Guardar cuentas con sus saldos actualizados en SQLite
+      await localAccountRepo.bulkSave(accountsWithRealBalances);
+
+      // 4. Descargar todas las transacciones confirmadas del mes seleccionado (ingresos y gastos)
+      const lastDay = new Date(year, month, 0).getDate();
+      const monthStr = String(month).padStart(2, '0');
+      const startDate = `${year}-${monthStr}-01`;
+      const endDate = `${year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+
+      const remoteTransactions = await withTimeout(
+        this.remoteTransactionRepo.getAll({
+          startDate,
+          endDate,
+          status: 'confirmed',
+        }),
+        3500
+      );
+
+      if (remoteTransactions && remoteTransactions.length > 0) {
+        await localTxRepo.bulkSave(remoteTransactions);
+      }
+
+      return {
+        accounts: accountsWithRealBalances,
+        monthTransactions: remoteTransactions || [],
+      };
+    } catch (err) {
+      console.warn('[SyncService] syncDashboardData warning:', err);
+      return null;
     }
   }
 }
