@@ -21,12 +21,38 @@ export class CalculateAccountBalance {
    * - Las transferencias entre cuentas propias se restan de la origen y se suman en la destino.
    */
   async execute(account: Account, preferCache = false): Promise<number> {
+    // Si estamos en modo offline/caché y la cuenta ya tiene un saldo consolidado conocido (currentBalance):
+    if (preferCache && account.currentBalance !== undefined && account.currentBalance !== null) {
+      // Solo aplicamos transacciones locales que aún NO hayan sido sincronizadas con la nube (synced = 0)
+      let unsynced: any[] = [];
+      try {
+        if (typeof (this.transactionRepository as any).getUnsynced === 'function') {
+          unsynced = await (this.transactionRepository as any).getUnsynced();
+        }
+      } catch {
+        unsynced = [];
+      }
+
+      if (unsynced && unsynced.length > 0) {
+        const accountUnsynced = unsynced.filter((t: any) =>
+          (t.accountId === account.id || t.transferToAccountId === account.id) && t.status === 'confirmed'
+        );
+        return this.applyTransactions(account, Number(account.currentBalance), accountUnsynced);
+      }
+
+      return Number(account.currentBalance);
+    }
+
     const transactions = await (this.transactionRepository as any).getAll({
       accountId: account.id,
       status: 'confirmed',
     }, preferCache);
 
-    let balance = Number(account.initialBalance);
+    return this.applyTransactions(account, Number(account.initialBalance), transactions);
+  }
+
+  private applyTransactions(account: Account, baseBalance: number, transactions: any[]): number {
+    let balance = baseBalance;
     const isDebt = ['credit_card', 'loan', 'mortgage'].includes(account.type);
 
     for (const tx of transactions) {

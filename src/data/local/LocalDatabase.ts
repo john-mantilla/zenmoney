@@ -26,11 +26,19 @@ export class LocalDatabase {
         name TEXT NOT NULL,
         type TEXT NOT NULL,
         initial_balance REAL NOT NULL DEFAULT 0,
+        current_balance REAL DEFAULT NULL,
         currency TEXT NOT NULL DEFAULT 'COP',
         is_active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL
       );
     `);
+
+    // Migración defensiva: asegurar columna current_balance en bases de datos SQLite existentes
+    try {
+      await database.execAsync('ALTER TABLE accounts ADD COLUMN current_balance REAL DEFAULT NULL;');
+    } catch {
+      // Ignorar si la columna ya existe
+    }
 
     // Tabla de categorías
     await database.execAsync(`

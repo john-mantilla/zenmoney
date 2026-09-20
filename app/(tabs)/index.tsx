@@ -33,6 +33,7 @@ import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategory
 import { AnomalyDetectorService, SmartAlert } from '@/src/infrastructure/services/AnomalyDetectorService';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { FinancialHealthModal } from '@/src/presentation/components/FinancialHealthModal';
+import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { isOnlineFast } from '@/src/infrastructure/utils/network';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -361,7 +362,11 @@ export default function DashboardScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData(true);
+    SyncService.fullSync()
+      .catch(() => {})
+      .finally(() => {
+        loadData(true);
+      });
   };
 
   const getCategoryDetails = (categoryId: string | null) => {

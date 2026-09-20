@@ -11,7 +11,7 @@ import { Mapper } from '@data/models/Mapper';
 import * as WebBrowser from 'expo-web-browser';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { withTimeout } from '../utils/network';
+import { isOnlineFast, withTimeout } from '../utils/network';
 import { generateUUID } from '../utils/uuid';
 
 const AUTH_PROFILE_CACHE_KEY = '@zenmoney_cached_user_profile';
@@ -262,9 +262,37 @@ export class AuthService {
   }
 
   private static async _fetchCurrentSessionInternal(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
-    const { data: { session }, error } = await supabase.auth.getSession();
+    // 1. Verificación instantánea de conectividad antes de intentar cualquier llamada de red
+    const isOnline = await isOnlineFast();
+
+    if (!isOnline) {
+      console.log('[AuthService] Dispositivo offline/modo avión detectado. Cargando sesión desde caché local...');
+      const cached = await getCachedSessionData();
+      if (cached) {
+        return {
+          ...cached,
+          isGoogleLinked: false,
+        };
+      }
+      return null;
+    }
+
+    const sessionRes = await withTimeout(
+      supabase.auth.getSession(),
+      2500,
+      { data: { session: null }, error: null } as any
+    );
+    const session = sessionRes?.data?.session;
+    const error = sessionRes?.error;
     
     if (error || !session?.user) {
+      const cached = await getCachedSessionData();
+      if (cached) {
+        return {
+          ...cached,
+          isGoogleLinked: false,
+        };
+      }
       return null;
     }
 
@@ -350,16 +378,20 @@ export class AuthService {
         }
       }
 
-      // Si no tenemos dbProfile (ej. timeout en la consulta inicial), reintentar consultar directamente
+      // Si no tenemos dbProfile (ej. timeout en la consulta inicial), reintentar consultar con timeout defensivo
       if (!dbProfile) {
-        const { data: retryProfile } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('auth_user_id', session.user.id)
-          .maybeSingle();
+        const retryRes = await withTimeout(
+          supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('auth_user_id', session.user.id)
+            .maybeSingle(),
+          2000,
+          { data: null } as any
+        );
 
-        if (retryProfile) {
-          dbProfile = retryProfile;
+        if (retryRes?.data) {
+          dbProfile = retryRes.data;
         }
       }
 

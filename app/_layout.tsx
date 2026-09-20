@@ -126,21 +126,35 @@ function RootLayoutNav() {
         }
       }
       await initialize();
+      // Si hay internet al arrancar, ejecutar sincronización bidireccional en segundo plano
+      SyncService.fullSync().catch(err => {
+        console.warn('[Sync] Background initial sync error:', err);
+      });
     };
     initApp();
   }, []);
 
-  // 2. Suscribir sincronizador al recuperar conexión a internet
+  // 2. Suscribir sincronizador al recuperar conexión a internet y periódico cada 5 min
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable !== false) {
-        console.log('[NetInfo] Connection restored. Triggering sync...');
-        SyncService.syncPendingActions().catch(err => {
-          console.error('[NetInfo] Sync pending actions failed:', err);
+        console.log('[NetInfo] Connection restored. Triggering full sync...');
+        SyncService.fullSync().catch(err => {
+          console.error('[NetInfo] Full sync on connection restored failed:', err);
         });
       }
     });
-    return () => unsubscribe();
+
+    const interval = setInterval(() => {
+      SyncService.fullSync().catch(err => {
+        console.warn('[Sync] Periodic background sync warning:', err);
+      });
+    }, 5 * 60 * 1000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   // 2. Ocultar Splash Screen una vez inicializado

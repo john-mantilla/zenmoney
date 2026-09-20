@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Card, HelperText, Surface, IconButton, ActivityIndicator, Switch, Divider, Portal, Dialog } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -32,6 +32,7 @@ import { DetectAtypicalExpense } from '@/src/domain/usecases/DetectAtypicalExpen
 import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountBalance';
 import { ProjectMonthlyRunway } from '@/src/domain/usecases/ProjectMonthlyRunway';
 import { BudgetAlertService } from '@/src/infrastructure/services/BudgetAlertService';
+import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
@@ -99,7 +100,7 @@ export default function NewTransactionScreen() {
   const [exchangeRate, setExchangeRate] = useState('4000');
   const [loadingRate, setLoadingRate] = useState(false);
   const [isInstallments, setIsInstallments] = useState(false);
-  const [installmentsCount, setInstallmentsCount] = useState('12');
+  const [installmentsCount, setInstallmentsCount] = useState('3');
   // Mapa de presupuestos precargados para el LiveBudgetMeter
   const [budgetSpentMap, setBudgetSpentMap] = useState<Record<string, { limit: number; spent: number }>>({});
   // Estado para disparar micro-celebraciones (inversión, racha, meta de ahorro)
@@ -806,24 +807,7 @@ export default function NewTransactionScreen() {
         : `Compra en dólares ${originalText}`;
     }
 
-    if (isInstallments && !isEditing) {
-      const countVal = parseInt(installmentsCount) || 12;
-      const monthlyVal = Math.round(finalAmountValue / countVal);
-      const installmentSuffix = `(Diferido a ${countVal} cuotas de $${monthlyVal.toLocaleString('es-CO')})`;
-      finalDescription = finalDescription
-        ? `${finalDescription} ${installmentSuffix}`
-        : `Gasto diferido ${installmentSuffix}`;
-    }
-
-    const totalVal = finalAmountValue;
-    const countVal = parseInt(installmentsCount) || 12;
-    const monthlyVal = Math.round(totalVal / countVal);
-    const installmentsMeta = {
-      totalAmount: totalVal,
-      count: countVal,
-      monthlyAmount: monthlyVal,
-      startDate: transactionDate,
-    };
+    const countVal = parseInt(installmentsCount) || 3;
 
     const initialAiMetadata = isEditing && originalTx?.aiMetadata ? {
       ...originalTx.aiMetadata,
@@ -845,10 +829,6 @@ export default function NewTransactionScreen() {
       corrections: {},
     } : {});
 
-    const finalAiMetadata = isInstallments && !isEditing
-      ? { ...initialAiMetadata, installments: installmentsMeta }
-      : (Object.keys(initialAiMetadata).length > 0 ? initialAiMetadata : null);
-
     const inputData = {
       accountId: finalAccountId,
       categoryId: finalCategoryId,
@@ -868,7 +848,7 @@ export default function NewTransactionScreen() {
         : aiPreviewData
           ? (aiPreviewData.rawInput === '[foto de recibo]' ? ('photo' as const) : ('nlq' as const))
           : ('manual' as const),
-      aiMetadata: finalAiMetadata,
+      aiMetadata: Object.keys(initialAiMetadata).length > 0 ? initialAiMetadata : null,
       ...(isEditing && originalTx && {
         isRecurringInstance: originalTx.isRecurringInstance,
         recurringRuleId: originalTx.recurringRuleId,
@@ -883,9 +863,21 @@ export default function NewTransactionScreen() {
     }
 
     try {
-      const savedTx = isEditing && id
-        ? await transactionRepo.update(id, inputData as any)
-        : await transactionRepo.create(inputData);
+      let savedTx: Transaction;
+
+      if (isInstallments && !isEditing && countVal > 1) {
+        const installmentInputs = generateInstallmentTransactions(inputData, countVal);
+        const createdList: Transaction[] = [];
+        for (const cInput of installmentInputs) {
+          const created = await transactionRepo.create(cInput);
+          createdList.push(created);
+        }
+        savedTx = createdList[0];
+      } else {
+        savedTx = isEditing && id
+          ? await transactionRepo.update(id, inputData as any)
+          : await transactionRepo.create(inputData);
+      }
 
       // Feedback táctil de éxito al guardar
       hapticSuccess();
@@ -998,14 +990,70 @@ export default function NewTransactionScreen() {
   // Eliminar
   const handleDeleteTransaction = async () => {
     if (!id) return;
-    setIsLoading(true);
-    try {
-      await transactionRepo.delete(id);
-      router.replace('/(tabs)/transactions');
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el movimiento.');
-      setIsLoading(false);
+    const installmentsMeta = originalTx?.aiMetadata?.installments;
+
+    if (installmentsMeta?.groupId) {
+      Alert.alert(
+        'Eliminar compra a cuotas',
+        `Este movimiento es la Cuota ${installmentsMeta.currentNumber}/${installmentsMeta.count} de una compra diferida. ¿Deseas eliminar solo esta cuota o todas las cuotas de esta compra?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Solo esta cuota',
+            style: 'destructive',
+            onPress: async () => {
+              setIsLoading(true);
+              try {
+                await transactionRepo.delete(id);
+                router.replace('/(tabs)/transactions');
+              } catch (err) {
+                setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el movimiento.');
+                setIsLoading(false);
+              }
+            },
+          },
+          {
+            text: 'Todas las cuotas',
+            style: 'destructive',
+            onPress: async () => {
+              setIsLoading(true);
+              try {
+                const allTxs = await transactionRepo.getAll();
+                const related = allTxs.filter(t => t.aiMetadata?.installments?.groupId === installmentsMeta.groupId);
+                await Promise.all(related.map(t => transactionRepo.delete(t.id)));
+                router.replace('/(tabs)/transactions');
+              } catch (err) {
+                setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar las cuotas.');
+                setIsLoading(false);
+              }
+            },
+          },
+        ]
+      );
+      return;
     }
+
+    Alert.alert(
+      'Eliminar movimiento',
+      '¿Estás seguro de que deseas eliminar este movimiento?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              await transactionRepo.delete(id);
+              router.replace('/(tabs)/transactions');
+            } catch (err) {
+              setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el movimiento.');
+              setIsLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (isLoading && !isListening && amount === '' && accounts.length === 0) {
@@ -1801,6 +1849,143 @@ export default function NewTransactionScreen() {
               </ScrollView>
             </View>
 
+            {/* 4.6 Diferir Compra a Cuotas (Tarjeta de Crédito) */}
+            {type === 'expense' && !isEditing && accounts.find(a => a.id === accountId)?.type === 'credit_card' && (
+              <Surface
+                style={[
+                  theme.shadows.sm,
+                  {
+                    backgroundColor: theme.colors.surface,
+                    borderRadius: 16,
+                    padding: 14,
+                    borderWidth: 1,
+                    borderColor: isInstallments ? '#8B5CF680' : theme.colors.outline + '40',
+                    marginBottom: 16,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        backgroundColor: isInstallments ? '#8B5CF620' : theme.colors.surfaceVariant,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <MaterialCommunityIcons
+                        name="credit-card-clock-outline"
+                        size={18}
+                        color={isInstallments ? '#8B5CF6' : theme.colors.primary}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '700', fontSize: 13 }]}>
+                        Diferir compra a cuotas
+                      </Text>
+                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
+                        {isInstallments
+                          ? `${installmentsCount} cuotas de $${Math.round((parseFloat(amount) || 0) / (parseInt(installmentsCount) || 1)).toLocaleString('es-CO')}/mes`
+                          : 'Pagar en varios meses (Tarjeta de Crédito)'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isInstallments}
+                    onValueChange={(val) => {
+                      setIsInstallments(val);
+                      if (val && (!installmentsCount || installmentsCount === '1')) {
+                        setInstallmentsCount('3');
+                      }
+                    }}
+                    disabled={isLoading}
+                    color="#8B5CF6"
+                  />
+                </View>
+
+                {isInstallments && (
+                  <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.outline + '20' }}>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 8, fontWeight: '600' }]}>
+                      Número de cuotas:
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+                      {['2', '3', '6', '12', '24', '36'].map((c) => {
+                        const isSel = installmentsCount === c;
+                        return (
+                          <Pressable
+                            key={c}
+                            onPress={() => setInstallmentsCount(c)}
+                            style={{
+                              paddingHorizontal: 14,
+                              paddingVertical: 8,
+                              borderRadius: 12,
+                              backgroundColor: isSel ? '#8B5CF625' : theme.colors.surfaceVariant + '60',
+                              borderWidth: 1,
+                              borderColor: isSel ? '#8B5CF6' : 'transparent',
+                            }}
+                          >
+                            <Text style={[theme.typography.caption, { fontWeight: isSel ? '800' : '600', color: isSel ? '#8B5CF6' : theme.colors.onSurface }]}>
+                              {c} cuotas
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+
+                    {/* Banner explicativo del impacto financiero */}
+                    <View
+                      style={{
+                        marginTop: 10,
+                        padding: 10,
+                        borderRadius: 10,
+                        backgroundColor: '#8B5CF612',
+                        borderWidth: 1,
+                        borderColor: '#8B5CF630',
+                      }}
+                    >
+                      <Text style={[theme.typography.caption, { color: '#6D28D9', fontWeight: '700', fontSize: 11, marginBottom: 2 }]}>
+                        💡 Impacto Contable y Financiero
+                      </Text>
+                      <Text style={[theme.typography.caption, { color: '#5B21B6', fontSize: 11, lineHeight: 15 }]}>
+                        • Tu tarjeta registrará la deuda total de ${Math.round(parseFloat(amount) || 0).toLocaleString('es-CO')} hoy.{'\n'}
+                        • Tus gastos mensuales computarán solo ${Math.round((parseFloat(amount) || 0) / (parseInt(installmentsCount) || 1)).toLocaleString('es-CO')} en cada uno de los {installmentsCount} meses, protegiendo tus presupuestos.
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </Surface>
+            )}
+
+            {/* Información de Cuota cuando se edita un movimiento diferido */}
+            {isEditing && originalTx?.aiMetadata?.installments && (
+              <Surface
+                style={[
+                  theme.shadows.sm,
+                  {
+                    backgroundColor: '#8B5CF612',
+                    borderRadius: 16,
+                    padding: 14,
+                    borderWidth: 1,
+                    borderColor: '#8B5CF635',
+                    marginBottom: 16,
+                  },
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <MaterialCommunityIcons name="credit-card-clock-outline" size={18} color="#8B5CF6" />
+                  <Text style={[theme.typography.body, { color: '#6D28D9', fontWeight: '700', fontSize: 13 }]}>
+                    Cuota {originalTx.aiMetadata.installments.currentNumber} de {originalTx.aiMetadata.installments.count}
+                  </Text>
+                </View>
+                <Text style={[theme.typography.caption, { color: '#5B21B6', fontSize: 11, lineHeight: 16 }]}>
+                  Esta transacción corresponde a una compra diferida por un total de ${originalTx.aiMetadata.installments.totalAmount.toLocaleString('es-CO')}. Al eliminarla, podrás elegir si deseas borrar únicamente esta cuota o todas las cuotas del grupo.
+                </Text>
+              </Surface>
+            )}
+
             {/* 5. Tarjeta Agrupada: Detalles opcionales (Fecha, Notas, Transacción Privada - Colapsable) */}
             <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: theme.colors.outline + '40', marginBottom: 16 }]}>
               <Pressable
@@ -1984,6 +2169,9 @@ export default function NewTransactionScreen() {
                     onPress={() => {
                       if (accountSelectorTarget === 'origin') {
                         setAccountId(acc.id);
+                        if (acc.type !== 'credit_card') {
+                          setIsInstallments(false);
+                        }
                       } else {
                         setTransferToAccountId(acc.id);
                       }

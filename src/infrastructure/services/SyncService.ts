@@ -6,6 +6,9 @@ import { SupabaseBudgetRepository } from '../../data/repositories/SupabaseBudget
 import { SupabaseTagRepository } from '../../data/repositories/SupabaseTagRepository';
 import { SqliteAccountRepository } from '../../data/repositories/SqliteAccountRepository';
 import { SqliteTransactionRepository } from '../../data/repositories/SqliteTransactionRepository';
+import { SqliteCategoryRepository } from '../../data/repositories/SqliteCategoryRepository';
+import { SqliteTagRepository } from '../../data/repositories/SqliteTagRepository';
+import { SqliteBudgetRepository } from '../../data/repositories/SqliteBudgetRepository';
 import { CalculateAccountBalance } from '../../domain/usecases/CalculateAccountBalance';
 import { Account } from '../../domain/entities/Account';
 import { Transaction } from '../../domain/entities/Transaction';
@@ -144,10 +147,134 @@ export class SyncService {
   }
 
   /**
+   * Descarga una copia espejo limpia desde la nube hacia la base de datos local SQLite:
+   * 1. Cuentas con sus balances consolidados calculados (currentBalance) sin alterar initialBalance.
+   * 2. Categorías.
+   * 3. Etiquetas.
+   * 4. Transacciones confirmadas del año actual y recientes.
+   * 5. Presupuestos.
+   */
+  static async syncCloudToLocal(): Promise<void> {
+    if (Platform.OS === 'web') return;
+    if (!(await isOnlineFast())) return;
+
+    try {
+      const localAccountRepo = new SqliteAccountRepository();
+      const localTxRepo = new SqliteTransactionRepository();
+      const localCatRepo = new SqliteCategoryRepository();
+      const localTagRepo = new SqliteTagRepository();
+      const localBudgetRepo = new SqliteBudgetRepository();
+      const balanceUseCase = new CalculateAccountBalance(this.remoteTransactionRepo);
+
+      // 1. Descargar y sincronizar cuentas con sus saldos reales consolidados en current_balance
+      const remoteAccounts = await withTimeout(this.remoteAccountRepo.getAll(), 3500, []);
+      if (remoteAccounts && remoteAccounts.length > 0) {
+        const accountsWithRealBalances = await Promise.all(
+          remoteAccounts.map(async (acc) => {
+            try {
+              const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 3500, acc.initialBalance);
+              return {
+                ...acc,
+                currentBalance: realBalance,
+              };
+            } catch {
+              return {
+                ...acc,
+                currentBalance: acc.initialBalance,
+              };
+            }
+          })
+        );
+        await localAccountRepo.bulkSave(accountsWithRealBalances);
+      }
+
+      // 2. Descargar y sincronizar categorías
+      try {
+        const remoteCats = await withTimeout(this.remoteCategoryRepo.getAll(true), 3500, []);
+        if (remoteCats && remoteCats.length > 0) {
+          await localCatRepo.bulkSave(remoteCats);
+        }
+      } catch (catErr) {
+        console.warn('[SyncService] Error syncing categories to local:', catErr);
+      }
+
+      // 3. Descargar y sincronizar etiquetas
+      try {
+        const remoteTags = await withTimeout(this.remoteTagRepo.getAll(), 3500, []);
+        if (remoteTags && remoteTags.length > 0) {
+          await localTagRepo.bulkSave(remoteTags);
+        }
+      } catch (tagErr) {
+        console.warn('[SyncService] Error syncing tags to local:', tagErr);
+      }
+
+      // 4. Descargar y sincronizar transacciones recientes (año en curso)
+      try {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const startDate = `${currentYear}-01-01`;
+        const endDate = `${currentYear}-12-31`;
+
+        const remoteTransactions = await withTimeout(
+          this.remoteTransactionRepo.getAll({
+            startDate,
+            endDate,
+            status: 'confirmed',
+          }),
+          4500,
+          []
+        );
+
+        if (remoteTransactions && remoteTransactions.length > 0) {
+          await localTxRepo.bulkSave(remoteTransactions);
+        }
+      } catch (txErr) {
+        console.warn('[SyncService] Error syncing transactions to local:', txErr);
+      }
+
+      // 5. Descargar y sincronizar presupuestos
+      try {
+        const now = new Date();
+        const remoteBudgets = await withTimeout(
+          this.remoteBudgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1),
+          3500,
+          []
+        );
+        if (remoteBudgets && remoteBudgets.length > 0) {
+          await localBudgetRepo.bulkSave(remoteBudgets);
+        }
+      } catch (budgetErr) {
+        console.warn('[SyncService] Error syncing budgets to local:', budgetErr);
+      }
+
+      console.log('[SyncService] Cloud to local sync completed successfully.');
+    } catch (err) {
+      console.warn('[SyncService] syncCloudToLocal warning:', err);
+    }
+  }
+
+  /**
+   * Realiza una sincronización bidireccional completa:
+   * 1. Sube cambios locales pendientes hacia Supabase (local -> nube).
+   * 2. Descarga la réplica limpia y actualizada desde Supabase hacia SQLite (nube -> local).
+   */
+  static async fullSync(): Promise<void> {
+    if (Platform.OS === 'web') return;
+    if (!(await isOnlineFast())) return;
+
+    try {
+      console.log('[SyncService] Starting full bidirectional sync...');
+      await this.syncPendingActions();
+      await this.syncCloudToLocal();
+    } catch (err) {
+      console.error('[SyncService] Full sync error:', err);
+    }
+  }
+
+  /**
    * Sincroniza de manera atómica y en lote los datos requeridos por el Dashboard:
-   * 1. Cuentas y sus balances reales consolidados.
+   * 1. Cuentas y sus balances reales consolidados en current_balance.
    * 2. Todas las transacciones confirmadas (ingresos y gastos) del mes seleccionado.
-   * Guarda todo de forma segura en SQLite para que la lectura local siempre sea coherente.
    */
   static async syncDashboardData(year: number, month: number): Promise<{
     accounts: Account[];
@@ -177,7 +304,7 @@ export class SyncService {
             const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 3500, acc.initialBalance);
             return {
               ...acc,
-              initialBalance: realBalance,
+              currentBalance: realBalance,
             };
           } catch {
             return acc;
@@ -185,7 +312,7 @@ export class SyncService {
         })
       );
 
-      // 3. Guardar cuentas con sus saldos actualizados en SQLite
+      // 3. Guardar cuentas con sus saldos actualizados en SQLite (current_balance)
       await localAccountRepo.bulkSave(accountsWithRealBalances);
 
       // 4. Descargar todas las transacciones confirmadas del mes seleccionado (ingresos y gastos)

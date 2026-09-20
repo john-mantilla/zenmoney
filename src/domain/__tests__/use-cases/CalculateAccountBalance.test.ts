@@ -179,3 +179,53 @@ describe('CalculateAccountBalance — cuentas de deuda (tarjeta de crédito/cré
     expect(balance).toBe(60000);
   });
 });
+
+describe('CalculateAccountBalance — modo offline con currentBalance (sin doble conteo)', () => {
+  it('en modo preferCache con currentBalance devuelve el saldo consolidado directamente si no hay transacciones pendientes', async () => {
+    const account = makeAccount({ id: 'acc-1', type: 'bank', initialBalance: 100000, currentBalance: 1177962 });
+    // Simulamos que el repositorio tiene transacciones del mes ya sincronizadas
+    const repo = new FakeTransactionRepository([
+      makeTx({ type: 'expense', amount: 4435037, accountId: 'acc-1' }),
+    ]);
+    const balance = await new CalculateAccountBalance(repo).execute(account, true);
+    // Debe devolver el saldo consolidado exacto sin volver a restar los 4.435.037
+    expect(balance).toBe(1177962);
+  });
+
+  it('en modo preferCache con currentBalance aplica únicamente las transacciones locales pendientes de sincronizar', async () => {
+    const account = makeAccount({ id: 'acc-1', type: 'bank', initialBalance: 100000, currentBalance: 1177962 });
+    class FakeOfflineTransactionRepository extends FakeTransactionRepository {
+      async getUnsynced() {
+        return [
+          makeTx({ id: 'unsynced-1', type: 'expense', amount: 25000, accountId: 'acc-1', status: 'confirmed' }),
+        ];
+      }
+    }
+    const repo = new FakeOfflineTransactionRepository([]);
+    const balance = await new CalculateAccountBalance(repo).execute(account, true);
+    // 1177962 - 25000 = 1152962
+    expect(balance).toBe(1152962);
+  });
+
+  it('si preferCache es false, calcula dinámicamente desde el saldo de apertura inicial', async () => {
+    const account = makeAccount({ id: 'acc-1', type: 'bank', initialBalance: 100000, currentBalance: 1177962 });
+    const repo = new FakeTransactionRepository([
+      makeTx({ type: 'expense', amount: 20000, accountId: 'acc-1' }),
+    ]);
+    const balance = await new CalculateAccountBalance(repo).execute(account, false);
+    // 100000 - 20000 = 80000
+    expect(balance).toBe(80000);
+  });
+
+  it('en una tarjeta de crédito, compras diferidas a cuotas aumentan la deuda total por la suma de todas las cuotas', async () => {
+    const card = makeAccount({ id: 'card-1', type: 'credit_card', initialBalance: 0 });
+    const repo = new FakeTransactionRepository([
+      makeTx({ id: 'tx-c1', type: 'expense', amount: 40000, accountId: 'card-1', transactionDate: '2026-09-20' }),
+      makeTx({ id: 'tx-c2', type: 'expense', amount: 40000, accountId: 'card-1', transactionDate: '2026-10-20' }),
+      makeTx({ id: 'tx-c3', type: 'expense', amount: 40000, accountId: 'card-1', transactionDate: '2026-11-20' }),
+    ]);
+    const balance = await new CalculateAccountBalance(repo).execute(card, false);
+    // 40.000 + 40.000 + 40.000 = 120.000 total de deuda
+    expect(balance).toBe(120000);
+  });
+});

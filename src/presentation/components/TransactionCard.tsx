@@ -178,6 +178,24 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
                   <MaterialCommunityIcons name="eye-off-outline" size={12} color={theme.customColors.textSecondary} />
                 </View>
               )}
+              {/* Badge de Compra Diferida a Cuotas */}
+              {transaction.aiMetadata?.installments && (
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor: '#8B5CF618',
+                      borderColor: '#8B5CF640',
+                      borderWidth: 1,
+                      paddingHorizontal: 6,
+                    },
+                  ]}
+                >
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: '#8B5CF6' }}>
+                    💳 Cuota {transaction.aiMetadata.installments.currentNumber || 1}/{transaction.aiMetadata.installments.count}
+                  </Text>
+                </View>
+              )}
               {authorInitials && (
                 <View style={[styles.avatarBadge, { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary + '40', borderWidth: 1 }]}>
                   <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.primary }}>

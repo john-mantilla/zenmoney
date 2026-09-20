@@ -8,6 +8,15 @@ export type TransactionType = 'income' | 'expense' | 'transfer';
 export type TransactionStatus = 'confirmed' | 'pending' | 'archived';
 export type InputMethod = 'manual' | 'voice' | 'nlq' | 'email' | 'photo';
 
+export interface InstallmentMetadata {
+  groupId: string;
+  totalAmount: number;
+  count: number;
+  currentNumber: number;
+  monthlyAmount: number;
+  startDate: string;
+}
+
 export interface AIMetadata {
   rawInput: string;
   parsedAmount: number | null;
@@ -20,6 +29,7 @@ export interface AIMetadata {
   occurrenceDate?: string;
   is_bank_notification?: boolean;
   bank_name?: string;
+  installments?: InstallmentMetadata;
 }
 
 export interface Transaction {

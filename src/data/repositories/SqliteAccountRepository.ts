@@ -28,14 +28,15 @@ export class SqliteAccountRepository implements AccountRepository {
     const createdAt = new Date().toISOString();
 
     await db.runAsync(
-      `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, currency, is_active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, current_balance, currency, is_active, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         id,
         familyGroupId,
         ownerUserId,
         input.name,
         input.type,
+        input.initialBalance,
         input.initialBalance,
         input.currency || 'COP',
         1,
@@ -50,6 +51,7 @@ export class SqliteAccountRepository implements AccountRepository {
       name: input.name,
       type: input.type,
       initialBalance: input.initialBalance,
+      currentBalance: input.initialBalance,
       currency: input.currency || 'COP',
       isActive: true,
       createdAt
@@ -89,7 +91,7 @@ export class SqliteAccountRepository implements AccountRepository {
 
   async updateBalance(id: string, balance: number): Promise<void> {
     const db = this.getDb();
-    await db.runAsync('UPDATE accounts SET initial_balance = ? WHERE id = ?;', [balance, id]);
+    await db.runAsync('UPDATE accounts SET current_balance = ? WHERE id = ?;', [balance, id]);
   }
 
   async bulkSave(accounts: Account[]): Promise<void> {
@@ -98,8 +100,15 @@ export class SqliteAccountRepository implements AccountRepository {
     for (const acc of accounts) {
       try {
         await db.runAsync(
-          `INSERT OR REPLACE INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, currency, is_active, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, current_balance, currency, is_active, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             name = excluded.name,
+             type = excluded.type,
+             initial_balance = excluded.initial_balance,
+             current_balance = COALESCE(excluded.current_balance, accounts.current_balance),
+             currency = excluded.currency,
+             is_active = excluded.is_active;`,
           [
             acc.id,
             acc.familyGroupId || 'offline-family',
@@ -107,6 +116,7 @@ export class SqliteAccountRepository implements AccountRepository {
             acc.name,
             acc.type,
             acc.initialBalance,
+            acc.currentBalance ?? null,
             acc.currency || 'COP',
             acc.isActive ? 1 : 0,
             acc.createdAt || nowIso
@@ -148,6 +158,7 @@ export class SqliteAccountRepository implements AccountRepository {
       name: row.name,
       type: row.type,
       initialBalance: row.initial_balance,
+      currentBalance: row.current_balance !== null && row.current_balance !== undefined ? Number(row.current_balance) : undefined,
       currency: row.currency,
       isActive: row.is_active === 1,
       createdAt: row.created_at
