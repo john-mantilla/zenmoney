@@ -89,4 +89,20 @@ describe('installmentUtils — generateInstallmentTransactions', () => {
     const sum = cuotas.reduce((acc, c) => acc + c.amount, 0);
     expect(sum).toBe(100000);
   });
+
+  it('soporta plazos personalizados como 4 o 5 cuotas con total exacto', () => {
+    // 500.000 / 4 = 125.000 exactos
+    const cuotas4 = generateInstallmentTransactions({ ...baseInput, amount: 500000 }, 4);
+    expect(cuotas4).toHaveLength(4);
+    expect(cuotas4[0].amount).toBe(125000);
+    expect(cuotas4[3].description).toContain('Cuota 4/4');
+    expect(cuotas4.reduce((acc, c) => acc + c.amount, 0)).toBe(500000);
+
+    // 800.000 / 5 = 160.000 exactos
+    const cuotas5 = generateInstallmentTransactions({ ...baseInput, amount: 800000 }, 5);
+    expect(cuotas5).toHaveLength(5);
+    expect(cuotas5[0].amount).toBe(160000);
+    expect(cuotas5[4].description).toContain('Cuota 5/5');
+    expect(cuotas5.reduce((acc, c) => acc + c.amount, 0)).toBe(800000);
+  });
 });

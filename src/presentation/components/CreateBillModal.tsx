@@ -28,6 +28,7 @@ import { CategoryPickerMenu } from './CategoryPickerMenu';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
+import { InstallmentSelector } from './InstallmentSelector';
 
 interface CreateBillModalProps {
   visible: boolean;
@@ -40,6 +41,8 @@ interface CreateBillModalProps {
     categoryId?: string;
     type: 'expense' | 'transfer';
     transferToAccountId?: string;
+    isInstallments?: boolean;
+    installmentsCount?: number;
   }) => Promise<void>;
   onDelete?: () => Promise<void>;
   editingBill?: Transaction | null;
@@ -68,6 +71,10 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
   const [categoryId, setCategoryId] = useState('');
   const [transferToAccountId, setTransferToAccountId] = useState('');
   
+  // Estados de Cuotas (Installments)
+  const [isInstallments, setIsInstallments] = useState(false);
+  const [installmentsCount, setInstallmentsCount] = useState<number>(3);
+
   // Estados de UI y control
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -81,6 +88,17 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
   const parentCategories = expenseCategories.filter((c) => !c.parentCategoryId);
   const getSubcategories = (parentId: string) => expenseCategories.filter((c) => c.parentCategoryId === parentId);
 
+  const selectedAccount = accounts.find((a) => a.id === accountId);
+  const isCreditCard = selectedAccount?.type === 'credit_card';
+
+  const handleSelectAccount = (id: string) => {
+    setAccountId(id);
+    const acc = accounts.find((a) => a.id === id);
+    if (acc?.type !== 'credit_card') {
+      setIsInstallments(false);
+    }
+  };
+
   useEffect(() => {
     if (visible) {
       setErrorMsg(null);
@@ -92,6 +110,13 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
         setAccountId(editingBill.accountId || (accounts[0]?.id || ''));
         setCategoryId(editingBill.categoryId || '');
         setTransferToAccountId((editingBill.aiMetadata as any)?.toAccountId || '');
+        if (editingBill.aiMetadata?.installments) {
+          setIsInstallments(true);
+          setInstallmentsCount(editingBill.aiMetadata.installments.count || 3);
+        } else {
+          setIsInstallments(false);
+          setInstallmentsCount(3);
+        }
       } else {
         setBillType('expense');
         setDescription('');
@@ -100,6 +125,8 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
         setAccountId(accounts[0]?.id || '');
         setCategoryId(categories[0]?.id || '');
         setTransferToAccountId('');
+        setIsInstallments(false);
+        setInstallmentsCount(3);
       }
     }
   }, [visible, editingBill, accounts, categories]);
@@ -154,6 +181,8 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
         categoryId: billType === 'expense' ? categoryId : undefined,
         type: billType,
         transferToAccountId: billType === 'transfer' ? transferToAccountId : undefined,
+        isInstallments: billType === 'expense' && isCreditCard && isInstallments,
+        installmentsCount: (billType === 'expense' && isCreditCard && isInstallments) ? installmentsCount : undefined,
       });
       onClose();
     } catch (err: any) {
@@ -445,143 +474,206 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
 
                   {/* Selector Dinámico: Categoría (Gasto) vs Cuenta Destino (Transferencia) */}
                   {billType === 'expense' ? (
-                    <View style={styles.inputGroup}>
-                      <Text style={[theme.typography.label, { color: theme.customColors.textSecondary, marginBottom: 6 }]}>
-                        CATEGORÍA DE GASTO
-                      </Text>
-                      
-                      {/* Botón Encabezado de la Categoría Seleccionada */}
-                      <Pressable
-                        style={[
-                          styles.categorySelectBtn,
-                          {
-                            borderColor: showCategoryDropdown ? theme.colors.primary : theme.colors.outline + '40',
-                            backgroundColor: theme.colors.surface,
-                          },
-                        ]}
-                        onPress={() => {
-                          triggerHaptic();
-                          setShowCategoryDropdown(!showCategoryDropdown);
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <MaterialCommunityIcons
-                            name={(selectedCategory?.icon as any) || 'tag-outline'}
-                            size={20}
-                            color={selectedCategory?.color || theme.colors.primary}
-                            style={{ marginRight: 10 }}
-                          />
-                          <Text style={[theme.typography.body, { color: theme.colors.onSurface, fontWeight: '600' }]}>
-                            {selectedCategory?.name || 'Seleccionar Categoría'}
-                          </Text>
-                        </View>
-                        <MaterialCommunityIcons
-                          name={showCategoryDropdown ? 'chevron-up' : 'chevron-down'}
-                          size={20}
-                          color={theme.customColors.textSecondary}
-                        />
-                      </Pressable>
-
-                      {/* Acordeón / Desplegable de Categorías en línea */}
-                      {showCategoryDropdown && (
-                        <Surface
+                    <>
+                      <View style={styles.inputGroup}>
+                        <Text style={[theme.typography.label, { color: theme.customColors.textSecondary, marginBottom: 6 }]}>
+                          CATEGORÍA DE GASTO
+                        </Text>
+                        
+                        {/* Botón Encabezado de la Categoría Seleccionada */}
+                        <Pressable
                           style={[
-                            styles.categoryDropdownContainer,
-                            { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '30' },
+                            styles.categorySelectBtn,
+                            {
+                              borderColor: showCategoryDropdown ? theme.colors.primary : theme.colors.outline + '40',
+                              backgroundColor: theme.colors.surface,
+                            },
                           ]}
-                          elevation={2}
+                          onPress={() => {
+                            triggerHaptic();
+                            setShowCategoryDropdown(!showCategoryDropdown);
+                          }}
                         >
-                          <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled={true} showsVerticalScrollIndicator={true}>
-                            {parentCategories.map((parent) => {
-                              const subcats = getSubcategories(parent.id);
-                              const isParentSelected = categoryId === parent.id;
-                              return (
-                                <View key={parent.id} style={styles.categoryGroupItem}>
-                                  {/* Categoría Principal */}
-                                  <Pressable
-                                    style={[
-                                      styles.categoryRowItem,
-                                      isParentSelected && { backgroundColor: theme.colors.primary + '15' },
-                                    ]}
-                                    onPress={() => {
-                                      triggerHaptic();
-                                      setCategoryId(parent.id);
-                                      setShowCategoryDropdown(false);
-                                      setErrorMsg(null);
-                                    }}
-                                  >
-                                    <MaterialCommunityIcons
-                                      name={(parent.icon as any) || 'folder-outline'}
-                                      size={18}
-                                      color={parent.color || theme.colors.primary}
-                                      style={{ marginRight: 8 }}
-                                    />
-                                    <Text
-                                      style={[
-                                        theme.typography.bodySmall,
-                                        {
-                                          color: isParentSelected ? theme.colors.primary : theme.colors.onSurface,
-                                          fontWeight: isParentSelected ? '700' : '600',
-                                          flex: 1,
-                                        },
-                                      ]}
-                                    >
-                                      {parent.name}
-                                    </Text>
-                                    {isParentSelected && (
-                                      <MaterialCommunityIcons name="check" size={18} color={theme.colors.primary} />
-                                    )}
-                                  </Pressable>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <MaterialCommunityIcons
+                              name={(selectedCategory?.icon as any) || 'tag-outline'}
+                              size={20}
+                              color={selectedCategory?.color || theme.colors.primary}
+                              style={{ marginRight: 10 }}
+                            />
+                            <Text style={[theme.typography.body, { color: theme.colors.onSurface, fontWeight: '600' }]}>
+                              {selectedCategory?.name || 'Seleccionar Categoría'}
+                            </Text>
+                          </View>
+                          <MaterialCommunityIcons
+                            name={showCategoryDropdown ? 'chevron-up' : 'chevron-down'}
+                            size={20}
+                            color={theme.customColors.textSecondary}
+                          />
+                        </Pressable>
 
-                                  {/* Subcategorías Anidadas */}
-                                  {subcats.map((sub) => {
-                                    const isSubSelected = categoryId === sub.id;
-                                    return (
-                                      <Pressable
-                                        key={sub.id}
+                        {/* Acordeón / Desplegable de Categorías en línea */}
+                        {showCategoryDropdown && (
+                          <Surface
+                            style={[
+                              styles.categoryDropdownContainer,
+                              { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '30' },
+                            ]}
+                            elevation={2}
+                          >
+                            <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled={true} showsVerticalScrollIndicator={true}>
+                              {parentCategories.map((parent) => {
+                                const subcats = getSubcategories(parent.id);
+                                const isParentSelected = categoryId === parent.id;
+                                return (
+                                  <View key={parent.id} style={styles.categoryGroupItem}>
+                                    {/* Categoría Principal */}
+                                    <Pressable
+                                      style={[
+                                        styles.categoryRowItem,
+                                        isParentSelected && { backgroundColor: theme.colors.primary + '15' },
+                                      ]}
+                                      onPress={() => {
+                                        triggerHaptic();
+                                        setCategoryId(parent.id);
+                                        setShowCategoryDropdown(false);
+                                        setErrorMsg(null);
+                                      }}
+                                    >
+                                      <MaterialCommunityIcons
+                                        name={(parent.icon as any) || 'folder-outline'}
+                                        size={18}
+                                        color={parent.color || theme.colors.primary}
+                                        style={{ marginRight: 8 }}
+                                      />
+                                      <Text
                                         style={[
-                                          styles.categoryRowItem,
-                                          { paddingLeft: 32 },
-                                          isSubSelected && { backgroundColor: theme.colors.primary + '15' },
+                                          theme.typography.bodySmall,
+                                          {
+                                            color: isParentSelected ? theme.colors.primary : theme.colors.onSurface,
+                                            fontWeight: isParentSelected ? '700' : '600',
+                                            flex: 1,
+                                          },
                                         ]}
-                                        onPress={() => {
-                                          triggerHaptic();
-                                          setCategoryId(sub.id);
-                                          setShowCategoryDropdown(false);
-                                          setErrorMsg(null);
-                                        }}
                                       >
-                                        <MaterialCommunityIcons
-                                          name="subdirectory-arrow-right"
-                                          size={16}
-                                          color={theme.customColors.textSecondary}
-                                          style={{ marginRight: 6 }}
-                                        />
-                                        <Text
+                                        {parent.name}
+                                      </Text>
+                                      {isParentSelected && (
+                                        <MaterialCommunityIcons name="check" size={18} color={theme.colors.primary} />
+                                      )}
+                                    </Pressable>
+
+                                    {/* Subcategorías Anidadas */}
+                                    {subcats.map((sub) => {
+                                      const isSubSelected = categoryId === sub.id;
+                                      return (
+                                        <Pressable
+                                          key={sub.id}
                                           style={[
-                                            theme.typography.bodySmall,
-                                            {
-                                              color: isSubSelected ? theme.colors.primary : theme.customColors.textSecondary,
-                                              fontWeight: isSubSelected ? '700' : '400',
-                                              flex: 1,
-                                            },
+                                            styles.categoryRowItem,
+                                            { paddingLeft: 32 },
+                                            isSubSelected && { backgroundColor: theme.colors.primary + '15' },
                                           ]}
+                                          onPress={() => {
+                                            triggerHaptic();
+                                            setCategoryId(sub.id);
+                                            setShowCategoryDropdown(false);
+                                            setErrorMsg(null);
+                                          }}
                                         >
-                                          {sub.name}
-                                        </Text>
-                                        {isSubSelected && (
-                                          <MaterialCommunityIcons name="check" size={18} color={theme.colors.primary} />
-                                        )}
-                                      </Pressable>
-                                    );
-                                  })}
-                                </View>
-                              );
-                            })}
-                          </ScrollView>
-                        </Surface>
+                                          <MaterialCommunityIcons
+                                            name="subdirectory-arrow-right"
+                                            size={16}
+                                            color={theme.customColors.textSecondary}
+                                            style={{ marginRight: 6 }}
+                                          />
+                                          <Text
+                                            style={[
+                                              theme.typography.bodySmall,
+                                              {
+                                                color: isSubSelected ? theme.colors.primary : theme.customColors.textSecondary,
+                                                fontWeight: isSubSelected ? '700' : '400',
+                                                flex: 1,
+                                              },
+                                            ]}
+                                          >
+                                            {sub.name}
+                                          </Text>
+                                          {isSubSelected && (
+                                            <MaterialCommunityIcons name="check" size={18} color={theme.colors.primary} />
+                                          )}
+                                        </Pressable>
+                                      );
+                                    })}
+                                  </View>
+                                );
+                              })}
+                            </ScrollView>
+                          </Surface>
+                        )}
+                      </View>
+
+                      {/* Selector de Cuenta de Pago */}
+                      <View style={styles.inputGroup}>
+                        <Text style={[theme.typography.label, { color: theme.customColors.textSecondary, marginBottom: 6 }]}>
+                          CUENTA DE PAGO
+                        </Text>
+                        <View style={styles.accountPillContainer}>
+                          {accounts.map((acc) => {
+                            const isSelected = accountId === acc.id;
+                            const isCard = acc.type === 'credit_card';
+                            return (
+                              <Pressable
+                                key={acc.id}
+                                onPress={() => {
+                                  triggerHaptic();
+                                  handleSelectAccount(acc.id);
+                                }}
+                                style={[
+                                  styles.accountCardOption,
+                                  {
+                                    borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '30',
+                                    backgroundColor: isSelected ? theme.colors.primary + '10' : theme.colors.surface,
+                                  },
+                                ]}
+                              >
+                                <MaterialCommunityIcons
+                                  name={isCard ? 'credit-card-outline' : 'bank-outline'}
+                                  size={18}
+                                  color={isSelected ? theme.colors.primary : theme.customColors.textSecondary}
+                                />
+                                <Text
+                                  style={[
+                                    theme.typography.bodySmall,
+                                    {
+                                      color: isSelected ? theme.colors.primary : theme.colors.onSurface,
+                                      fontWeight: isSelected ? '700' : '400',
+                                      marginLeft: 6,
+                                    },
+                                  ]}
+                                >
+                                  {acc.name}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {/* Selector de Cuotas si la cuenta de pago es Tarjeta de Crédito */}
+                      {isCreditCard && (
+                        <View style={{ marginBottom: 16 }}>
+                          <InstallmentSelector
+                            enabled={isInstallments}
+                            onToggle={setIsInstallments}
+                            count={installmentsCount}
+                            onChangeCount={setInstallmentsCount}
+                            totalAmount={parseFloat(amount.replace(/[^0-9.]/g, '')) || 0}
+                            disabled={saving}
+                          />
+                        </View>
                       )}
-                    </View>
+                    </>
                   ) : (
                     <View style={styles.inputGroup}>
                       <Text style={[theme.typography.label, { color: theme.customColors.textSecondary, marginBottom: 6 }]}>

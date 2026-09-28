@@ -6,14 +6,14 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Card, HelperText, Surface, IconButton, ActivityIndicator, Switch, Divider, Portal, Dialog } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
-import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet, LiveBudgetMeter, MicroCelebrationModal, CelebrationType } from '@/src/presentation/components';
+import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet, LiveBudgetMeter, MicroCelebrationModal, CelebrationType, InstallmentSelector } from '@/src/presentation/components';
 import { CalculateRegistrationStreak } from '@/src/domain/usecases/CalculateRegistrationStreak';
 import { hapticLight, hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
@@ -33,6 +33,7 @@ import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountB
 import { ProjectMonthlyRunway } from '@/src/domain/usecases/ProjectMonthlyRunway';
 import { BudgetAlertService } from '@/src/infrastructure/services/BudgetAlertService';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
+import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
@@ -100,7 +101,7 @@ export default function NewTransactionScreen() {
   const [exchangeRate, setExchangeRate] = useState('4000');
   const [loadingRate, setLoadingRate] = useState(false);
   const [isInstallments, setIsInstallments] = useState(false);
-  const [installmentsCount, setInstallmentsCount] = useState('3');
+  const [installmentsCount, setInstallmentsCount] = useState<number>(3);
   // Mapa de presupuestos precargados para el LiveBudgetMeter
   const [budgetSpentMap, setBudgetSpentMap] = useState<Record<string, { limit: number; spent: number }>>({});
   // Estado para disparar micro-celebraciones (inversión, racha, meta de ahorro)
@@ -192,6 +193,10 @@ export default function NewTransactionScreen() {
             setIsPrivate(tx.isPrivate);
             if (tx.tags && tx.tags.length > 0) {
               setSelectedTagIds(tx.tags.map(t => t.id));
+            }
+            if (tx.aiMetadata?.installments) {
+              setIsInstallments(true);
+              setInstallmentsCount(Number(tx.aiMetadata.installments.count) || 3);
             }
 
             if (tx.categoryId) {
@@ -807,7 +812,7 @@ export default function NewTransactionScreen() {
         : `Compra en dólares ${originalText}`;
     }
 
-    const countVal = parseInt(installmentsCount) || 3;
+    const countVal = Math.max(2, installmentsCount || 3);
 
     const initialAiMetadata = isEditing && originalTx?.aiMetadata ? {
       ...originalTx.aiMetadata,
@@ -865,12 +870,23 @@ export default function NewTransactionScreen() {
     try {
       let savedTx: Transaction;
 
-      if (isInstallments && !isEditing && countVal > 1) {
+      const isPendingConfirmation = isEditing && originalTx?.status === 'pending';
+
+      if (isInstallments && countVal > 1 && (!isEditing || isPendingConfirmation)) {
         const installmentInputs = generateInstallmentTransactions(inputData, countVal);
         const createdList: Transaction[] = [];
-        for (const cInput of installmentInputs) {
-          const created = await transactionRepo.create(cInput);
-          createdList.push(created);
+        for (let i = 0; i < installmentInputs.length; i++) {
+          const cInput = installmentInputs[i];
+          if (i === 0 && isPendingConfirmation && id) {
+            const updatedFirst = await transactionRepo.update(id, {
+              ...cInput,
+              status: 'confirmed',
+            } as any);
+            createdList.push(updatedFirst);
+          } else {
+            const created = await transactionRepo.create(cInput);
+            createdList.push(created);
+          }
         }
         savedTx = createdList[0];
       } else {
@@ -993,7 +1009,7 @@ export default function NewTransactionScreen() {
     const installmentsMeta = originalTx?.aiMetadata?.installments;
 
     if (installmentsMeta?.groupId) {
-      Alert.alert(
+      AppAlert.alert(
         'Eliminar compra a cuotas',
         `Este movimiento es la Cuota ${installmentsMeta.currentNumber}/${installmentsMeta.count} de una compra diferida. ¿Deseas eliminar solo esta cuota o todas las cuotas de esta compra?`,
         [
@@ -1005,7 +1021,11 @@ export default function NewTransactionScreen() {
               setIsLoading(true);
               try {
                 await transactionRepo.delete(id);
-                router.replace('/(tabs)/transactions');
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/(tabs)/transactions');
+                }
               } catch (err) {
                 setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el movimiento.');
                 setIsLoading(false);
@@ -1021,7 +1041,11 @@ export default function NewTransactionScreen() {
                 const allTxs = await transactionRepo.getAll();
                 const related = allTxs.filter(t => t.aiMetadata?.installments?.groupId === installmentsMeta.groupId);
                 await Promise.all(related.map(t => transactionRepo.delete(t.id)));
-                router.replace('/(tabs)/transactions');
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/(tabs)/transactions');
+                }
               } catch (err) {
                 setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar las cuotas.');
                 setIsLoading(false);
@@ -1033,7 +1057,7 @@ export default function NewTransactionScreen() {
       return;
     }
 
-    Alert.alert(
+    AppAlert.alert(
       'Eliminar movimiento',
       '¿Estás seguro de que deseas eliminar este movimiento?',
       [
@@ -1045,7 +1069,11 @@ export default function NewTransactionScreen() {
             setIsLoading(true);
             try {
               await transactionRepo.delete(id);
-              router.replace('/(tabs)/transactions');
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/(tabs)/transactions');
+              }
             } catch (err) {
               setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el movimiento.');
               setIsLoading(false);
@@ -1850,117 +1878,19 @@ export default function NewTransactionScreen() {
             </View>
 
             {/* 4.6 Diferir Compra a Cuotas (Tarjeta de Crédito) */}
-            {type === 'expense' && !isEditing && accounts.find(a => a.id === accountId)?.type === 'credit_card' && (
-              <Surface
-                style={[
-                  theme.shadows.sm,
-                  {
-                    backgroundColor: theme.colors.surface,
-                    borderRadius: 16,
-                    padding: 14,
-                    borderWidth: 1,
-                    borderColor: isInstallments ? '#8B5CF680' : theme.colors.outline + '40',
-                    marginBottom: 16,
-                  },
-                ]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
-                    <View
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        backgroundColor: isInstallments ? '#8B5CF620' : theme.colors.surfaceVariant,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <MaterialCommunityIcons
-                        name="credit-card-clock-outline"
-                        size={18}
-                        color={isInstallments ? '#8B5CF6' : theme.colors.primary}
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '700', fontSize: 13 }]}>
-                        Diferir compra a cuotas
-                      </Text>
-                      <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11 }]}>
-                        {isInstallments
-                          ? `${installmentsCount} cuotas de $${Math.round((parseFloat(amount) || 0) / (parseInt(installmentsCount) || 1)).toLocaleString('es-CO')}/mes`
-                          : 'Pagar en varios meses (Tarjeta de Crédito)'}
-                      </Text>
-                    </View>
-                  </View>
-                  <Switch
-                    value={isInstallments}
-                    onValueChange={(val) => {
-                      setIsInstallments(val);
-                      if (val && (!installmentsCount || installmentsCount === '1')) {
-                        setInstallmentsCount('3');
-                      }
-                    }}
-                    disabled={isLoading}
-                    color="#8B5CF6"
-                  />
-                </View>
-
-                {isInstallments && (
-                  <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.outline + '20' }}>
-                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 8, fontWeight: '600' }]}>
-                      Número de cuotas:
-                    </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
-                      {['2', '3', '6', '12', '24', '36'].map((c) => {
-                        const isSel = installmentsCount === c;
-                        return (
-                          <Pressable
-                            key={c}
-                            onPress={() => setInstallmentsCount(c)}
-                            style={{
-                              paddingHorizontal: 14,
-                              paddingVertical: 8,
-                              borderRadius: 12,
-                              backgroundColor: isSel ? '#8B5CF625' : theme.colors.surfaceVariant + '60',
-                              borderWidth: 1,
-                              borderColor: isSel ? '#8B5CF6' : 'transparent',
-                            }}
-                          >
-                            <Text style={[theme.typography.caption, { fontWeight: isSel ? '800' : '600', color: isSel ? '#8B5CF6' : theme.colors.onSurface }]}>
-                              {c} cuotas
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-
-                    {/* Banner explicativo del impacto financiero */}
-                    <View
-                      style={{
-                        marginTop: 10,
-                        padding: 10,
-                        borderRadius: 10,
-                        backgroundColor: '#8B5CF612',
-                        borderWidth: 1,
-                        borderColor: '#8B5CF630',
-                      }}
-                    >
-                      <Text style={[theme.typography.caption, { color: '#6D28D9', fontWeight: '700', fontSize: 11, marginBottom: 2 }]}>
-                        💡 Impacto Contable y Financiero
-                      </Text>
-                      <Text style={[theme.typography.caption, { color: '#5B21B6', fontSize: 11, lineHeight: 15 }]}>
-                        • Tu tarjeta registrará la deuda total de ${Math.round(parseFloat(amount) || 0).toLocaleString('es-CO')} hoy.{'\n'}
-                        • Tus gastos mensuales computarán solo ${Math.round((parseFloat(amount) || 0) / (parseInt(installmentsCount) || 1)).toLocaleString('es-CO')} en cada uno de los {installmentsCount} meses, protegiendo tus presupuestos.
-                      </Text>
-                    </View>
-                  </View>
-                )}
-              </Surface>
+            {type === 'expense' && (!isEditing || originalTx?.status === 'pending') && accounts.find(a => a.id === accountId)?.type === 'credit_card' && (
+              <InstallmentSelector
+                enabled={isInstallments}
+                onToggle={setIsInstallments}
+                count={installmentsCount}
+                onChangeCount={setInstallmentsCount}
+                totalAmount={parseFloat(amount) || 0}
+                disabled={isLoading}
+              />
             )}
 
             {/* Información de Cuota cuando se edita un movimiento diferido */}
-            {isEditing && originalTx?.aiMetadata?.installments && (
+            {isEditing && originalTx?.status !== 'pending' && originalTx?.aiMetadata?.installments && (
               <Surface
                 style={[
                   theme.shadows.sm,

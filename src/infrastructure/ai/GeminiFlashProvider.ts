@@ -137,6 +137,7 @@ export class GeminiFlashProvider implements AIProvider {
          - "el lunes/martes/... pasado" -> el día de esa semana más reciente que ya pasó (nunca hoy ni en el futuro).
          - "la semana pasada" -> 7 días antes de hoy si no se menciona un día específico de esa semana.
          - Nunca devuelvas una fecha futura.
+      9. installmentsCount: Si el usuario menciona diferir a cuotas o pagar a plazos (ej: "a 3 cuotas", "diferido a 6 meses", "a 12 pagos", "en 4 cuotas"), extrae el número entero de cuotas (ej: 3, 6, 12). Si no se menciona o es 1 cuota, pon null.
 
       Devuelve ÚNICAMENTE el objeto JSON con este esquema, sin bloques de código markdown:
       {
@@ -149,7 +150,8 @@ export class GeminiFlashProvider implements AIProvider {
         "merchantName": string | null,
         "description": string | null,
         "confidence": number,
-        "transactionDate": "YYYY-MM-DD"
+        "transactionDate": "YYYY-MM-DD",
+        "installmentsCount": number | null
       }
     `;
 
@@ -204,6 +206,7 @@ export class GeminiFlashProvider implements AIProvider {
       merchantName: parsed.merchantName,
       description: parsed.description,
       transactionDate: this.resolveTransactionDate(parsed.transactionDate, localTodayStr),
+      installmentsCount: parsed.installmentsCount ? Number(parsed.installmentsCount) : null,
       confidence: parsed.confidence || 1,
       needsUserInput: [],
       rawInput: input,
@@ -415,7 +418,7 @@ export class GeminiFlashProvider implements AIProvider {
       2. Resalta SIEMPRE en **negrita** todas las cifras numéricas, montos en dinero, nombres de categorías y conceptos críticos (ej: **$ 2.251.000 COP**, **Mercado**, **Gastos Hormiga**).
       3. Utiliza viñetas con emojis contextuales en cada punto clave (ej: 📊 **Estado actual:** ..., 💡 **Consejo clave:** ..., ⚠️ **Atención:** ...).
       4. Sugiere 2 a 3 acciones interactivas cortas e intuitivas como frases de respuesta (ej: "Ver presupuestos", "Registrar un gasto", "Revisar facturas").
-      5. SI Y SOLO SI el usuario manifiesta la intención de registrar o anotar un gasto, ingreso o transferencia (ej: "Mercado con Vale por 15000", "Anota 50 mil en gasolina", "Gasto de 20mil con Bancolombia"), incluye en el JSON el objeto "pendingAction" con los campos "type": "create_transaction" y "payload" (con amount, transactionType, suggestedCategoryName, suggestedAccountName, description, transactionDate). En "answer", indica brevemente que has generado la tarjeta de pre-confirmación borrador.
+      5. SI Y SOLO SI el usuario manifiesta la intención de registrar o anotar un gasto, ingreso o transferencia (ej: "Mercado con Vale por 15000", "Anota 50 mil en gasolina", "Gasto de 20mil con Bancolombia", "Compra de 1 millón a 10 cuotas con tarjeta"), incluye en el JSON el objeto "pendingAction" con los campos "type": "create_transaction" y "payload" (con amount, transactionType, suggestedCategoryName, suggestedAccountName, description, transactionDate, e installmentsCount con el número entero de cuotas si el usuario indica diferir o pagar a cuotas). En "answer", indica brevemente que has generado la tarjeta de pre-confirmación borrador.
       6. SI EL USUARIO PIDE UN RETO, DESAFÍO O ENTRENAMIENTO FINANCIERO (ej: "¿qué desafío me recomiendas?", "dame un reto de 7 días", "quiero entrenar mis finanzas"), O SI DETECTAS UN PATRÓN CLARO DE GASTO EXCESIVO (ej: muchos domicilios, gastos hormiga o presupuestos superados), INCLUYE en el JSON el objeto "pendingAction" con "type": "create_challenge" y "payload" { "title": "...", "description": "...", "icon": "fire|food|shield-check|rocket", "rewardBadgeTitle": "..." }. En "answer", explica entusiasmado el desafío propuesto de 7 días.
 
       Devuelve ÚNICAMENTE un objeto JSON estructurado con este esquema exacto, sin bloques markdown:

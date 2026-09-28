@@ -30,6 +30,8 @@ export interface NLQParseResult {
   transactionDate: string | null;
   /** Overall confidence score (0-1) */
   confidence: number;
+  /** Number of installments if deferred purchase with credit card */
+  installmentsCount?: number;
   /** List of field names that couldn't be parsed and need user input */
   needsUserInput: string[];
   /** Original raw input text */
@@ -46,6 +48,7 @@ export interface PendingActionPayload {
   description?: string;
   merchantName?: string;
   transactionDate?: string;
+  installmentsCount?: number;
 }
 
 export interface ChallengePendingActionPayload {

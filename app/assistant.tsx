@@ -20,6 +20,7 @@ import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCate
 import { SupabaseBudgetRepository } from '@/src/data/repositories/SupabaseBudgetRepository';
 import { SupabaseAssistantMessageRepository } from '@/src/data/repositories/SupabaseAssistantMessageRepository';
 import { CalculateBudgetProgress } from '@/src/domain/usecases/CalculateBudgetProgress';
+import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { FinancialContext, ConversationTurn } from '@/src/infrastructure/ai/AIProvider';
 import { Account } from '@/src/domain/entities/Account';
 import { Transaction } from '@/src/domain/entities/Transaction';
@@ -299,6 +300,7 @@ export default function AssistantScreen() {
                   suggestedAccountName: parsed.suggestedAccountName || 'Efectivo',
                   description: parsed.description || parsed.suggestedCategoryName || textToSend,
                   transactionDate: parsed.transactionDate || financialContext.currentDate,
+                  installmentsCount: parsed.installmentsCount || undefined,
                 },
                 status: 'pending',
               };
@@ -402,16 +404,17 @@ export default function AssistantScreen() {
       }
 
       // Matchear cuenta
-      let matchedAccId = financialContext.accounts.find(
+      let matchedAccount = financialContext.accounts.find(
         a => a.name.toLowerCase() === (payload.suggestedAccountName || '').toLowerCase()
-      )?.id;
+      );
 
-      if (!matchedAccId) {
-        const acc = financialContext.accounts.find(
+      if (!matchedAccount) {
+        matchedAccount = financialContext.accounts.find(
           a => a.name.toLowerCase().includes((payload.suggestedAccountName || '').toLowerCase())
         );
-        matchedAccId = acc?.id || financialContext.accounts[0]?.id;
       }
+      const matchedAccId = matchedAccount?.id || financialContext.accounts[0]?.id;
+      const isCreditCard = matchedAccount?.type === 'credit_card';
 
       const newTxData = {
         amount: payload.amount,
@@ -426,7 +429,16 @@ export default function AssistantScreen() {
         isPrivate: false,
       };
 
-      await transactionRepo.create(newTxData);
+      const installmentsCount = payload.installmentsCount ? parseInt(String(payload.installmentsCount), 10) : 0;
+
+      if (isCreditCard && installmentsCount > 1) {
+        const installmentInputs = generateInstallmentTransactions(newTxData as any, installmentsCount);
+        for (const cInput of installmentInputs) {
+          await transactionRepo.create(cInput);
+        }
+      } else {
+        await transactionRepo.create(newTxData);
+      }
 
       // Cambiar estado de la tarjeta borrador en pantalla a confirmada
       setMessages(prev =>
@@ -443,10 +455,15 @@ export default function AssistantScreen() {
       await gatherFinancialContext();
 
       // Mensaje del sistema notificando éxito
+      const monthlyAmount = installmentsCount > 1 ? Math.round(payload.amount / installmentsCount) : payload.amount;
+      const confirmText = isCreditCard && installmentsCount > 1
+        ? `✅ **¡Compra diferida guardada con éxito!**\nSe generaron **${installmentsCount} cuotas de $ ${monthlyAmount.toLocaleString('es-CO')} COP/mes** para tu tarjeta en **${payload.suggestedCategoryName || 'Gasto'}**. Tus presupuestos mensuales y saldos ya están actualizados en toda la app.`
+        : `✅ **¡Guardado con éxito en la Base de Datos!**\nSe insertó el gasto de **$ ${payload.amount.toLocaleString('es-CO')} COP** en **${payload.suggestedCategoryName || 'Mercado'}**. Tus saldos y presupuestos ya están actualizados en toda la app.`;
+
       const confirmMessage: Message = {
         id: Date.now().toString(),
         sender: 'ai',
-        text: `✅ **¡Guardado con éxito en la Base de Datos!**\nSe insertó el gasto de **$ ${payload.amount.toLocaleString('es-CO')} COP** en **${payload.suggestedCategoryName || 'Mercado'}**. Tus saldos y presupuestos ya están actualizados en toda la app.`,
+        text: confirmText,
         createdAt: new Date(),
       };
       setMessages(prev => [...prev, confirmMessage]);
@@ -685,6 +702,15 @@ export default function AssistantScreen() {
                             {item.pendingAction.payload.suggestedAccountName || 'Cuenta principal'}
                           </Text>
                         </View>
+
+                        {item.pendingAction.payload.installmentsCount && Number(item.pendingAction.payload.installmentsCount) > 1 && (
+                          <View style={styles.draftRow}>
+                            <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>Plazo / Cuotas:</Text>
+                            <Text style={[theme.typography.body, { fontWeight: '700', color: '#8B5CF6' }]}>
+                              💳 {item.pendingAction.payload.installmentsCount} cuotas de ${Math.round(Number(item.pendingAction.payload.amount) / Number(item.pendingAction.payload.installmentsCount)).toLocaleString('es-CO')}/mes
+                            </Text>
+                          </View>
+                        )}
 
                         {item.pendingAction.status === 'pending' && (
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 }}>

@@ -87,10 +87,11 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
 
   useEffect(() => {
     if (editingAccount) {
+      const brand = getAccountBrandInfo(editingAccount);
       setAccountName(editingAccount.name);
       setAccountType(editingAccount.type);
-      setAccountColor(editingAccount.color || '');
-      setAccountIcon(editingAccount.icon || '');
+      setAccountColor(editingAccount.color || brand.color || '');
+      setAccountIcon(editingAccount.icon || brand.icon || '');
       setInitialBalanceInput(String(editingAccount.initialBalance || '0'));
       setClosingDay(editingAccount.closingDay ? String(editingAccount.closingDay) : '');
       setPaymentDay(editingAccount.paymentDay ? String(editingAccount.paymentDay) : '');

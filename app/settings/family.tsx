@@ -3,12 +3,13 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform } from 'react-native';
 import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, List, IconButton, Appbar, Divider, SegmentedButtons, HelperText, Chip, Surface } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { supabase } from '@/src/infrastructure/supabase/client';
+import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -189,10 +190,10 @@ export default function SettingsFamilyScreen() {
       setIsRemoveMemberDialogVisible(false);
       setTargetMemberToRemove(null);
       await loadData();
-      Alert.alert('Éxito', `${removedName} ha sido desvinculado del grupo familiar.`);
+      AppAlert.alert('Éxito', `${removedName} ha sido desvinculado del grupo familiar.`);
     } catch (err: any) {
       console.error('[Remove Member Error]:', err);
-      Alert.alert('Error', err?.message || 'No se pudo desvincular al miembro. Inténtalo de nuevo.');
+      AppAlert.alert('Error', err?.message || 'No se pudo desvincular al miembro. Inténtalo de nuevo.');
     } finally {
       setRemovingMember(false);
     }

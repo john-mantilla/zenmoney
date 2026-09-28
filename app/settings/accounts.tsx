@@ -8,14 +8,14 @@ import { Button, Card, Text, Switch, ActivityIndicator, Dialog, Portal, TextInpu
 import { useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '@/src/presentation/theme';
-import { SupabaseAccountRepository } from '@/src/data/repositories/SupabaseAccountRepository';
+import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
 import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
 import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurringInstances';
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { inferAccountBrand, getAccountBrandInfo, BRAND_COLORS } from '@/src/presentation/theme/accountBrands';
-import { CreateAccountModal } from '@/src/presentation/components';
+import { CreateAccountModal, CreateAccountData } from '@/src/presentation/components';
 import { useAccountCustomizationStore } from '@/src/infrastructure/state/accountCustomizationStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,7 +51,7 @@ export default function SettingsAccountsScreen() {
   const [savingAccount, setSavingAccount] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
 
-  const accountRepo = new SupabaseAccountRepository();
+  const accountRepo = new HybridAccountRepository();
   const recurrenceRepo = new SupabaseRecurringRuleRepository();
   const transactionRepo = new SupabaseTransactionRepository();
 
@@ -198,38 +198,69 @@ export default function SettingsAccountsScreen() {
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSaveAccount = async () => {
-    if (!accountName.trim()) return;
-    if (hasInstallment && installmentAmount.trim() && !installmentEndDate.trim()) {
-      setErrorMsg('Define la fecha de fin de la cuota: todas las facturas se crean de una sola vez entre el inicio y el fin.');
-      return;
+  const handleSaveAccount = async (data?: CreateAccountData) => {
+    const targetName = (data?.name ?? accountName).trim();
+    const targetType = data?.type ?? accountType;
+    const targetInitialBalance = data?.initialBalance !== undefined 
+      ? data.initialBalance 
+      : (parseFloat(initialBalanceInput.replace(/[^0-9.]/g, '')) || 0);
+    const targetClosingDay = data?.closingDay !== undefined 
+      ? data.closingDay 
+      : (closingDay ? parseInt(closingDay) : null);
+    const targetPaymentDay = data?.paymentDay !== undefined 
+      ? data.paymentDay 
+      : (paymentDay ? parseInt(paymentDay) : null);
+    const targetIsPrivate = data?.isPrivate !== undefined 
+      ? data.isPrivate 
+      : isPrivate;
+    const targetHasInstallment = data?.hasInstallment !== undefined 
+      ? data.hasInstallment 
+      : hasInstallment;
+    const targetInstallmentAmount = data?.installmentAmount !== undefined 
+      ? String(data.installmentAmount) 
+      : installmentAmount;
+    const targetInstallmentEndDate = data?.installmentEndDate !== undefined 
+      ? data.installmentEndDate 
+      : installmentEndDate;
+    const targetInstallmentSourceAccountId = data?.installmentSourceAccountId !== undefined 
+      ? data.installmentSourceAccountId 
+      : installmentSourceAccountId;
+
+    if (!targetName) {
+      const msg = 'Por favor ingresa un nombre para la cuenta.';
+      setErrorMsg(msg);
+      throw new Error(msg);
+    }
+    if (targetHasInstallment && targetInstallmentAmount.trim() && !targetInstallmentEndDate.trim()) {
+      const msg = 'Define la fecha de fin de la cuota: todas las facturas se crean de una sola vez entre el inicio y el fin.';
+      setErrorMsg(msg);
+      throw new Error(msg);
     }
     setErrorMsg(null);
     setSavingAccount(true);
     try {
       let savedAccount: Account;
 
-      const finalBrand = inferAccountBrand(accountName, accountType);
-      const colorToSave = accountColor || finalBrand.color;
-      const iconToSave = accountIcon || finalBrand.icon;
+      const finalBrand = inferAccountBrand(targetName, targetType);
+      const colorToSave = data?.color || accountColor || finalBrand.color;
+      const iconToSave = data?.icon || accountIcon || finalBrand.icon;
       if (selectedAccount) {
         savedAccount = await accountRepo.update(selectedAccount.id, {
-          name: accountName.trim(),
-          type: accountType,
-          closingDay: closingDay ? parseInt(closingDay) : null,
-          paymentDay: paymentDay ? parseInt(paymentDay) : null,
-          isPrivate,
+          name: targetName,
+          type: targetType,
+          closingDay: targetClosingDay,
+          paymentDay: targetPaymentDay,
+          isPrivate: targetIsPrivate,
         } as any);
       } else {
-        const parsedInitialBalance = parseFloat(initialBalanceInput.replace(/[^0-9.]/g, '')) || 0;
         savedAccount = await accountRepo.create({
-          name: accountName.trim(),
-          type: accountType,
-          initialBalance: parsedInitialBalance,
+          name: targetName,
+          type: targetType,
+          initialBalance: targetInitialBalance,
           currency: 'COP',
-          closingDay: closingDay ? parseInt(closingDay) : null,
-          paymentDay: paymentDay ? parseInt(paymentDay) : null,
-          isPrivate,
+          closingDay: targetClosingDay,
+          paymentDay: targetPaymentDay,
+          isPrivate: targetIsPrivate,
         });
       }
 
@@ -244,10 +275,10 @@ export default function SettingsAccountsScreen() {
       const existingRule = recurringRules.find(r => r.description === `Pago cuota: ${savedAccount.name}`);
       const generator = new GenerateRecurringInstances(transactionRepo);
 
-      if (hasInstallment && installmentAmount.trim()) {
-        const parsedAmount = parseFloat(installmentAmount.replace(/[^0-9.]/g, '')) || 0;
-        const parsedDay = savedAccount.paymentDay || 5;
-        const parsedEndDate = installmentEndDate.trim();
+      if (targetHasInstallment && targetInstallmentAmount.trim()) {
+        const parsedAmount = parseFloat(targetInstallmentAmount.replace(/[^0-9.]/g, '')) || 0;
+        const parsedDay = targetPaymentDay || savedAccount.paymentDay || 5;
+        const parsedEndDate = targetInstallmentEndDate.trim();
 
         if (existingRule) {
           // Editar la cuota NUNCA toca las facturas ya creadas (monto, día o cuenta se
@@ -260,7 +291,7 @@ export default function SettingsAccountsScreen() {
           const updatedRule = await recurrenceRepo.update(existingRule.id, {
             amount: parsedAmount,
             dayOfMonth: parsedDay,
-            accountId: installmentSourceAccountId,
+            accountId: targetInstallmentSourceAccountId || installmentSourceAccountId,
             endDate: parsedEndDate,
           });
           if (!oldEndDate || parsedEndDate > oldEndDate) {
@@ -278,7 +309,7 @@ export default function SettingsAccountsScreen() {
           // sola vez todas las cuotas entre hoy y la fecha de fin.
           const startDate = computeAlignedStartDate(parsedDay);
           const createdRule = await recurrenceRepo.create({
-            accountId: installmentSourceAccountId,
+            accountId: targetInstallmentSourceAccountId || installmentSourceAccountId,
             categoryId: null, // Sin categoría predeterminada
             type: 'expense',
             amount: parsedAmount,
@@ -290,7 +321,7 @@ export default function SettingsAccountsScreen() {
           });
           await generator.execute(createdRule, startDate, parsedEndDate);
         }
-      } else if (!hasInstallment && existingRule) {
+      } else if (!targetHasInstallment && existingRule) {
         // Eliminar regla si se desactivó, junto con las facturas pendientes que
         // ya había generado (las pagadas/confirmadas se conservan como historial).
         await recurrenceRepo.delete(existingRule.id);
@@ -306,10 +337,13 @@ export default function SettingsAccountsScreen() {
       }
 
       setIsDialogVisible(false);
-      loadData();
+      setSelectedAccount(null);
+      await loadData();
     } catch (err) {
       console.error('Error al guardar cuenta:', err);
-      setErrorMsg(err instanceof Error ? err.message : 'Error al guardar la cuenta.');
+      const msg = err instanceof Error ? err.message : 'Error al guardar la cuenta.';
+      setErrorMsg(msg);
+      throw err;
     } finally {
       setSavingAccount(false);
     }
@@ -456,20 +490,7 @@ export default function SettingsAccountsScreen() {
           setSelectedAccount(null);
         }}
         onSave={async (data) => {
-          setAccountName(data.name);
-          setAccountType(data.type);
-          setInitialBalanceInput(String(data.initialBalance));
-          if (data.color) setAccountColor(data.color);
-          if (data.icon) setAccountIcon(data.icon);
-          if (data.closingDay) setClosingDay(String(data.closingDay));
-          if (data.paymentDay) setPaymentDay(String(data.paymentDay));
-          setIsPrivate(!!data.isPrivate);
-          setHasInstallment(!!data.hasInstallment);
-          if (data.installmentAmount) setInstallmentAmount(String(data.installmentAmount));
-          if (data.installmentEndDate) setInstallmentEndDate(data.installmentEndDate);
-          if (data.installmentSourceAccountId) setInstallmentSourceAccountId(data.installmentSourceAccountId);
-
-          await handleSaveAccount();
+          await handleSaveAccount(data);
         }}
         editingAccount={selectedAccount}
         accounts={accounts}

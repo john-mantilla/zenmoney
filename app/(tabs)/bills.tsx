@@ -20,6 +20,7 @@ import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/Supabas
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
+import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
@@ -1043,10 +1044,32 @@ export default function BillsScreen() {
             }
           } as any;
 
-          if (editingBill) {
-            await transactionRepo.update(editingBill.id, inputData);
+          if (data.isInstallments && data.installmentsCount && data.installmentsCount > 1) {
+            const installmentTransactions = generateInstallmentTransactions(inputData, data.installmentsCount).map((tx) => ({
+              ...tx,
+              aiMetadata: {
+                ...tx.aiMetadata,
+                dueDate: tx.transactionDate,
+              },
+            }));
+
+            if (editingBill) {
+              const [first, ...rest] = installmentTransactions;
+              await transactionRepo.update(editingBill.id, first);
+              for (const tx of rest) {
+                await transactionRepo.create(tx);
+              }
+            } else {
+              for (const tx of installmentTransactions) {
+                await transactionRepo.create(tx);
+              }
+            }
           } else {
-            await transactionRepo.create(inputData);
+            if (editingBill) {
+              await transactionRepo.update(editingBill.id, inputData);
+            } else {
+              await transactionRepo.create(inputData);
+            }
           }
           setEditingBill(null);
           loadData(true);
