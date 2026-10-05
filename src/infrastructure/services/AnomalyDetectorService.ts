@@ -33,7 +33,7 @@ export class AnomalyDetectorService {
   /**
    * Escanea anomalías activas y filtra aquellas que el usuario ya haya descartado.
    */
-  async scanForAnomalies(): Promise<SmartAlert[]> {
+  async scanForAnomalies(preferCache = true): Promise<SmartAlert[]> {
     const rawAlerts: SmartAlert[] = [];
     try {
       const now = new Date();
@@ -41,7 +41,7 @@ export class AnomalyDetectorService {
       ninetyDaysAgo.setDate(now.getDate() - 90);
       const startDate = ninetyDaysAgo.toISOString().split('T')[0];
 
-      const txs = await this.txRepo.getAll({ startDate });
+      const txs = await this.txRepo.getAll({ startDate }, preferCache);
       const expenses = txs.filter((tx) => tx.type === 'expense' && tx.status === 'confirmed');
 
       const duplicates = this.detectDuplicates(expenses);
@@ -50,7 +50,7 @@ export class AnomalyDetectorService {
       const subscriptions = this.detectHiddenSubscriptions(expenses);
       rawAlerts.push(...subscriptions);
 
-      const spikes = await this.detectSpikes(expenses);
+      const spikes = await this.detectSpikes(expenses, preferCache);
       rawAlerts.push(...spikes);
     } catch (err) {
       console.error('[AnomalyDetectorService] Error scanning anomalies:', err);
@@ -166,9 +166,9 @@ export class AnomalyDetectorService {
     return alerts;
   }
 
-  private async detectSpikes(expenses: Transaction[]): Promise<SmartAlert[]> {
+  private async detectSpikes(expenses: Transaction[], preferCache = true): Promise<SmartAlert[]> {
     const alerts: SmartAlert[] = [];
-    const categories = await this.catRepo.getAll(true);
+    const categories = await this.catRepo.getAll(true, preferCache);
 
     const today = new Date();
     const currentMonth = today.getMonth();

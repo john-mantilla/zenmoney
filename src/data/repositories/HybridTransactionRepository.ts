@@ -5,6 +5,7 @@ import { SqliteTransactionRepository } from './SqliteTransactionRepository';
 import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
+import { SyncService } from '../../infrastructure/services/SyncService';
 
 import { Platform } from 'react-native';
 
@@ -37,10 +38,7 @@ export class HybridTransactionRepository implements TransactionRepository {
     if (Platform.OS === 'web') return this.remoteRepo.getAll(filters);
 
     if (preferCache && this.localRepo) {
-      const local = await this.localRepo.getAll(filters);
-      if (local.length > 0) {
-        return local;
-      }
+      return this.localRepo.getAll(filters);
     }
 
     if (await this.isOnline()) {
@@ -113,16 +111,7 @@ export class HybridTransactionRepository implements TransactionRepository {
 
     if (Platform.OS === 'web') return this.remoteRepo.create({ ...input, id: tempId });
 
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.create({ ...input, id: tempId }), 2500);
-        await this.localRepo!.bulkSave([remote]);
-        return remote;
-      } catch (err) {
-        // Fallback
-      }
-    }
-
+    // Guardado Optimista Local-First: Persistir inmediatamente en SQLite (< 5ms)
     const local = await this.localRepo!.create(localInput);
 
     const db = LocalDatabase.getDb();
@@ -133,22 +122,16 @@ export class HybridTransactionRepository implements TransactionRepository {
       [actionId, 'INSERT', 'transactions', tempId, JSON.stringify(localInput), createdAt]
     );
 
+    // Replicación asíncrona transparente en segundo plano (Zero Blocking UI)
+    SyncService.syncPendingActions().catch(() => {});
+
     return local;
   }
 
   async update(id: string, data: Partial<CreateTransactionInput>): Promise<Transaction> {
     if (Platform.OS === 'web') return this.remoteRepo.update(id, data);
 
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.update(id, data), 2500);
-        await this.localRepo!.bulkSave([remote]);
-        return remote;
-      } catch (err) {
-        // Fallback
-      }
-    }
-
+    // Actualización Optimista Local-First (< 5ms)
     const local = await this.localRepo!.update(id, { ...data, synced: false } as any);
 
     const db = LocalDatabase.getDb();
@@ -159,22 +142,16 @@ export class HybridTransactionRepository implements TransactionRepository {
       [actionId, 'UPDATE', 'transactions', id, JSON.stringify(data), new Date().toISOString()]
     );
 
+    // Replicación asíncrona transparente en segundo plano
+    SyncService.syncPendingActions().catch(() => {});
+
     return local;
   }
 
   async delete(id: string): Promise<void> {
     if (Platform.OS === 'web') return this.remoteRepo.delete(id);
 
-    if (await this.isOnline()) {
-      try {
-        await withTimeout(this.remoteRepo.delete(id), 2500);
-        await this.localRepo!.delete(id);
-        return;
-      } catch (err) {
-        // Fallback
-      }
-    }
-
+    // Borrado Optimista Local-First (< 5ms)
     await this.localRepo!.delete(id);
 
     const db = LocalDatabase.getDb();
@@ -184,6 +161,9 @@ export class HybridTransactionRepository implements TransactionRepository {
        VALUES (?, ?, ?, ?, ?, ?);`,
       [actionId, 'DELETE', 'transactions', id, '{}', new Date().toISOString()]
     );
+
+    // Replicación asíncrona transparente en segundo plano
+    SyncService.syncPendingActions().catch(() => {});
   }
 
   async getByDateRange(startDate: string, endDate: string): Promise<Transaction[]> {

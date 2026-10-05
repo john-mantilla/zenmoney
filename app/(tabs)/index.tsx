@@ -183,10 +183,6 @@ export default function DashboardScreen() {
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
 
-    if (isNewTimeframe) {
-      setIsLoading(true);
-    }
-
     const executeFetch = async (preferCache: boolean) => {
       const loadedAccounts = await accountRepo.getAll(preferCache);
       
@@ -324,29 +320,39 @@ export default function DashboardScreen() {
 
       // 5. Escanear Anomalías Financieras
       const anomalyService = new AnomalyDetectorService();
-      const alerts = await anomalyService.scanForAnomalies();
+      const alerts = await anomalyService.scanForAnomalies(preferCache);
       setSmartAlerts(alerts);
+
+      return activeAccounts;
     };
 
+    // 1. CARGA INMEDIATA LOCAL-FIRST (Zero Latency)
+    // Lee de la base de datos local SQLite en < 30ms para pintar el dashboard instantáneamente
+    let hasLocalData = false;
+    try {
+      const localActive = await executeFetch(true);
+      if (localActive && localActive.length > 0) {
+        hasLocalData = true;
+        setIsLoading(false);
+      }
+    } catch (localErr) {
+      console.warn('[Dashboard Local Load Error]', localErr);
+    }
+
+    // Si no había datos locales (primera instalación en frío), mantener spinner
+    if (!hasLocalData) {
+      setIsLoading(true);
+    }
+
+    // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
+    // Si el dispositivo está online, actualiza con la nube en background sin bloquear la pantalla
     try {
       const isOnline = await isOnlineFast();
-
-      if (!isOnline) {
-        // Modo sin conexión: Cargar de inmediato desde la base SQLite local
-        await executeFetch(true);
-      } else {
-        // Modo con conexión: Carga limpia y atómica desde la nube hacia la base local
-        // evitando saltos o estados numéricos intermedios incorrectos
+      if (isOnline) {
         await executeFetch(false);
       }
     } catch (err) {
-      console.error('[Dashboard Load Error]:', err);
-      // Fallback seguro a lectura local
-      try {
-        await executeFetch(true);
-      } catch (fallbackErr) {
-        console.error('[Dashboard Fallback Error]:', fallbackErr);
-      }
+      console.error('[Dashboard Revalidation Error]:', err);
     } finally {
       setIsLoading(false);
       setRefreshing(false);

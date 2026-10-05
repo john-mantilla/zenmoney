@@ -721,9 +721,9 @@ export default function NewTransactionScreen() {
       const cardAccounts = activeAccounts.filter(a => a.type === 'credit_card');
 
       const balanceUseCase = new CalculateAccountBalance(transactionRepo);
-      const liquidSum = (await Promise.all(liquidAccounts.map(a => balanceUseCase.execute(a))))
+      const liquidSum = (await Promise.all(liquidAccounts.map(a => balanceUseCase.execute(a, true))))
         .reduce((sum, b) => sum + b, 0);
-      const cardsSum = (await Promise.all(cardAccounts.map(a => balanceUseCase.execute(a))))
+      const cardsSum = (await Promise.all(cardAccounts.map(a => balanceUseCase.execute(a, true))))
         .reduce((sum, b) => sum + Math.abs(b), 0);
       const liquidBalanceAfter = liquidSum - cardsSum;
 
@@ -732,7 +732,7 @@ export default function NewTransactionScreen() {
         startDate: startOfMonth,
         endDate: todayStr,
         status: 'confirmed',
-      });
+      }, true);
       const activeRules = await recurringRuleRepo.getAllActive();
 
       const runwayUseCase = new ProjectMonthlyRunway();
@@ -912,8 +912,9 @@ export default function NewTransactionScreen() {
         }
       }
 
+      // Ejecutar insights y recordatorios en segundo plano sin demorar el retorno de la UI
+      runPostSaveInsights(savedTx).catch(() => {});
       try {
-        await runPostSaveInsights(savedTx);
         const { RegistrationReminderService } = require('@/src/infrastructure/services/RegistrationReminderService');
         RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
       } catch {

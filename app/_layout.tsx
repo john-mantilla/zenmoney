@@ -31,8 +31,9 @@ import { LocalDatabase } from '@/src/data/local/LocalDatabase';
 import NetInfo from '@react-native-community/netinfo';
 import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClient } from '@/src/infrastructure/state/queryClient';
-import { AppErrorBoundary } from '@/src/presentation/components';
+import { AppErrorBoundary, PremiumBrandIntro } from '@/src/presentation/components';
+
+let hasPlayedColdStartIntro = false;
 
 // Ocultar advertencias inocuas de React Web para librerías nativas de gráficos
 if (Platform.OS === 'web') {
@@ -89,6 +90,12 @@ function RootLayoutNav() {
   const segments = useSegments();
 
   const { initialize, isInitialized, isAuthenticated, hasAccounts } = useAuthStore();
+  const [showIntro, setShowIntro] = useState(!hasPlayedColdStartIntro);
+
+  const handleFinishIntro = React.useCallback(() => {
+    hasPlayedColdStartIntro = true;
+    setShowIntro(false);
+  }, []);
 
   // Atajo de app (mantener presionado el ícono): salta directo al registro de gasto,
   // sin pasar por abrir el Dashboard primero. Android lo puede fijar en el home screen;
@@ -191,12 +198,11 @@ function RootLayoutNav() {
     }
   }, [isInitialized, isAuthenticated, hasAccounts, segments]);
 
-  // Pantalla de carga mientras se inicializa el estado global de la app
+  // Mientras se inicializa el estado global de la app, mostrar el fondo de marca premium
   if (!isInitialized) {
-    const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={[styles.loadingContainer, { backgroundColor: '#0A0F1D' }]}>
+        <PremiumBrandIntro onFinish={() => {}} />
       </View>
     );
   }
@@ -220,6 +226,9 @@ function RootLayoutNav() {
               }}
             />
           </Stack>
+          {showIntro && (
+            <PremiumBrandIntro onFinish={handleFinishIntro} />
+          )}
         </PaperProvider>
       </QueryClientProvider>
     </AppErrorBoundary>
