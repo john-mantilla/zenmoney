@@ -118,7 +118,7 @@ class FakeTransactionRepository implements TransactionRepository {
     return this.items.find((t) => t.id === id) || null;
   }
 
-  async update(id: string, input: Partial<Transaction>): Promise<Transaction> {
+  async update(id: string, input: any): Promise<Transaction> {
     const idx = this.items.findIndex((t) => t.id === id);
     if (idx === -1) throw new Error('Transaction not found');
     const updated = { ...this.items[idx], ...input, updatedAt: new Date().toISOString() };

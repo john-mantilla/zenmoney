@@ -31,9 +31,8 @@ import { LocalDatabase } from '@/src/data/local/LocalDatabase';
 import NetInfo from '@react-native-community/netinfo';
 import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { AppErrorBoundary, PremiumBrandIntro } from '@/src/presentation/components';
-
-let hasPlayedColdStartIntro = false;
+import { queryClient } from '@/src/infrastructure/state/queryClient';
+import { AppErrorBoundary } from '@/src/presentation/components';
 
 // Ocultar advertencias inocuas de React Web para librerías nativas de gráficos
 if (Platform.OS === 'web') {
@@ -58,8 +57,10 @@ if (Platform.OS === 'web') {
   };
 }
 
-// Mantener el splash screen visible mientras se cargan los recursos
-SplashScreen.preventAutoHideAsync();
+// Mantener el splash screen visible únicamente en plataformas nativas mientras se cargan los recursos
+if (Platform.OS !== 'web') {
+  SplashScreen.preventAutoHideAsync().catch(() => {});
+}
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -90,12 +91,6 @@ function RootLayoutNav() {
   const segments = useSegments();
 
   const { initialize, isInitialized, isAuthenticated, hasAccounts } = useAuthStore();
-  const [showIntro, setShowIntro] = useState(!hasPlayedColdStartIntro);
-
-  const handleFinishIntro = React.useCallback(() => {
-    hasPlayedColdStartIntro = true;
-    setShowIntro(false);
-  }, []);
 
   // Atajo de app (mantener presionado el ícono): salta directo al registro de gasto,
   // sin pasar por abrir el Dashboard primero. Android lo puede fijar en el home screen;
@@ -164,10 +159,10 @@ function RootLayoutNav() {
     };
   }, []);
 
-  // 2. Ocultar Splash Screen una vez inicializado
+  // Ocultar Splash Screen una vez inicializado (solo en plataformas nativas)
   useEffect(() => {
-    if (isInitialized) {
-      SplashScreen.hideAsync();
+    if (isInitialized && Platform.OS !== 'web') {
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [isInitialized]);
 
@@ -198,11 +193,12 @@ function RootLayoutNav() {
     }
   }, [isInitialized, isAuthenticated, hasAccounts, segments]);
 
-  // Mientras se inicializa el estado global de la app, mostrar el fondo de marca premium
+  // Pantalla de carga sutil mientras se inicializa el estado global de la app
   if (!isInitialized) {
+    const theme = colorScheme === 'dark' ? darkTheme : lightTheme;
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: '#0A0F1D' }]}>
-        <PremiumBrandIntro onFinish={() => {}} />
+      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="small" color={theme.colors.primary} />
       </View>
     );
   }
@@ -226,9 +222,6 @@ function RootLayoutNav() {
               }}
             />
           </Stack>
-          {showIntro && (
-            <PremiumBrandIntro onFinish={handleFinishIntro} />
-          )}
         </PaperProvider>
       </QueryClientProvider>
     </AppErrorBoundary>

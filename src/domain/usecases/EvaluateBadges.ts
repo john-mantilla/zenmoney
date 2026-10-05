@@ -28,7 +28,7 @@ export class EvaluateBadges {
     // 2. Constructor de Capital (Aporte a Inversión o Ahorro)
     const constructorUnlocked = userTxs.some(tx => 
       tx.type === 'expense' && 
-      (tx.note?.toLowerCase().includes('ahorro') || tx.note?.toLowerCase().includes('inversion') || tx.note?.toLowerCase().includes('inversión'))
+      (tx.description?.toLowerCase().includes('ahorro') || tx.description?.toLowerCase().includes('inversion') || tx.description?.toLowerCase().includes('inversión'))
     );
 
     // 3. Mente Realista (Presupuesto ajustado)
