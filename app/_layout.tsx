@@ -60,6 +60,13 @@ if (Platform.OS === 'web') {
 // Mantener el splash screen visible únicamente en plataformas nativas mientras se cargan los recursos
 if (Platform.OS !== 'web') {
   SplashScreen.preventAutoHideAsync().catch(() => {});
+} else if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  // Limpiar preventivamente service workers obsoletos para evitar caché fantasma en PWA/Web
+  navigator.serviceWorker.getRegistrations().then(registrations => {
+    for (const registration of registrations) {
+      registration.unregister();
+    }
+  }).catch(() => {});
 }
 
 export default function RootLayout() {
