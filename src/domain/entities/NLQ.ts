@@ -7,6 +7,7 @@ import { Account } from './Account';
 import { Category } from './Category';
 import { BudgetProgress } from './Budget';
 import { Transaction } from './Transaction';
+import { HistoricalAnalysis } from '../usecases/GetHistoricalFinancialAnalysis';
 
 export interface NLQParseResult {
   amount: number | null;
@@ -37,6 +38,7 @@ export interface FinancialContext {
   categories: Category[];
   currentDate: string;
   currency: string;
+  historicalAnalysis?: HistoricalAnalysis;
 }
 
 export interface AIProvider {

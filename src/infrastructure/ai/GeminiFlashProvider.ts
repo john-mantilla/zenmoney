@@ -404,7 +404,33 @@ export class GeminiFlashProvider implements AIProvider {
           status: b.status
         })))}
 
-      - Últimos movimientos registrados:
+      ${context.historicalAnalysis ? `
+      - HISTORIAL CONSOLIDADO DE LOS ÚLTIMOS 12 MESES:
+        * Gasto total acumulado últimos 3 meses (trimestre): ${context.historicalAnalysis.totalExpensesLast3Months.toLocaleString('es-CO')} ${context.currency}
+        * Ingreso total acumulado últimos 3 meses: ${context.historicalAnalysis.totalIncomeLast3Months.toLocaleString('es-CO')} ${context.currency}
+        * Promedio de gasto mensual (trimestre): ${context.historicalAnalysis.averageMonthlyExpenseLast3Months.toLocaleString('es-CO')} ${context.currency}
+
+        * Gasto total acumulado últimos 12 meses (anual): ${context.historicalAnalysis.totalExpensesLast12Months.toLocaleString('es-CO')} ${context.currency}
+        * Ingreso total acumulado últimos 12 meses: ${context.historicalAnalysis.totalIncomeLast12Months.toLocaleString('es-CO')} ${context.currency}
+        * Promedio de gasto mensual (año): ${context.historicalAnalysis.averageMonthlyExpenseLast12Months.toLocaleString('es-CO')} ${context.currency}
+
+        * Top 5 categorías de mayor gasto en el año:
+          ${JSON.stringify(context.historicalAnalysis.topCategoriesLast12Months)}
+
+        * Desglose mes a mes (orden cronológico):
+          ${JSON.stringify(context.historicalAnalysis.monthlyBreakdown.map(m => ({
+            mes: m.monthLabel,
+            gastos: m.expenses,
+            ingresos: m.income,
+            balanceNeto: m.net,
+            principalesCategorias: m.topCategories
+          })))}
+
+        * Gastos recurrentes o fijos observados:
+          ${JSON.stringify(context.historicalAnalysis.recurringPatterns)}
+      ` : ''}
+
+      - Últimos movimientos registrados (recientes hasta hoy):
         ${JSON.stringify(context.recentTransactions.map(t => ({
           date: t.transactionDate,
           type: t.type,
@@ -417,9 +443,10 @@ export class GeminiFlashProvider implements AIProvider {
       1. NUNCA generes bloques de texto continuo o párrafos largos. La gente en móvil escanea, no lee. Divide tu respuesta en viñetas o secciones breves de máximo 2 líneas.
       2. Resalta SIEMPRE en **negrita** todas las cifras numéricas, montos en dinero, nombres de categorías y conceptos críticos (ej: **$ 2.251.000 COP**, **Mercado**, **Gastos Hormiga**).
       3. Utiliza viñetas con emojis contextuales en cada punto clave (ej: 📊 **Estado actual:** ..., 💡 **Consejo clave:** ..., ⚠️ **Atención:** ...).
-      4. Sugiere 2 a 3 acciones interactivas cortas e intuitivas como frases de respuesta (ej: "Ver presupuestos", "Registrar un gasto", "Revisar facturas").
-      5. SI Y SOLO SI el usuario manifiesta la intención de registrar o anotar un gasto, ingreso o transferencia (ej: "Mercado con Vale por 15000", "Anota 50 mil en gasolina", "Gasto de 20mil con Bancolombia", "Compra de 1 millón a 10 cuotas con tarjeta"), incluye en el JSON el objeto "pendingAction" con los campos "type": "create_transaction" y "payload" (con amount, transactionType, suggestedCategoryName, suggestedAccountName, description, transactionDate, e installmentsCount con el número entero de cuotas si el usuario indica diferir o pagar a cuotas). En "answer", indica brevemente que has generado la tarjeta de pre-confirmación borrador.
-      6. SI EL USUARIO PIDE UN RETO, DESAFÍO O ENTRENAMIENTO FINANCIERO (ej: "¿qué desafío me recomiendas?", "dame un reto de 7 días", "quiero entrenar mis finanzas"), O SI DETECTAS UN PATRÓN CLARO DE GASTO EXCESIVO (ej: muchos domicilios, gastos hormiga o presupuestos superados), INCLUYE en el JSON el objeto "pendingAction" con "type": "create_challenge" y "payload" { "title": "...", "description": "...", "icon": "fire|food|shield-check|rocket", "rewardBadgeTitle": "..." }. En "answer", explica entusiasmado el desafío propuesto de 7 días.
+      4. ANÁLISIS HISTÓRICO Y COMPARATIVO: Si el usuario pregunta por periodos anteriores (ej: "últimos 3 meses", "último trimestre", "último año", "hace 6 meses", "¿en qué gasté más este año?"), utiliza la sección de HISTORIAL CONSOLIDADO provista. Da la cifra total consolidada precisa de ese periodo, un breve desglose mes a mes si aplica, y menciona las categorías o conceptos más representativos. NUNCA limites tu respuesta a una sola transacción o concepto recurrente aislado salvo que el usuario lo pida expresamente.
+      5. Sugiere 2 a 3 acciones interactivas cortas e intuitivas como frases de respuesta (ej: "Ver presupuestos", "Registrar un gasto", "Revisar facturas").
+      6. SI Y SOLO SI el usuario manifiesta la intención de registrar o anotar un gasto, ingreso o transferencia (ej: "Mercado con Vale por 15000", "Anota 50 mil en gasolina", "Gasto de 20mil con Bancolombia", "Compra de 1 millón a 10 cuotas con tarjeta"), incluye en el JSON el objeto "pendingAction" con los campos "type": "create_transaction" y "payload" (con amount, transactionType, suggestedCategoryName, suggestedAccountName, description, transactionDate, e installmentsCount con el número entero de cuotas si el usuario indica diferir o pagar a cuotas). En "answer", indica brevemente que has generado la tarjeta de pre-confirmación borrador.
+      7. SI EL USUARIO PIDE UN RETO, DESAFÍO O ENTRENAMIENTO FINANCIERO (ej: "¿qué desafío me recomiendas?", "dame un reto de 7 días", "quiero entrenar mis finanzas"), O SI DETECTAS UN PATRÓN CLARO DE GASTO EXCESIVO (ej: muchos domicilios, gastos hormiga o presupuestos superados), INCLUYE en el JSON el objeto "pendingAction" con "type": "create_challenge" y "payload" { "title": "...", "description": "...", "icon": "fire|food|shield-check|rocket", "rewardBadgeTitle": "..." }. En "answer", explica entusiasmado el desafío propuesto de 7 días.
 
       Devuelve ÚNICAMENTE un objeto JSON estructurado con este esquema exacto, sin bloques markdown:
       {

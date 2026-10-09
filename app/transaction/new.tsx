@@ -41,6 +41,7 @@ import { Tag } from '@/src/domain/entities/Tag';
 import { CategorizationRule } from '@/src/domain/entities/CategorizationRule';
 import { HybridTagRepository } from '@/src/data/repositories/HybridTagRepository';
 import { GeminiFlashProvider } from '@/src/infrastructure/ai/GeminiFlashProvider';
+import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -223,7 +224,7 @@ export default function NewTransactionScreen() {
           if (params.type === 'transfer') setMode('manual');
 
           if (activeAccs.length > 0 && !params.accountId) {
-            setAccountId(activeAccs[0].id);
+            setAccountId(useAccountPreferenceStore.getState().getPreferredAccountId(activeAccs));
           }
         }
 
@@ -243,7 +244,7 @@ export default function NewTransactionScreen() {
               // Auto-Guardado Inteligente (Opción A): Si hay monto válido y cuentas disponibles
               const amountVal = parsed.amount ? Number(parsed.amount) : 0;
               if (amountVal > 0 && activeAccs.length > 0) {
-                const targetAccountId = (parsed as any).suggestedAccountId || activeAccs[0].id;
+                const targetAccountId = (parsed as any).suggestedAccountId || useAccountPreferenceStore.getState().getPreferredAccountId(activeAccs);
                 const learnedCatId = parsed.merchantName
                   ? matchRuleUseCase.execute(parsed.merchantName, categorizationRules)
                   : null;
@@ -260,6 +261,7 @@ export default function NewTransactionScreen() {
                   transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
                 });
 
+                useAccountPreferenceStore.getState().setLastUsedAccountId(targetAccountId);
                 hapticSuccess();
 
                 // Redirigir inmediatamente al Resumen mostrando Snackbar interactivo
@@ -793,7 +795,7 @@ export default function NewTransactionScreen() {
     if (mode === 'quick' && !isEditing) {
       finalType = 'expense';
       if (!finalAccountId && accounts.length > 0) {
-        finalAccountId = accounts[0].id;
+        finalAccountId = useAccountPreferenceStore.getState().getPreferredAccountId(accounts);
       }
       if (!finalDescription) {
         const catName = categories.find(c => c.id === finalCategoryId)?.name || 'Gasto';
@@ -893,6 +895,11 @@ export default function NewTransactionScreen() {
         savedTx = isEditing && id
           ? await transactionRepo.update(id, inputData as any)
           : await transactionRepo.create(inputData);
+      }
+
+      // Recordar última cuenta utilizada
+      if (savedTx?.accountId) {
+        useAccountPreferenceStore.getState().setLastUsedAccountId(savedTx.accountId);
       }
 
       // Feedback táctil de éxito al guardar
@@ -1158,6 +1165,55 @@ export default function NewTransactionScreen() {
                 </Text>
               </Surface>
             </Pressable>
+
+            {/* Chip de Cuenta para Modo Rápido */}
+            {(() => {
+              const selAcc = accounts.find(a => a.id === accountId);
+              const brand = selAcc ? getAccountBrandInfo(selAcc) : null;
+              return (
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setAccountSelectorTarget('origin');
+                    setIsAccountSheetVisible(true);
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    alignSelf: 'center',
+                    backgroundColor: theme.colors.surface,
+                    paddingHorizontal: 14,
+                    paddingVertical: 7,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: theme.colors.outline + '80',
+                    marginVertical: 10,
+                    gap: 8,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: 11,
+                      backgroundColor: brand?.color || theme.colors.primary,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name={(brand?.icon as any) || 'bank-outline'}
+                      size={13}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '700', fontSize: 13 }]}>
+                    {selAcc ? selAcc.name : 'Seleccionar cuenta'}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-down" size={18} color={theme.customColors.textSecondary} />
+                </TouchableOpacity>
+              );
+            })()}
 
             {/* Teclado de Botones Rápidos (ScrollView Horizontal para encajar en cualquier pantalla móvil) */}
             <View style={{ marginBottom: 12 }}>

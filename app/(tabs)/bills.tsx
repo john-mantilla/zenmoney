@@ -24,6 +24,7 @@ import { generateInstallmentTransactions } from '@/src/domain/utils/installmentU
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
+import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 const parseLocalDate = (dateStr: string): Date => {
@@ -97,9 +98,10 @@ export default function BillsScreen() {
       // Configuración > Cuentas o Configuración > Recurrencias. Esta pantalla solo lee
       // y muestra lo que ya existe — así una factura editada nunca "reaparece" duplicada.
       const loadedAccounts = await accountRepo.getAll();
-      setAccounts(loadedAccounts.filter(a => a.isActive));
-      if (loadedAccounts.length > 0 && !billAccountId) {
-        setBillAccountId(loadedAccounts[0].id);
+      const activeLoadedAccs = loadedAccounts.filter(a => a.isActive);
+      setAccounts(activeLoadedAccs);
+      if (activeLoadedAccs.length > 0 && !billAccountId) {
+        setBillAccountId(useAccountPreferenceStore.getState().getPreferredAccountId(activeLoadedAccs));
       }
 
       const loadedCats = await categoryRepo.getAll(true);

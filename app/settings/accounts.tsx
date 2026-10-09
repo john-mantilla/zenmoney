@@ -17,6 +17,7 @@ import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { inferAccountBrand, getAccountBrandInfo, BRAND_COLORS } from '@/src/presentation/theme/accountBrands';
 import { CreateAccountModal, CreateAccountData } from '@/src/presentation/components';
 import { useAccountCustomizationStore } from '@/src/infrastructure/state/accountCustomizationStore';
+import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -24,6 +25,10 @@ export default function SettingsAccountsScreen() {
   const theme = useAppTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  // Preferencias de cuentas (Cuenta Principal)
+  const defaultAccountId = useAccountPreferenceStore((state) => state.defaultAccountId);
+  const setDefaultAccountId = useAccountPreferenceStore((state) => state.setDefaultAccountId);
 
   // Estados de datos
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -269,6 +274,15 @@ export default function SettingsAccountsScreen() {
         const store = useAccountCustomizationStore.getState();
         store.setCustomColor(savedAccount.id, colorToSave);
         store.setCustomIcon(savedAccount.id, iconToSave);
+
+        // Actualizar preferencia de cuenta principal si fue definida en el modal
+        if (data?.isDefault !== undefined) {
+          if (data.isDefault) {
+            setDefaultAccountId(savedAccount.id);
+          } else if (defaultAccountId === savedAccount.id) {
+            setDefaultAccountId(null);
+          }
+        }
       }
 
       // Procesamiento de auto-cuotas para créditos o tarjetas de deuda
@@ -429,6 +443,8 @@ export default function SettingsAccountsScreen() {
                         const brand = getAccountBrandInfo(account);
                         const finalColor = brand.color;
                         const finalIcon = brand.icon;
+                        const isDefault = defaultAccountId === account.id;
+
                         return (
                           <View key={account.id} style={styles.accountRow}>
                             <Pressable style={styles.accountMeta} onPress={() => openAccountEditDialog(account)}>
@@ -449,27 +465,44 @@ export default function SettingsAccountsScreen() {
                                   color="#FFFFFF"
                                 />
                               </View>
-                              <View>
-                                <Text style={[
-                                  theme.typography.body,
-                                  {
-                                    textDecorationLine: account.isActive ? 'none' : 'line-through',
-                                    opacity: account.isActive ? 1 : 0.5,
-                                    fontWeight: '600'
-                                  }
-                                ]}>
-                                  {account.name}
-                                </Text>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text style={[
+                                    theme.typography.body,
+                                    {
+                                      textDecorationLine: account.isActive ? 'none' : 'line-through',
+                                      opacity: account.isActive ? 1 : 0.5,
+                                      fontWeight: '600'
+                                    }
+                                  ]}>
+                                    {account.name}
+                                  </Text>
+                                  {isDefault && (
+                                    <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#B45309' }}>Principal</Text>
+                                    </View>
+                                  )}
+                                </View>
                                 <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
                                   {getAccountTypeLabel(account.type)} {account.isPrivate ? '• 🙈 Privada' : ''}
                                 </Text>
                               </View>
                             </Pressable>
-                            <Switch
-                              value={account.isActive}
-                              onValueChange={() => handleToggleAccountActive(account)}
-                              color={theme.colors.primary}
-                            />
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <IconButton
+                                icon={isDefault ? 'star' : 'star-outline'}
+                                iconColor={isDefault ? '#F59E0B' : theme.customColors.textSecondary}
+                                size={22}
+                                onPress={() => setDefaultAccountId(isDefault ? null : account.id)}
+                                style={{ margin: 0 }}
+                                accessibilityLabel={isDefault ? 'Quitar como cuenta principal' : 'Establecer como cuenta principal'}
+                              />
+                              <Switch
+                                value={account.isActive}
+                                onValueChange={() => handleToggleAccountActive(account)}
+                                color={theme.colors.primary}
+                              />
+                            </View>
                           </View>
                         );
                       })}

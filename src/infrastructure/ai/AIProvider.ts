@@ -9,6 +9,7 @@
  * Future: OllamaProvider (self-hosted), OpenAIProvider
  */
 import type { Account, Category, Transaction, BudgetProgress } from '@domain/entities';
+import type { HistoricalAnalysis } from '@domain/usecases/GetHistoricalFinancialAnalysis';
 
 // ─── NLQ Transaction Parsing ───────────────────────────────────────────
 
@@ -93,6 +94,7 @@ export interface FinancialContext {
   categories: Category[];
   currentDate: string;
   currency: string;
+  historicalAnalysis?: HistoricalAnalysis;
 }
 
 // ─── AI Provider Interface ─────────────────────────────────────────────

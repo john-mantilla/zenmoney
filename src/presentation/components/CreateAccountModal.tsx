@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
+import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 
 export interface CreateAccountData {
   name: string;
@@ -25,6 +26,7 @@ export interface CreateAccountData {
   closingDay?: number;
   paymentDay?: number;
   isPrivate?: boolean;
+  isDefault?: boolean;
   hasInstallment?: boolean;
   installmentAmount?: number;
   installmentEndDate?: string;
@@ -78,6 +80,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [closingDay, setClosingDay] = useState('');
   const [paymentDay, setPaymentDay] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [isDefault, setIsDefault] = useState(false);
   const [hasInstallment, setHasInstallment] = useState(false);
   const [installmentAmount, setInstallmentAmount] = useState('');
   const [installmentEndDate, setInstallmentEndDate] = useState('');
@@ -86,6 +89,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    const currentDefaultId = useAccountPreferenceStore.getState().defaultAccountId;
     if (editingAccount) {
       const brand = getAccountBrandInfo(editingAccount);
       setAccountName(editingAccount.name);
@@ -96,6 +100,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setClosingDay(editingAccount.closingDay ? String(editingAccount.closingDay) : '');
       setPaymentDay(editingAccount.paymentDay ? String(editingAccount.paymentDay) : '');
       setIsPrivate(!!editingAccount.isPrivate);
+      setIsDefault(editingAccount.id === currentDefaultId);
     } else {
       setAccountName('');
       setAccountType('bank');
@@ -105,6 +110,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setClosingDay('');
       setPaymentDay('');
       setIsPrivate(false);
+      setIsDefault(false);
       setHasInstallment(false);
       setInstallmentAmount('');
       setInstallmentEndDate('');
@@ -141,6 +147,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
         closingDay: closingDay ? parseInt(closingDay, 10) : undefined,
         paymentDay: paymentDay ? parseInt(paymentDay, 10) : undefined,
         isPrivate,
+        isDefault,
         hasInstallment,
         installmentAmount: installmentAmount ? parseFloat(installmentAmount) : undefined,
         installmentEndDate: installmentEndDate || undefined,
@@ -353,6 +360,19 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
                     </Text>
                   </View>
                   <Switch value={isPrivate} onValueChange={setIsPrivate} color={theme.colors.primary} disabled={isSaving} />
+                </View>
+
+                {/* Toggle Cuenta Principal / Favorita */}
+                <View style={[styles.switchRow, { borderColor: theme.colors.outline + '20' }]}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={[theme.typography.body, { fontWeight: '600', color: theme.colors.onSurface }]}>
+                      Cuenta Principal ⭐
+                    </Text>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+                      Preseleccionada automáticamente al registrar gastos y facturas
+                    </Text>
+                  </View>
+                  <Switch value={isDefault} onValueChange={setIsDefault} color="#F59E0B" disabled={isSaving} />
                 </View>
 
                 {/* Botón de Acción Principal */}

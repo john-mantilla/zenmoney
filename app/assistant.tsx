@@ -15,11 +15,12 @@ import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { GeminiFlashProvider } from '@/src/infrastructure/ai/GeminiFlashProvider';
 import { SupabaseAccountRepository } from '@/src/data/repositories/SupabaseAccountRepository';
-import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
+import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
 import { SupabaseBudgetRepository } from '@/src/data/repositories/SupabaseBudgetRepository';
 import { SupabaseAssistantMessageRepository } from '@/src/data/repositories/SupabaseAssistantMessageRepository';
 import { CalculateBudgetProgress } from '@/src/domain/usecases/CalculateBudgetProgress';
+import { GetHistoricalFinancialAnalysis } from '@/src/domain/usecases/GetHistoricalFinancialAnalysis';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { FinancialContext, ConversationTurn } from '@/src/infrastructure/ai/AIProvider';
 import { Account } from '@/src/domain/entities/Account';
@@ -28,6 +29,7 @@ import { BudgetProgress } from '@/src/domain/entities/Budget';
 import { Challenge } from '@/src/domain/entities/Challenge';
 import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 import { AnomalyDetectorService } from '@/src/infrastructure/services/AnomalyDetectorService';
+import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -37,10 +39,10 @@ function makeWelcomeMessage(displayName?: string): Message {
   return {
     id: 'welcome',
     sender: 'ai',
-    text: `¡Hola, ${displayName || 'hola'}! Soy tu Asistente Financiero ZenMoney 🤖. \n\nPuedes preguntarme cosas sobre tus presupuestos, tus saldos de cuentas, o consejos para ahorrar este mes. ¿En qué te ayudo hoy?`,
+    text: `¡Hola, ${displayName || 'hola'}! Soy tu Asistente Financiero ZenMoney 🤖. \n\nPuedes preguntarme sobre tus presupuestos, tus gastos de los últimos meses o del año, tus saldos de cuentas, o consejos para ahorrar. ¿En qué te ayudo hoy?`,
     suggestedActions: [
+      'Gastos de los últimos 3 meses',
       '¿Cómo van mis presupuestos?',
-      '¿Cuál es mi saldo disponible?',
       'Resumen de gastos de este mes',
     ],
     createdAt: new Date(),
@@ -78,10 +80,11 @@ export default function AssistantScreen() {
   // Proveedores y Repositorios
   const aiProvider = new GeminiFlashProvider();
   const accountRepo = new SupabaseAccountRepository();
-  const transactionRepo = new SupabaseTransactionRepository();
+  const transactionRepo = new HybridTransactionRepository();
   const categoryRepo = new SupabaseCategoryRepository();
   const budgetRepo = new SupabaseBudgetRepository();
   const budgetProgressUseCase = new CalculateBudgetProgress(transactionRepo);
+  const historicalAnalysisUseCase = new GetHistoricalFinancialAnalysis(transactionRepo);
   const assistantMessageRepo = new SupabaseAssistantMessageRepository();
 
   // 1. Cargar la conversación persistida (memoria entre sesiones) y recolectar contexto
@@ -196,12 +199,18 @@ export default function AssistantScreen() {
       const budgetsProgressPromises = budgets.map(b => budgetProgressUseCase.execute(b));
       const budgetProgress = await Promise.all(budgetsProgressPromises);
 
+      const todayStr = now.toISOString().split('T')[0];
+
+      // Cargar análisis histórico de los últimos 12 meses (mes a mes, trimestral y anual)
+      const historicalAnalysis = await historicalAnalysisUseCase.execute(categories, now, 12);
+
       // Cargar transacciones del mes
       const lastDay = new Date(currentYear, now.getMonth() + 1, 0).getDate();
       const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
       const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
       
-      const recentTransactions = await transactionRepo.getAll({ limit: 10 });
+      // Filtrar movimientos recientes hasta hoy (para que cuotas futuras o fechas proyectadas no desplacen los movimientos reales)
+      const recentTransactions = await transactionRepo.getAll({ limit: 20, endDate: todayStr });
       const monthlyTransactions = await transactionRepo.getAll({ startDate, endDate });
 
       // Calcular ingresos y gastos del mes
@@ -225,7 +234,7 @@ export default function AssistantScreen() {
         };
       });
 
-      setFinancialContext({
+      const fullContext: FinancialContext = {
         totalBalance,
         monthlyIncome,
         monthlyExpenses,
@@ -233,16 +242,27 @@ export default function AssistantScreen() {
         recentTransactions,
         accounts: activeAccounts,
         categories,
-        currentDate: now.toISOString().split('T')[0],
+        currentDate: todayStr,
         currency: 'COP',
-      });
+        historicalAnalysis,
+      };
+
+      setFinancialContext(fullContext);
+      return fullContext;
     } catch (err) {
       console.warn('[Assistant Context Error]:', err);
+      return null;
     }
   };
 
   const handleSendMessage = async (textToSend: string) => {
-    if (!textToSend.trim() || !financialContext) return;
+    if (!textToSend.trim()) return;
+
+    let activeContext = financialContext;
+    if (!activeContext) {
+      activeContext = await gatherFinancialContext();
+      if (!activeContext) return;
+    }
 
     // 1. Agregar mensaje del usuario en pantalla
     const userMsg: Message = {
@@ -272,7 +292,7 @@ export default function AssistantScreen() {
         .map(m => ({ role: m.sender === 'user' ? 'user' as const : 'model' as const, text: m.text }));
 
       // 3. Enviar a Gemini junto al contexto financiero recolectado y el historial
-      const response = await aiProvider.queryFinances(textToSend, financialContext, history);
+      const response = await aiProvider.queryFinances(textToSend, activeContext, history);
 
       let pendingActionToAttach: MessagePendingAction | undefined = undefined;
 
@@ -289,7 +309,7 @@ export default function AssistantScreen() {
 
         if (isTransactionIntent) {
           try {
-            const parsed = await aiProvider.parseTransaction(textToSend, financialContext.accounts, financialContext.categories);
+            const parsed = await aiProvider.parseTransaction(textToSend, activeContext.accounts, activeContext.categories);
             if (parsed.amount && parsed.amount > 0) {
               pendingActionToAttach = {
                 type: 'create_transaction',
@@ -299,7 +319,7 @@ export default function AssistantScreen() {
                   suggestedCategoryName: parsed.suggestedCategoryName || 'Mercado',
                   suggestedAccountName: parsed.suggestedAccountName || 'Efectivo',
                   description: parsed.description || parsed.suggestedCategoryName || textToSend,
-                  transactionDate: parsed.transactionDate || financialContext.currentDate,
+                  transactionDate: parsed.transactionDate || activeContext.currentDate,
                   installmentsCount: parsed.installmentsCount || undefined,
                 },
                 status: 'pending',
@@ -413,7 +433,7 @@ export default function AssistantScreen() {
           a => a.name.toLowerCase().includes((payload.suggestedAccountName || '').toLowerCase())
         );
       }
-      const matchedAccId = matchedAccount?.id || financialContext.accounts[0]?.id;
+      const matchedAccId = matchedAccount?.id || useAccountPreferenceStore.getState().getPreferredAccountId(financialContext.accounts);
       const isCreditCard = matchedAccount?.type === 'credit_card';
 
       const newTxData = {
@@ -438,6 +458,10 @@ export default function AssistantScreen() {
         }
       } else {
         await transactionRepo.create(newTxData);
+      }
+
+      if (matchedAccId) {
+        useAccountPreferenceStore.getState().setLastUsedAccountId(matchedAccId);
       }
 
       // Cambiar estado de la tarjeta borrador en pantalla a confirmada

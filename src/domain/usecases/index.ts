@@ -15,3 +15,4 @@ export * from './LearnCategorizationFromCorrection';
 export * from './ProjectBudgetExhaustion';
 export * from './DetectRegistrationGap';
 export * from './CalculateRegistrationStreak';
+export * from './GetHistoricalFinancialAnalysis';

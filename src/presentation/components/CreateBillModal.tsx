@@ -28,6 +28,7 @@ import { CategoryPickerMenu } from './CategoryPickerMenu';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
+import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 import { InstallmentSelector } from './InstallmentSelector';
 
 interface CreateBillModalProps {
@@ -107,7 +108,7 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
         setDescription(editingBill.description || '');
         setAmount(editingBill.amount ? String(editingBill.amount) : '');
         setDate(editingBill.aiMetadata?.dueDate || editingBill.transactionDate || getTodayDateString());
-        setAccountId(editingBill.accountId || (accounts[0]?.id || ''));
+        setAccountId(editingBill.accountId || useAccountPreferenceStore.getState().getPreferredAccountId(accounts));
         setCategoryId(editingBill.categoryId || '');
         setTransferToAccountId((editingBill.aiMetadata as any)?.toAccountId || '');
         if (editingBill.aiMetadata?.installments) {
@@ -122,7 +123,7 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
         setDescription('');
         setAmount('');
         setDate(getTodayDateString());
-        setAccountId(accounts[0]?.id || '');
+        setAccountId(useAccountPreferenceStore.getState().getPreferredAccountId(accounts));
         setCategoryId(categories[0]?.id || '');
         setTransferToAccountId('');
         setIsInstallments(false);
