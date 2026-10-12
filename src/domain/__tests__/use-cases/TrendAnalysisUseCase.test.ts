@@ -46,6 +46,19 @@ describe('TrendAnalysisUseCase', () => {
     } as any;
 
     const fakeBudgetRepo = {
+      getAll: vi.fn(async () => [
+        {
+          id: 'b-1',
+          familyGroupId: 'fam-1',
+          categoryId: 'cat-1',
+          amountLimit: 1000,
+          year: currentYear - 1,
+          month: today.getMonth() + 1,
+          scope: 'family',
+          ownerUserId: null,
+          createdAt: '2025-01-01T00:00:00Z',
+        } as Budget,
+      ]),
       getByMonth: vi.fn(async (year: number, month: number) => [
         {
           id: 'b-1',
@@ -56,7 +69,7 @@ describe('TrendAnalysisUseCase', () => {
           month,
           scope: 'family',
           ownerUserId: null,
-          createdAt: '2026-01-01T00:00:00Z',
+          createdAt: '2025-01-01T00:00:00Z',
         } as Budget,
       ]),
     } as any;

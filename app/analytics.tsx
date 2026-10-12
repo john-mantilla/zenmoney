@@ -31,10 +31,12 @@ export default function AnalyticsScreen() {
         const transactionRepo = new HybridTransactionRepository();
         const budgetRepo = new HybridBudgetRepository();
         const categoryRepo = new HybridCategoryRepository();
-        const trendUseCase = new TrendAnalysisUseCase(transactionRepo, budgetRepo);
+        const trendUseCase = new TrendAnalysisUseCase(transactionRepo, budgetRepo, categoryRepo);
 
         // 1. Cargar tendencias
-        const trend = await trendUseCase.execute();
+        const { useAuthStore } = require('@/src/infrastructure/auth/authStore');
+        const currentUserId = useAuthStore.getState().userProfile?.id;
+        const trend = await trendUseCase.execute(currentUserId);
         setTrendData(trend);
 
         // 2. Cargar TODAS las transacciones del mes (no solo 3)

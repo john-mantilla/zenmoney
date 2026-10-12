@@ -9,6 +9,7 @@ import { Transaction } from '@/src/domain/entities/Transaction';
 import { Budget } from '@/src/domain/entities/Budget';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
+import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 
 export interface TrendDataPoint {
   label: string; // ej. "Jul", "Ago"
@@ -21,10 +22,11 @@ export interface TrendDataPoint {
 export class TrendAnalysisUseCase {
   constructor(
     private transactionRepo: HybridTransactionRepository,
-    private budgetRepo: HybridBudgetRepository
+    private budgetRepo: HybridBudgetRepository,
+    private categoryRepo?: HybridCategoryRepository
   ) {}
 
-  async execute(): Promise<TrendDataPoint[]> {
+  async execute(currentUserId?: string | null): Promise<TrendDataPoint[]> {
     const today = new Date();
     
     // Preparar el arreglo de 12 meses hacia atrás
@@ -50,13 +52,74 @@ export class TrendAnalysisUseCase {
     // Traer todas las transacciones de los últimos 12 meses
     const txs = await this.transactionRepo.getAll({ startDate });
     
-    // Cargar todos los presupuestos de estos meses
-    const budgetsMap: Record<string, number> = {};
+    // Cargar todos los presupuestos para aplicar la regla de herencia temporal/carry-forward
+    // (un presupuesto creado en un mes anterior sigue activo hasta que se actualice o elimine)
+    const allBudgets = await this.budgetRepo.getAll();
+    let loadedCats: any[] = [];
+    try {
+      if (this.categoryRepo) {
+        loadedCats = await this.categoryRepo.getAll(true);
+      }
+    } catch {
+      // Ignorar si categoryRepo no está disponible
+    }
+
     for (const pt of points) {
-      const [y, m] = pt.fullDate.split('-');
-      const budgets = await this.budgetRepo.getByMonth(parseInt(y), parseInt(m));
-      budgetsMap[pt.fullDate] = budgets.reduce((sum, b) => sum + b.amountLimit, 0);
-      pt.budget = budgetsMap[pt.fullDate];
+      const [y, m] = pt.fullDate.split('-').map(Number);
+      const targetValue = y * 12 + m;
+
+      // Filtrar presupuestos activos hasta ese mes
+      const pastBudgets = allBudgets.filter(
+        (b) =>
+          b.year * 12 + b.month <= targetValue &&
+          (b.scope === 'family' || !b.ownerUserId || (currentUserId && b.ownerUserId === currentUserId))
+      );
+
+      // Obtener el registro más reciente por categoría / alcance
+      const latestByKey: Record<string, Budget> = {};
+      for (const b of pastBudgets) {
+        const key = `${b.categoryId}_${b.scope || 'family'}_${b.ownerUserId || 'family'}`;
+        const existing = latestByKey[key];
+        if (!existing || existing.year * 12 + existing.month < b.year * 12 + b.month) {
+          latestByKey[key] = b;
+        }
+      }
+
+      const activeMonthlyBudgets = Object.values(latestByKey);
+
+      // Calcular el límite total evitando duplicidad padre-hijo si existen subcategorías
+      if (loadedCats.length > 0) {
+        const parentGroups: Record<string, { parentBudgets: Budget[]; subBudgets: Budget[] }> = {};
+        for (const b of activeMonthlyBudgets) {
+          const cat = loadedCats.find((c) => c.id === b.categoryId);
+          const isSub = !!cat?.parentCategoryId;
+          const parentId = isSub ? cat!.parentCategoryId! : b.categoryId;
+
+          if (!parentGroups[parentId]) {
+            parentGroups[parentId] = { parentBudgets: [], subBudgets: [] };
+          }
+          if (isSub) {
+            parentGroups[parentId].subBudgets.push(b);
+          } else {
+            parentGroups[parentId].parentBudgets.push(b);
+          }
+        }
+
+        let totalMonthBudget = 0;
+        for (const parentId in parentGroups) {
+          const group = parentGroups[parentId];
+          if (group.subBudgets.length > 0) {
+            totalMonthBudget += group.parentBudgets[0]
+              ? group.parentBudgets[0].amountLimit
+              : group.subBudgets.reduce((sum, s) => sum + s.amountLimit, 0);
+          } else if (group.parentBudgets[0]) {
+            totalMonthBudget += group.parentBudgets[0].amountLimit;
+          }
+        }
+        pt.budget = totalMonthBudget;
+      } else {
+        pt.budget = activeMonthlyBudgets.reduce((sum, b) => sum + b.amountLimit, 0);
+      }
     }
 
     // Agregar transacciones
