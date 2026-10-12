@@ -554,25 +554,9 @@ export default function DashboardScreen() {
                 </Text>
 
                 {/* Botones de Acción Rápida / Entendido */}
-                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, gap: 8 }}>
-                  {alert.type === 'habit' && alert.habitData && (
-                    <Button
-                      mode="contained"
-                      compact
-                      buttonColor={theme.colors.primary}
-                      textColor="#FFFFFF"
-                      onPress={async () => {
-                        useHabitStore.getState().addHabit(alert.habitData as any);
-                        await AnomalyDetectorService.dismissAlert(alert.id);
-                        setSmartAlerts((prev) => prev.filter((a) => a.id !== alert.id));
-                        onRefresh();
-                      }}
-                      style={{ borderRadius: 10 }}
-                    >
-                      {alert.actionLabel || 'Activar Hábito'}
-                    </Button>
-                  )}
-                  {alert.actionRoute && alert.type !== 'habit' && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, gap: 8 }}>
+                  {/* Opción 1: Si es una alerta de tipo suscripción o recurrente, ofrecer Agendar Factura */}
+                  {alert.actionRoute && (
                     <Button
                       mode="text"
                       compact
@@ -583,9 +567,30 @@ export default function DashboardScreen() {
                         router.push(alert.actionRoute as any);
                       }}
                     >
-                      {alert.actionLabel || 'Ver más'}
+                      {alert.actionLabel || 'Agendar Factura'}
                     </Button>
                   )}
+
+                  {/* Opción 2: Activar Hábito (Disponible tanto para tipo 'habit' como para tipo 'subscription' con habitData) */}
+                  {alert.habitData && (
+                    <Button
+                      mode={alert.type === 'habit' ? 'contained' : 'text'}
+                      compact
+                      buttonColor={alert.type === 'habit' ? theme.colors.primary : undefined}
+                      textColor={alert.type === 'habit' ? '#FFFFFF' : theme.customColors.accent}
+                      onPress={async () => {
+                        useHabitStore.getState().addHabit(alert.habitData as any);
+                        await AnomalyDetectorService.dismissAlert(alert.id);
+                        setSmartAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+                        onRefresh();
+                      }}
+                      style={{ borderRadius: 10 }}
+                    >
+                      Activar Hábito
+                    </Button>
+                  )}
+
+                  {/* Opción 3: Entendido / Descartar */}
                   <Button
                     mode="contained-tonal"
                     compact

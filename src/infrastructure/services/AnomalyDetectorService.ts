@@ -54,7 +54,7 @@ export class AnomalyDetectorService {
       const subscriptions = this.detectHiddenSubscriptions(expenses);
       rawAlerts.push(...subscriptions);
 
-      const habits = this.detectLifestyleHabits(expenses);
+      const habits = this.detectLifestyleHabits(expenses, subscriptions);
       rawAlerts.push(...habits);
 
       const spikes = await this.detectSpikes(expenses, preferCache);
@@ -138,23 +138,11 @@ export class AnomalyDetectorService {
   private detectHiddenSubscriptions(expenses: Transaction[]): SmartAlert[] {
     const alerts: SmartAlert[] = [];
 
-    // Palabras clave de hábitos/estilo de vida para no confundir con suscripciones/facturas fijas
-    const lifestyleKeywords = [
-      'pizza', 'hamburguesa', 'restaurante', 'cafe', 'café', 'panaderia', 'panadería',
-      'helad', 'bar', 'cerveza', 'cine', 'tardeo', 'almuerzo', 'desayuno', 'comida',
-      'padel', 'gym', 'futbol', 'fútbol', 'uber', 'didi', 'taxi', 'gasolina',
-    ];
-
     // Agrupar por merchant o monto exacto
     const groups: Record<string, Transaction[]> = {};
     for (const tx of expenses) {
       const name = (tx.merchantName || tx.description || '').toLowerCase().trim();
       if (!name || name.length < 3) continue;
-
-      // Si coincide con palabras de estilo de vida, pertenece a ZenHabits, no a suscripciones
-      if (lifestyleKeywords.some((w) => name.includes(w))) {
-        continue;
-      }
 
       const key = `${name}-${tx.amount}`;
       if (!groups[key]) groups[key] = [];
@@ -163,20 +151,49 @@ export class AnomalyDetectorService {
 
     for (const key in groups) {
       const group = groups[key];
-      // Si hay 3 o más pagos idénticos en los últimos 90 días, es recurrente
+      // Si hay 3 o más pagos idénticos en los últimos 90 días, es un patrón consistente
       if (group.length >= 3) {
         // Verificar si ya es una suscripción conocida (isRecurringInstance)
         const alreadyRecurring = group.some((tx) => tx.isRecurringInstance || tx.recurringRuleId);
         if (!alreadyRecurring) {
-          const name = group[0].merchantName || group[0].description || 'Comercio';
-          const alertId = `subscription:${name.toLowerCase()}:${group[0].amount}`;
+          const sample = group[0];
+          const name = sample.merchantName || sample.description || 'Comercio';
+          const alertId = `subscription:${name.toLowerCase()}:${sample.amount}`;
+
+          // Calcular día de la semana más común en este grupo
+          const dayCounts: Record<number, number> = {};
+          for (const tx of group) {
+            const d = new Date(`${tx.transactionDate.split('T')[0]}T12:00:00`).getDay();
+            dayCounts[d] = (dayCounts[d] || 0) + 1;
+          }
+          let mostCommonDay = 3; // Por defecto miércoles
+          let maxCount = 0;
+          for (const dStr in dayCounts) {
+            const dayNum = Number(dStr);
+            if (dayCounts[dayNum] > maxCount) {
+              maxCount = dayCounts[dayNum];
+              mostCommonDay = dayNum;
+            }
+          }
+
           alerts.push({
             id: alertId,
             type: 'subscription',
-            title: 'Suscripción Detectada',
-            message: `Noté un patrón: Has pagado **$${group[0].amount.toLocaleString('es-CO')}** en **${name}** consistentemente en los últimos 3 meses. ¿Es una suscripción? Te sugiero agregarla a tus Facturas Agendadas para que ZenMoney la presupueste automáticamente.`,
+            title: 'Patrón Recurrente Detectado',
+            message: `Noté un patrón: Has pagado **$${sample.amount.toLocaleString('es-CO')}** en **${name}** consistentemente en los últimos 3 meses. ¿Es una suscripción/factura mensual o un hábito de rutina familiar?`,
             actionLabel: 'Agendar Factura',
             actionRoute: '/settings/recurrences',
+            habitData: {
+              title: `${name}`,
+              dayOfWeek: mostCommonDay,
+              timePrompt: '21:00',
+              estimatedAmount: sample.amount,
+              merchantName: name,
+              defaultAccountId: sample.accountId,
+              defaultCategoryId: sample.categoryId,
+              confidenceScore: 0.9,
+              icon: name.toLowerCase().includes('pizza') || name.toLowerCase().includes('domino') ? 'pizza' : 'repeat',
+            },
           });
         }
       }
@@ -188,14 +205,28 @@ export class AnomalyDetectorService {
   /**
    * Detecta patrones de hábitos de vida frecuentes (ZenHabits) que aún no estén agregados.
    */
-  private detectLifestyleHabits(expenses: Transaction[]): SmartAlert[] {
+  private detectLifestyleHabits(expenses: Transaction[], subscriptionAlerts: SmartAlert[] = []): SmartAlert[] {
     const alerts: SmartAlert[] = [];
     const detectedPatterns = DetectHabitPatterns.execute(expenses);
     const existingHabits = useHabitStore.getState().habits;
 
+    const subscriptionMerchants = new Set(
+      subscriptionAlerts
+        .map((s) => (s.habitData?.merchantName || '').toLowerCase().trim())
+        .filter(Boolean)
+    );
+
     const dayNames = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'];
 
     for (const pattern of detectedPatterns) {
+      const merchant = pattern.merchantName || pattern.title;
+      const merchantLower = merchant.toLowerCase().trim();
+
+      // Si ya hay una alerta de suscripción para este comercio, no duplicar alerta
+      if (subscriptionMerchants.has(merchantLower)) {
+        continue;
+      }
+
       // Verificar si ya existe este hábito guardado en ZenHabits
       const alreadySaved = existingHabits.some(
         (h) =>
@@ -206,7 +237,6 @@ export class AnomalyDetectorService {
 
       if (!alreadySaved) {
         const dayStr = dayNames[pattern.dayOfWeek] || 'este día';
-        const merchant = pattern.merchantName || pattern.title;
         const alertId = `habit:${merchant.toLowerCase()}:${pattern.dayOfWeek}`;
 
         alerts.push({

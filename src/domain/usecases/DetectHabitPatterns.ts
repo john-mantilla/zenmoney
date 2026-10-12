@@ -75,6 +75,17 @@ export class DetectHabitPatterns {
         }
       }
 
+      // Descartar compras de supermercado general / mercado del hogar
+      // Mercar no es un "hábito de ocio/estilo de vida" a alertar semanalmente como salir a pizza/café
+      const groceryKeywords = [
+        'ara', 'd1', 'oxxo', 'exito', 'éxito', 'jumbo', 'olimpica', 'olímpica',
+        'carulla', 'metro', 'alkosto', 'makro', 'surtimax', 'supermercado',
+        'fruver', 'carniceria', 'carnicería', 'minimercado', 'tienda de barrio'
+      ];
+      if (groceryKeywords.some((g) => normMerchant === g || normMerchant.startsWith(`${g} `) || normMerchant.endsWith(` ${g}`))) {
+        continue;
+      }
+
       // Extraer día de la semana seguro (evitando desfase horario UTC)
       const datePart = tx.transactionDate.split('T')[0];
       const parsedDate = new Date(`${datePart}T12:00:00`);
@@ -113,8 +124,8 @@ export class DetectHabitPatterns {
         const stdDev = Math.sqrt(variance);
         const cv = avg > 0 ? stdDev / avg : 1; // Coeficiente de variación
 
-        // Si el monto no es caótico (CV < 0.60)
-        if (cv < 0.6) {
+        // Si el monto no es caótico (CV < 0.35 para hábitos con valores consistentes)
+        if (cv < 0.35) {
           const sampleTx = group.transactions[group.transactions.length - 1];
           const merchantName = group.merchantName;
           const dayName = DAY_NAMES[group.dayOfWeek];
@@ -122,14 +133,14 @@ export class DetectHabitPatterns {
           let icon = 'repeat';
           const textForIcon = `${merchantName || ''} ${sampleTx.description || ''}`.toLowerCase();
 
-          if (textForIcon.includes('pizza')) icon = 'pizza';
-          else if (textForIcon.includes('caf') || textForIcon.includes('starbucks')) icon = 'coffee';
+          if (textForIcon.includes('pizza') || textForIcon.includes('domino')) icon = 'pizza';
+          else if (textForIcon.includes('caf') || textForIcon.includes('starbucks') || textForIcon.includes('juan valdez')) icon = 'coffee';
           else if (textForIcon.includes('burger') || textForIcon.includes('hamburguesa')) icon = 'hamburger';
-          else if (textForIcon.includes('cine') || textForIcon.includes('pelicula')) icon = 'movie';
+          else if (textForIcon.includes('cine') || textForIcon.includes('pelicula') || textForIcon.includes('cinecolombia')) icon = 'movie';
           else if (textForIcon.includes('cerve') || textForIcon.includes('bar')) icon = 'glass-cocktail';
           else if (textForIcon.includes('restaurante') || textForIcon.includes('almuerzo')) icon = 'silverware-fork-knife';
-          else if (textForIcon.includes('gasolin') || textForIcon.includes('combustible')) icon = 'gas-station';
-          else if (textForIcon.includes('futbol') || textForIcon.includes('gym') || textForIcon.includes('deporte')) icon = 'soccer';
+          else if (textForIcon.includes('gasolin') || textForIcon.includes('combustible') || textForIcon.includes('terpel') || textForIcon.includes('primax')) icon = 'gas-station';
+          else if (textForIcon.includes('futbol') || textForIcon.includes('gym') || textForIcon.includes('deporte') || textForIcon.includes('smartfit')) icon = 'soccer';
 
           const title = merchantName
             ? `${dayName} de ${merchantName}`
