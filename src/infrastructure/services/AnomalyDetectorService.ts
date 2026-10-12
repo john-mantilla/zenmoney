@@ -12,18 +12,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
+import { DetectHabitPatterns } from '@/src/domain/usecases/DetectHabitPatterns';
+import { useHabitStore } from '@/src/infrastructure/state/habitStore';
+import { HabitPattern } from '@/src/domain/entities/HabitPattern';
 
 const DISMISSED_ALERTS_KEY = 'zenmoney:dismissed_smart_alerts';
 
 export interface SmartAlert {
   id: string; // Firma única para deduplicación y persistencia de descarte
-  type: 'duplicate' | 'subscription' | 'spike';
+  type: 'duplicate' | 'subscription' | 'spike' | 'habit';
   title: string;
   message: string;
   actionLabel?: string;
   actionRoute?: string;
   actionParams?: Record<string, any>;
   categoryId?: string;
+  habitData?: Partial<HabitPattern>;
 }
 
 export class AnomalyDetectorService {
@@ -49,6 +53,9 @@ export class AnomalyDetectorService {
 
       const subscriptions = this.detectHiddenSubscriptions(expenses);
       rawAlerts.push(...subscriptions);
+
+      const habits = this.detectLifestyleHabits(expenses);
+      rawAlerts.push(...habits);
 
       const spikes = await this.detectSpikes(expenses, preferCache);
       rawAlerts.push(...spikes);
@@ -131,11 +138,23 @@ export class AnomalyDetectorService {
   private detectHiddenSubscriptions(expenses: Transaction[]): SmartAlert[] {
     const alerts: SmartAlert[] = [];
 
+    // Palabras clave de hábitos/estilo de vida para no confundir con suscripciones/facturas fijas
+    const lifestyleKeywords = [
+      'pizza', 'hamburguesa', 'restaurante', 'cafe', 'café', 'panaderia', 'panadería',
+      'helad', 'bar', 'cerveza', 'cine', 'tardeo', 'almuerzo', 'desayuno', 'comida',
+      'padel', 'gym', 'futbol', 'fútbol', 'uber', 'didi', 'taxi', 'gasolina',
+    ];
+
     // Agrupar por merchant o monto exacto
     const groups: Record<string, Transaction[]> = {};
     for (const tx of expenses) {
       const name = (tx.merchantName || tx.description || '').toLowerCase().trim();
       if (!name || name.length < 3) continue;
+
+      // Si coincide con palabras de estilo de vida, pertenece a ZenHabits, no a suscripciones
+      if (lifestyleKeywords.some((w) => name.includes(w))) {
+        continue;
+      }
 
       const key = `${name}-${tx.amount}`;
       if (!groups[key]) groups[key] = [];
@@ -160,6 +179,44 @@ export class AnomalyDetectorService {
             actionRoute: '/settings/recurrences',
           });
         }
+      }
+    }
+
+    return alerts;
+  }
+
+  /**
+   * Detecta patrones de hábitos de vida frecuentes (ZenHabits) que aún no estén agregados.
+   */
+  private detectLifestyleHabits(expenses: Transaction[]): SmartAlert[] {
+    const alerts: SmartAlert[] = [];
+    const detectedPatterns = DetectHabitPatterns.execute(expenses);
+    const existingHabits = useHabitStore.getState().habits;
+
+    const dayNames = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'];
+
+    for (const pattern of detectedPatterns) {
+      // Verificar si ya existe este hábito guardado en ZenHabits
+      const alreadySaved = existingHabits.some(
+        (h) =>
+          h.dayOfWeek === pattern.dayOfWeek &&
+          (h.merchantName?.toLowerCase() === pattern.merchantName?.toLowerCase() ||
+           h.title.toLowerCase() === pattern.title.toLowerCase())
+      );
+
+      if (!alreadySaved) {
+        const dayStr = dayNames[pattern.dayOfWeek] || 'este día';
+        const merchant = pattern.merchantName || pattern.title;
+        const alertId = `habit:${merchant.toLowerCase()}:${pattern.dayOfWeek}`;
+
+        alerts.push({
+          id: alertId,
+          type: 'habit',
+          title: 'ZenHabits — Hábitos y Rutinas',
+          message: `Noté una rutina familiar: Sueles gastar aprox. **$${pattern.estimatedAmount.toLocaleString('es-CO')}** en **${merchant}** los **${dayStr}**. ¿Quieres activar este hábito para recordarte registrarlo automáticamente por la noche si se te pasa?`,
+          actionLabel: 'Activar Hábito',
+          habitData: pattern,
+        });
       }
     }
 

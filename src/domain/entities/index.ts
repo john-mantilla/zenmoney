@@ -13,3 +13,4 @@ export * from './SavingsGoal';
 export * from './NLQ';
 export * from './CategorizationRule';
 export * from './AssistantMessage';
+export * from './HabitPattern';

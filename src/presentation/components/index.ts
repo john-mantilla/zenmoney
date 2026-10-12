@@ -28,6 +28,7 @@ export * from './CreateCategoryModal';
 export * from './TransactionFilterModal';
 export * from './DailySpendingAnalysisModal';
 export * from './InstallmentSelector';
+export * from './ZenHabitsNudgeCard';
 
 
 

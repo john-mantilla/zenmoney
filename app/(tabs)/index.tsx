@@ -12,7 +12,7 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import * as Haptics from 'expo-haptics';
-import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard } from '@/src/presentation/components';
+import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard } from '@/src/presentation/components';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -35,6 +35,9 @@ import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseU
 import { FinancialHealthModal } from '@/src/presentation/components/FinancialHealthModal';
 import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { isOnlineFast } from '@/src/infrastructure/utils/network';
+import { useHabitStore } from '@/src/infrastructure/state/habitStore';
+import { HabitPattern } from '@/src/domain/entities/HabitPattern';
+import { EvaluateHabitNudge } from '@/src/domain/usecases/EvaluateHabitNudge';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
@@ -71,6 +74,7 @@ export default function DashboardScreen() {
   // Alertas Inteligentes & Modal de Salud Financiera 50/30/20
   const [smartAlerts, setSmartAlerts] = useState<SmartAlert[]>([]);
   const [healthModalVisible, setHealthModalVisible] = useState(false);
+  const [activeHabitNudges, setActiveHabitNudges] = useState<HabitPattern[]>([]);
 
   // Parámetros de Toast por voz
   const params = useLocalSearchParams<{
@@ -323,6 +327,28 @@ export default function DashboardScreen() {
       const alerts = await anomalyService.scanForAnomalies(preferCache);
       setSmartAlerts(alerts);
 
+      // 6. Evaluar ZenHabits (Recordatorios nocturnos 21:00 con Regla del Silencio)
+      const habits = useHabitStore.getState().habits;
+      const todayStr = new Date().toISOString().split('T')[0];
+      const todayTxs = loadedTransactions.filter((tx) => tx.transactionDate === todayStr);
+
+      const triggeredHabits: HabitPattern[] = [];
+      for (const habit of habits) {
+        if (!habit.isActive) continue;
+        if (useHabitStore.getState().isDismissedToday(habit.id)) continue;
+
+        const evalResult = EvaluateHabitNudge.execute({
+          habit,
+          todayTransactions: todayTxs,
+          currentDate: new Date(),
+        });
+
+        if (evalResult.shouldNudge) {
+          triggeredHabits.push(habit);
+        }
+      }
+      setActiveHabitNudges(triggeredHabits);
+
       return activeAccounts;
     };
 
@@ -461,6 +487,25 @@ export default function DashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
+        {/* ZenHabits — Nudges y Rutinas Activas */}
+        {activeHabitNudges.length > 0 && (
+          <View style={{ marginBottom: 4 }}>
+            {activeHabitNudges.map((habit) => (
+              <ZenHabitsNudgeCard
+                key={habit.id}
+                habit={habit}
+                onRegistered={() => {
+                  setActiveHabitNudges((prev) => prev.filter((h) => h.id !== habit.id));
+                  onRefresh();
+                }}
+                onSkipped={() => {
+                  setActiveHabitNudges((prev) => prev.filter((h) => h.id !== habit.id));
+                }}
+              />
+            ))}
+          </View>
+        )}
+
         {/* Alertas Inteligentes con persistencia de descarte */}
         {smartAlerts.length > 0 && (
           <View style={{ marginBottom: 16 }}>
@@ -468,7 +513,15 @@ export default function DashboardScreen() {
               <Surface key={alert.id} style={[styles.alertCard, { backgroundColor: theme.colors.surfaceVariant, marginBottom: 8 }]} elevation={1}>
                 <View style={styles.alertHeader}>
                   <MaterialCommunityIcons
-                    name={alert.type === 'duplicate' ? 'content-copy' : alert.type === 'subscription' ? 'calendar-sync' : 'alert-decagram'}
+                    name={
+                      alert.type === 'duplicate'
+                        ? 'content-copy'
+                        : alert.type === 'subscription'
+                        ? 'calendar-sync'
+                        : alert.type === 'habit'
+                        ? 'repeat'
+                        : 'alert-decagram'
+                    }
                     size={20}
                     color={theme.colors.primary}
                   />
@@ -502,7 +555,24 @@ export default function DashboardScreen() {
 
                 {/* Botones de Acción Rápida / Entendido */}
                 <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10, gap: 8 }}>
-                  {alert.actionRoute && (
+                  {alert.type === 'habit' && alert.habitData && (
+                    <Button
+                      mode="contained"
+                      compact
+                      buttonColor={theme.colors.primary}
+                      textColor="#FFFFFF"
+                      onPress={async () => {
+                        useHabitStore.getState().addHabit(alert.habitData as any);
+                        await AnomalyDetectorService.dismissAlert(alert.id);
+                        setSmartAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+                        onRefresh();
+                      }}
+                      style={{ borderRadius: 10 }}
+                    >
+                      {alert.actionLabel || 'Activar Hábito'}
+                    </Button>
+                  )}
+                  {alert.actionRoute && alert.type !== 'habit' && (
                     <Button
                       mode="text"
                       compact
