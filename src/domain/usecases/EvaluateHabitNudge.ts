@@ -22,7 +22,7 @@ export class EvaluateHabitNudge {
    * @param dismissedToday Si el usuario ya descartó este recordatorio en la fecha de hoy
    * @param ignoreTimeWindow Si se evalúa en UI sin esperar estrictamente las 21:00 (ej. pruebas o panel)
    */
-  execute(
+  static execute(
     habit: HabitPattern,
     todayExpenses: Transaction[],
     currentDate: Date = new Date(),
@@ -100,5 +100,21 @@ export class EvaluateHabitNudge {
     }
 
     return { shouldNudge: true, reason: 'ready' };
+  }
+
+  execute(
+    habit: HabitPattern,
+    todayExpenses: Transaction[],
+    currentDate: Date = new Date(),
+    dismissedToday = false,
+    ignoreTimeWindow = false
+  ): EvaluateHabitNudgeResult {
+    return EvaluateHabitNudge.execute(
+      habit,
+      todayExpenses,
+      currentDate,
+      dismissedToday,
+      ignoreTimeWindow
+    );
   }
 }

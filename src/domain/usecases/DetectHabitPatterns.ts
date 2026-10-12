@@ -23,7 +23,7 @@ export class DetectHabitPatterns {
    * Ejecuta el escaneo de patrones de hábitos en los gastos históricos.
    * Requiere al menos 3 ocurrencias en el mismo día de la semana en semanas distintas.
    */
-  execute(expenses: Transaction[], categories: Category[] = []): HabitPattern[] {
+  static execute(expenses: Transaction[], categories: Category[] = []): HabitPattern[] {
     const validExpenses = expenses.filter(
       (tx) => tx.type === 'expense' && tx.status === 'confirmed' && tx.amount > 0
     );
@@ -161,5 +161,9 @@ export class DetectHabitPatterns {
     }
 
     return detectedHabits;
+  }
+
+  execute(expenses: Transaction[], categories: Category[] = []): HabitPattern[] {
+    return DetectHabitPatterns.execute(expenses, categories);
   }
 }

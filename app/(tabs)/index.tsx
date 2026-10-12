@@ -337,11 +337,11 @@ export default function DashboardScreen() {
         if (!habit.isActive) continue;
         if (useHabitStore.getState().isDismissedToday(habit.id)) continue;
 
-        const evalResult = EvaluateHabitNudge.execute({
+        const evalResult = EvaluateHabitNudge.execute(
           habit,
-          todayTransactions: todayTxs,
-          currentDate: new Date(),
-        });
+          todayTxs,
+          new Date()
+        );
 
         if (evalResult.shouldNudge) {
           triggeredHabits.push(habit);
