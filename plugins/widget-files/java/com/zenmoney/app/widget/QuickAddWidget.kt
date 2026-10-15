@@ -10,7 +10,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
-import androidx.glance.action.actionStartActivity
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.cornerRadius
@@ -49,14 +49,17 @@ class QuickAddWidget : GlanceAppWidget() {
         val budgetStatus = prefs.getString(KEY_BUDGET_STATUS, "Presupuesto Disponible") ?: "Presupuesto Disponible"
 
         val expenseIntent = Intent(Intent.ACTION_VIEW, Uri.parse("zenmoney://transaction/new?type=expense")).apply {
+            setPackage(context.packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
         val cameraIntent = Intent(Intent.ACTION_VIEW, Uri.parse("zenmoney://transaction/new?action=camera")).apply {
+            setPackage(context.packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
         val appIntent = Intent(Intent.ACTION_VIEW, Uri.parse("zenmoney://budgets")).apply {
+            setPackage(context.packageName)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
