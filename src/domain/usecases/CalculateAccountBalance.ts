@@ -43,12 +43,25 @@ export class CalculateAccountBalance {
       return Number(account.currentBalance);
     }
 
-    const transactions = await (this.transactionRepository as any).getAll({
-      accountId: account.id,
-      status: 'confirmed',
-    }, preferCache);
+    try {
+      const transactions = await (this.transactionRepository as any).getAll({
+        accountId: account.id,
+        status: 'confirmed',
+      }, preferCache);
 
-    return this.applyTransactions(account, Number(account.initialBalance), transactions);
+      // Si la consulta no trajo transacciones pero tenemos un saldo consolidado previo (currentBalance) y initialBalance es 0,
+      // preservamos el saldo consolidado real para evitar fluctuaciones accidentales a 0.
+      if (transactions.length === 0 && account.currentBalance !== undefined && account.currentBalance !== null && Number(account.initialBalance) === 0) {
+        return Number(account.currentBalance);
+      }
+
+      return this.applyTransactions(account, Number(account.initialBalance), transactions);
+    } catch {
+      if (account.currentBalance !== undefined && account.currentBalance !== null) {
+        return Number(account.currentBalance);
+      }
+      return Number(account.initialBalance);
+    }
   }
 
   private applyTransactions(account: Account, baseBalance: number, transactions: any[]): number {

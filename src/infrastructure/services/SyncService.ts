@@ -121,12 +121,16 @@ export class SyncService {
           console.log(`[SyncService] Successfully synced action ${action.id} (${type} on ${table})`);
         } catch (actionErr: any) {
           console.error(`[SyncService] Failed to sync action ${action.id}:`, actionErr);
-          // Si el registro falló porque ya existe en el servidor, podemos limpiar el conflicto
-          if (
-            actionErr?.message?.includes('duplicate key') || 
-            actionErr?.message?.includes('already exists') ||
-            actionErr?.message?.includes('Constraint')
-          ) {
+          const isNetworkError = 
+            actionErr?.message?.includes('Network request failed') ||
+            actionErr?.message?.includes('Failed to fetch') ||
+            actionErr?.message?.includes('timeout') ||
+            actionErr?.name === 'AbortError';
+
+          if (!isNetworkError) {
+            // Error no transitorio (ej. RLS, duplicate key, record not found).
+            // Se remueve de la cola para evitar que una sola acción bloquee permanentemente la sincronización.
+            console.warn(`[SyncService] Removing non-transient action ${action.id} from queue:`, actionErr?.message);
             await db.runAsync('DELETE FROM sync_actions_queue WHERE id = ?;', [action.id]);
             try {
               await db.runAsync(`UPDATE ${action.table_name} SET synced = 1 WHERE id = ?;`, [action.record_id]);
@@ -134,7 +138,7 @@ export class SyncService {
               // ignore
             }
           } else {
-            // Si es un error de conexión o de red temporal, detenemos para procesar después
+            // Error de red temporal, pausar y reintentar en el próximo ciclo
             break;
           }
         }

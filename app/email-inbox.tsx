@@ -14,8 +14,8 @@ import { Text, Card, Button, ActivityIndicator, Appbar, IconButton } from 'react
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { AmountDisplay, EmptyState } from '@/src/presentation/components';
-import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
-import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
+import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
+import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { Transaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,8 +30,8 @@ export default function EmailInboxScreen() {
   const [loading, setLoading] = useState(true);
   const [discardingId, setDiscardingId] = useState<string | null>(null);
 
-  const transactionRepo = new SupabaseTransactionRepository();
-  const categoryRepo = new SupabaseCategoryRepository();
+  const transactionRepo = new HybridTransactionRepository();
+  const categoryRepo = new HybridCategoryRepository();
 
   const loadData = async () => {
     setLoading(true);

@@ -845,6 +845,7 @@ export default function NewTransactionScreen() {
       categoryId: finalCategoryId,
       type: finalType,
       amount: finalAmountValue,
+      currency: (isEditing && originalTx?.currency) || 'COP',
       description: finalDescription,
       merchantName: type === 'expense' ? merchantName : null,
       transactionDate,

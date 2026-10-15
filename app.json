@@ -89,7 +89,8 @@
           "cameraPermission": "ZenMoney necesita acceso a la cámara para fotografiar tus recibos de compra."
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "./plugins/withAndroidWidget"
     ],
     "experiments": {
       "typedRoutes": true

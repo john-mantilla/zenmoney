@@ -197,6 +197,7 @@ export default function DashboardScreen() {
           return {
             ...acc,
             initialBalance: realBalance,
+            currentBalance: realBalance,
           };
         })
       );
@@ -204,7 +205,7 @@ export default function DashboardScreen() {
       if (!preferCache) {
         // Persistir saldos consolidados en SQLite para lecturas offline confiables
         accountsWithRealBalances.forEach((acc) => {
-          accountRepo.updateBalance(acc.id, acc.initialBalance).catch(() => {});
+          accountRepo.updateBalance(acc.id, acc.currentBalance ?? acc.initialBalance).catch(() => {});
         });
       }
 
@@ -246,8 +247,8 @@ export default function DashboardScreen() {
       setCreditCards(cards);
       setLoanAccounts(loans);
 
-      const liquidSum = liquid.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
-      const cardsSum = cards.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
+      const liquidSum = liquid.reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance), 0);
+      const cardsSum = cards.reduce((sum, acc) => sum + Math.abs(Number(acc.currentBalance ?? acc.initialBalance)), 0);
       setTotalBalance(liquidSum - cardsSum);
 
       // 2. Cargar categorías para mapping
