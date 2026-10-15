@@ -32,6 +32,7 @@ import { DetectAtypicalExpense } from '@/src/domain/usecases/DetectAtypicalExpen
 import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountBalance';
 import { ProjectMonthlyRunway } from '@/src/domain/usecases/ProjectMonthlyRunway';
 import { BudgetAlertService } from '@/src/infrastructure/services/BudgetAlertService';
+import { BudgetSyncHelper } from '@/src/infrastructure/services/BudgetSyncHelper';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Account } from '@/src/domain/entities/Account';
@@ -752,6 +753,9 @@ export default function NewTransactionScreen() {
     } catch {
       // No bloquea el guardado.
     }
+
+    // Sincronizar automáticamente el presupuesto actualizado con el Widget Android (Jetpack Glance)
+    BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
   };
 
   const handleCreateTag = async () => {

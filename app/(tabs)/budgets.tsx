@@ -23,6 +23,7 @@ import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useFocusEffect } from 'expo-router';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { hapticSuccess } from '@/src/infrastructure/utils/haptics';
+import { BudgetSyncHelper } from '@/src/infrastructure/services/BudgetSyncHelper';
 
 export interface CreateBudgetData {
   categoryId: string;
@@ -317,6 +318,7 @@ export default function BudgetsScreen() {
 
       // Ordenar por consumo consolidado (de mayor a menor)
       setBudgetsProgress(treeItems.sort((a, b) => b.percentage - a.percentage));
+      BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
     } catch (err) {
       console.error('[Budgets Load Error]:', err);
     } finally {
