@@ -74,11 +74,29 @@ export class SupabaseBudgetRepository implements BudgetRepository {
       ownerUserId: input.scope === 'individual' ? profile.id : null,
     });
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('budgets')
       .insert(dbBudget)
       .select('*')
       .single();
+
+    // Fallback de retrocompatibilidad: si Supabase aún no tiene las columnas is_override o has_rollover
+    if (error && (error.code === 'PGRST204' || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+      console.warn('[SupabaseBudgetRepository] Columnas nuevas no encontradas en Supabase. Reintentando sin ellas:', error.message);
+      const fallbackPayload = { ...dbBudget };
+      delete fallbackPayload.is_override;
+      delete fallbackPayload.override_reason;
+      delete fallbackPayload.has_rollover;
+
+      const retry = await supabase
+        .from('budgets')
+        .insert(fallbackPayload)
+        .select('*')
+        .single();
+
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error || !data) {
       throw new Error(`Error al crear el presupuesto: ${error?.message}`);
@@ -90,12 +108,31 @@ export class SupabaseBudgetRepository implements BudgetRepository {
   async update(id: string, data: Partial<CreateBudgetInput>): Promise<Budget> {
     const dbData = Mapper.toDbBudget(data);
 
-    const { data: updated, error } = await supabase
+    let { data: updated, error } = await supabase
       .from('budgets')
       .update(dbData)
       .eq('id', id)
       .select('*')
       .single();
+
+    // Fallback de retrocompatibilidad: si Supabase aún no tiene las columnas is_override o has_rollover
+    if (error && (error.code === 'PGRST204' || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+      console.warn('[SupabaseBudgetRepository] Columnas nuevas no encontradas en Supabase. Reintentando actualización sin ellas:', error.message);
+      const fallbackPayload = { ...dbData };
+      delete fallbackPayload.is_override;
+      delete fallbackPayload.override_reason;
+      delete fallbackPayload.has_rollover;
+
+      const retry = await supabase
+        .from('budgets')
+        .update(fallbackPayload)
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      updated = retry.data;
+      error = retry.error;
+    }
 
     if (error || !updated) {
       throw new Error(`Error al actualizar el presupuesto: ${error?.message}`);
