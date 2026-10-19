@@ -325,7 +325,7 @@ export class Mapper {
       ...(entity.year !== undefined && { year: entity.year }),
       ...(entity.month !== undefined && { month: entity.month }),
       ...(entity.scope && { scope: entity.scope }),
-      ...(entity.hasRollover !== undefined && { has_rollover: entity.hasRollover ? 1 : 0 }),
+      ...(entity.hasRollover !== undefined && { has_rollover: Boolean(entity.hasRollover) }),
       owner_user_id: entity.ownerUserId || null,
     };
   }
