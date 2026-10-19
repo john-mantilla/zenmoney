@@ -16,7 +16,7 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { AmountDisplay, EmptyState } from '@/src/presentation/components';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
-import { Transaction } from '@/src/domain/entities/Transaction';
+import { Transaction, isPendingConfirmationTransaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -40,9 +40,9 @@ export default function EmailInboxScreen() {
         transactionRepo.getAll({ status: 'pending' }),
         categoryRepo.getAll(true),
       ]);
-      // Excluir facturas y cobros recurrentes proyectados (estos pertenecen al calendario de Facturas/Bills)
-      const nonRecurringPending = allPendingTx.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
-      setInvoices(nonRecurringPending);
+      // Excluir Facturas y Cuentas por Pagar (éstas pertenecen al calendario de Facturas/Bills)
+      const unconfirmedPending = allPendingTx.filter(isPendingConfirmationTransaction);
+      setInvoices(unconfirmedPending);
       setCategories(loadedCategories);
     } catch (err) {
       console.error('[Pending Inbox Load Error]:', err);

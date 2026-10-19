@@ -17,7 +17,7 @@ import { HybridTransactionRepository } from '@/src/data/repositories/HybridTrans
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
-import { Transaction } from '@/src/domain/entities/Transaction';
+import { Transaction, isBillTransaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
@@ -241,14 +241,15 @@ export default function BillsScreen() {
         }
       }
       
-      // Filtramos las que califican como Bills (cosas POR PAGAR o ya pagadas con vencimiento):
-      // 1. Transacciones que están en estado 'pending' (facturas por pagar).
-      // 2. Transacciones 'confirmed' que provienen de recurrencias (facturas ya pagadas).
-      // 3. Transacciones con dueDate en aiMetadata (facturas manuales ya pagadas).
+      // Filtramos las que califican como Bills (obligaciones POR PAGAR o ya pagadas con vencimiento):
+      // 1. Facturas recurrentes o derivadas de reglas periódicas.
+      // 2. Facturas puntuales creadas en esta sección (con isBill o dueDate).
+      // 3. Proyecciones de tarjetas de crédito.
+      // Se excluyen explícitamente facturas DIAN y notas de voz del smartwatch sin confirmar.
       const filteredBills = txs.filter(tx =>
         tx.type !== 'income' &&
         tx.inputMethod !== 'email' &&
-        (tx.status === 'pending' || tx.isRecurringInstance || !!tx.aiMetadata?.dueDate)
+        isBillTransaction(tx)
       );
       
       setBills([...filteredBills, ...statementBills]);
@@ -335,6 +336,7 @@ export default function BillsScreen() {
           confidence: 1,
           corrections: {},
           dueDate: billDate,
+          isBill: true,
           // Al corregir la fecha de una cuota recurrente, esta pasa a "cubrir" la nueva
           // fecha: si se dejara la fecha original, la próxima generación automática no
           // reconocería la fecha corregida como ya cubierta y crearía una duplicada.
@@ -1042,6 +1044,7 @@ export default function BillsScreen() {
               confidence: 1,
               corrections: {},
               dueDate: data.date,
+              isBill: true,
               occurrenceDate: editingBill ? data.date : undefined,
             }
           } as any;

@@ -47,6 +47,30 @@ export interface AIMetadata {
   installments?: InstallmentMetadata;
   splits?: TransactionCategorySplit[];
   periodSplit?: TransactionPeriodSplit;
+  isBill?: boolean;
+  isCCStatement?: boolean;
+}
+
+/**
+ * Determina si una transacción corresponde a una Factura / Cuenta por Pagar (Bill).
+ * Estas transacciones representan obligaciones a pagar (recurrentes o puntuales)
+ * y pertenecen al calendario de Facturas, NO a la bandeja de confirmación de correos.
+ */
+export function isBillTransaction(tx: Partial<Transaction>): boolean {
+  if (tx.isRecurringInstance || tx.recurringRuleId) return true;
+  if (tx.aiMetadata?.isBill || tx.aiMetadata?.dueDate || (tx.aiMetadata as any)?.isCCStatement) return true;
+  return false;
+}
+
+/**
+ * Determina si una transacción es un movimiento pendiente por confirmar (Factura electrónica DIAN,
+ * notificación bancaria recibida por correo, o nota de voz del smartwatch sin confirmar).
+ * Se excluyen explícitamente las Facturas / Cuentas por Pagar (Bills).
+ */
+export function isPendingConfirmationTransaction(tx: Partial<Transaction>): boolean {
+  if (tx.status !== 'pending') return false;
+  if (isBillTransaction(tx)) return false;
+  return true;
 }
 
 export interface Transaction {

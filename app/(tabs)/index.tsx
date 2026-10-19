@@ -27,7 +27,7 @@ import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallen
 import { RegistrationReminderService } from '@/src/infrastructure/services/RegistrationReminderService';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
 import { Account } from '@/src/domain/entities/Account';
-import { Transaction } from '@/src/domain/entities/Transaction';
+import { Transaction, isPendingConfirmationTransaction } from '@/src/domain/entities/Transaction';
 import { Category } from '@/src/domain/entities/Category';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { AnomalyDetectorService, SmartAlert } from '@/src/infrastructure/services/AnomalyDetectorService';
@@ -276,9 +276,9 @@ export default function DashboardScreen() {
       setMonthTransactions(filteredTxs);
       setRecentTransactions(filterRecentTransactions(filteredTxs));
 
-      // 3b. Movimientos pendientes (correo, notas de voz del reloj sin monto, etc. Excluyendo facturas recurrentes)
+      // 3b. Movimientos pendientes (correo, notas de voz del reloj sin monto, etc. Excluyendo Facturas y Cuentas por Pagar)
       const allPending = await transactionRepo.getAll({ status: 'pending' }, preferCache);
-      const pendingTxList = allPending.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
+      const pendingTxList = allPending.filter(isPendingConfirmationTransaction);
       setPendingTransactionsCount(pendingTxList.length);
       setHasVoicePending(pendingTxList.some(tx => tx.inputMethod === 'voice' || (tx.description && tx.description.startsWith('🎙️'))));
 
@@ -760,7 +760,7 @@ export default function DashboardScreen() {
                 <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
                   {hasVoicePending
                     ? 'Notas de voz del reloj sin monto o notificaciones bancarias'
-                    : 'Notificaciones bancarias y facturas detectadas automáticamente'}
+                    : 'Facturas electrónicas DIAN o notificaciones bancarias recibidas'}
                 </Text>
               </View>
               <MaterialCommunityIcons name="chevron-right" size={22} color={theme.customColors.textSecondary} />

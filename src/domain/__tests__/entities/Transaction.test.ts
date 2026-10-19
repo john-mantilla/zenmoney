@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Transaction, TransactionType, InputMethod } from '../../entities/Transaction';
+import { Transaction, TransactionType, InputMethod, isBillTransaction, isPendingConfirmationTransaction } from '../../entities/Transaction';
 
 describe('Transaction Entity', () => {
   it('debe validar la estructura completa de una transacción válida', () => {
@@ -99,5 +99,70 @@ describe('Transaction Entity', () => {
     expect(aiTx.inputMethod).toBe('voice');
     expect(aiTx.aiMetadata?.confidence).toBe(0.95);
     expect(aiTx.aiMetadata?.rawInput).toBe('Gaste 25 dolares en almuerzo hoy');
+  });
+
+  describe('isBillTransaction y isPendingConfirmationTransaction', () => {
+    it('debe identificar facturas recurrentes como Bill y no como pendientes por confirmar', () => {
+      const recurringBill: Partial<Transaction> = {
+        status: 'pending',
+        isRecurringInstance: true,
+        recurringRuleId: 'rec-1',
+      };
+      expect(isBillTransaction(recurringBill)).toBe(true);
+      expect(isPendingConfirmationTransaction(recurringBill)).toBe(false);
+    });
+
+    it('debe identificar facturas únicas / puntuales con dueDate como Bill y no como pendientes por confirmar', () => {
+      const oneTimeBill: Partial<Transaction> = {
+        status: 'pending',
+        isRecurringInstance: false,
+        recurringRuleId: null,
+        aiMetadata: {
+          dueDate: '2026-10-25',
+          rawInput: '',
+          parsedAmount: 85000,
+          parsedCategory: null,
+          parsedAccount: null,
+          parsedMerchant: null,
+          confidence: 1,
+          corrections: {},
+        },
+      };
+      expect(isBillTransaction(oneTimeBill)).toBe(true);
+      expect(isPendingConfirmationTransaction(oneTimeBill)).toBe(false);
+    });
+
+    it('debe identificar facturas DIAN y notificaciones bancarias como pendientes por confirmar y NO como Bill', () => {
+      const emailInvoice: Partial<Transaction> = {
+        status: 'pending',
+        inputMethod: 'email',
+        isRecurringInstance: false,
+        recurringRuleId: null,
+        aiMetadata: null,
+      };
+      expect(isBillTransaction(emailInvoice)).toBe(false);
+      expect(isPendingConfirmationTransaction(emailInvoice)).toBe(true);
+    });
+
+    it('debe identificar notas de voz del smartwatch como pendientes por confirmar y NO como Bill', () => {
+      const watchVoiceNote: Partial<Transaction> = {
+        status: 'pending',
+        inputMethod: 'voice',
+        description: '🎙️ Almuerzo en restaurante',
+        isRecurringInstance: false,
+        recurringRuleId: null,
+        aiMetadata: null,
+      };
+      expect(isBillTransaction(watchVoiceNote)).toBe(false);
+      expect(isPendingConfirmationTransaction(watchVoiceNote)).toBe(true);
+    });
+
+    it('transacciones ya confirmadas no deben aparecer como pendientes por confirmar', () => {
+      const confirmedTx: Partial<Transaction> = {
+        status: 'confirmed',
+        inputMethod: 'email',
+      };
+      expect(isPendingConfirmationTransaction(confirmedTx)).toBe(false);
+    });
   });
 });

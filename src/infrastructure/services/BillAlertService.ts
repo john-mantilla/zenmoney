@@ -9,6 +9,7 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
+import { isBillTransaction } from '@/src/domain/entities/Transaction';
 import { BudgetAlertService } from './BudgetAlertService';
 
 const SCHEDULED_BILL_KEYS = 'zenmoney:scheduled_bill_notification_ids';
@@ -46,6 +47,7 @@ export class BillAlertService {
 
       // Filtrar facturas con vencimiento HOY
       const todayBills = pendingTxs.filter(tx => {
+        if (!isBillTransaction(tx)) return false;
         const dueDate = tx.aiMetadata?.dueDate || tx.transactionDate;
         return dueDate === todayStr && tx.amount > 0;
       });
