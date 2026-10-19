@@ -69,6 +69,7 @@ export default function TransactionsScreen() {
 
   const [tags, setTags] = useState<any[]>([]);
   const [isBulkTagModalVisible, setIsBulkTagModalVisible] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const lastLoadRef = useRef<number>(0);
   const lastLoadedMonthRef = useRef<number | null>(null);
@@ -122,12 +123,18 @@ export default function TransactionsScreen() {
       const startDate = `${selectedYear}-${monthStr}-01`;
       const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
-      const loadedTxs = await transactionRepo.getAll({ 
-        startDate, 
-        endDate,
-        status: 'confirmed'
-      });
+      const [loadedTxs, pendingTxs] = await Promise.all([
+        transactionRepo.getAll({ 
+          startDate, 
+          endDate,
+          status: 'confirmed'
+        }),
+        transactionRepo.getAll({
+          status: 'pending'
+        })
+      ]);
       setTransactions(loadedTxs);
+      setPendingCount(pendingTxs.length);
     } catch (err) {
       console.error('[Transactions Load Error]:', err);
     } finally {
@@ -632,6 +639,35 @@ export default function TransactionsScreen() {
                 Limpiar
               </Button>
             </ScrollView>
+          )}
+
+          {/* Banner de acceso rápido a movimientos por confirmar (voz del reloj, facturas, etc.) */}
+          {pendingCount > 0 && (
+            <Pressable
+              onPress={() => router.push('/email-inbox')}
+              style={{
+                marginTop: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 10,
+                backgroundColor: theme.customColors.warningLight,
+                borderWidth: 1,
+                borderColor: theme.customColors.warning + '40',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                <MaterialCommunityIcons name="clock-alert-outline" size={16} color={theme.customColors.warning} />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.onSurface }}>
+                  {pendingCount === 1 ? '1 movimiento pendiente por confirmar' : `${pendingCount} movimientos por confirmar`}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: theme.colors.primary }}>
+                Revisar ➔
+              </Text>
+            </Pressable>
           )}
         </Surface>
       )}

@@ -12,7 +12,7 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import * as Haptics from 'expo-haptics';
-import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard } from '@/src/presentation/components';
+import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard, DailySafeToSpendCard } from '@/src/presentation/components';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -22,6 +22,10 @@ import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountB
 import { DetectRegistrationGap } from '@/src/domain/usecases/DetectRegistrationGap';
 import { CalculateRegistrationStreak } from '@/src/domain/usecases/CalculateRegistrationStreak';
 import { Evaluate7DayChallenge } from '@/src/domain/usecases/Evaluate7DayChallenge';
+import { CalculateDailyPacing } from '@/src/domain/usecases/CalculateDailyPacing';
+import { DailyPacing } from '@/src/domain/entities/AtomicHabit';
+import { Budget } from '@/src/domain/entities/Budget';
+import { useHabitSettingsStore } from '@/src/infrastructure/state/habitSettingsStore';
 import { Challenge } from '@/src/domain/entities/Challenge';
 import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 import { RegistrationReminderService } from '@/src/infrastructure/services/RegistrationReminderService';
@@ -66,7 +70,8 @@ export default function DashboardScreen() {
   const [totalBalance, setTotalBalance] = useState(0);
   const [monthlyIncome, setMonthlyIncome] = useState(0);
   const [monthlyExpenses, setMonthlyExpenses] = useState(0);
-  const [pendingEmailInvoices, setPendingEmailInvoices] = useState(0);
+  const [pendingTransactionsCount, setPendingTransactionsCount] = useState(0);
+  const [hasVoicePending, setHasVoicePending] = useState(false);
   const [registrationStreak, setRegistrationStreak] = useState(0);
   const [registrationGapDays, setRegistrationGapDays] = useState<number | null>(null);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -75,6 +80,7 @@ export default function DashboardScreen() {
   const [smartAlerts, setSmartAlerts] = useState<SmartAlert[]>([]);
   const [healthModalVisible, setHealthModalVisible] = useState(false);
   const [activeHabitNudges, setActiveHabitNudges] = useState<HabitPattern[]>([]);
+  const [dailyPacing, setDailyPacing] = useState<DailyPacing | null>(null);
 
   // Parámetros de Toast por voz
   const params = useLocalSearchParams<{
@@ -99,7 +105,7 @@ export default function DashboardScreen() {
       setToastVisible(true);
     } else if (params.voiceToastPending === 'true') {
       setToastMessage('⚠️ Guardado en "Por Confirmar" (Falta indicar el monto)');
-      setToastTxId(null);
+      setToastTxId(params.voiceTxId || null);
       setToastVisible(true);
     }
   }, [params.voiceToast, params.voiceAmount, params.voiceCategory, params.voiceTxId, params.voiceToastPending]);
@@ -274,9 +280,10 @@ export default function DashboardScreen() {
       setMonthTransactions(filteredTxs);
       setRecentTransactions(filteredTxs.slice(0, 3));
 
-      // 3b. Facturas electrónicas recibidas por correo
-      const pendingEmailTx = await transactionRepo.getAll({ status: 'pending', inputMethod: 'email' }, preferCache);
-      setPendingEmailInvoices(pendingEmailTx.length);
+      // 3b. Movimientos pendientes (correo, notas de voz del reloj sin monto, etc.)
+      const pendingTxList = await transactionRepo.getAll({ status: 'pending' }, preferCache);
+      setPendingTransactionsCount(pendingTxList.length);
+      setHasVoicePending(pendingTxList.some(tx => tx.inputMethod === 'voice' || (tx.description && tx.description.startsWith('🎙️'))));
 
       // 3c. Racha de registro y detección de "vacío"
       if (userProfile) {
@@ -349,6 +356,51 @@ export default function DashboardScreen() {
         }
       }
       setActiveHabitNudges(triggeredHabits);
+
+      // 7. Calcular Daily Safe-to-Spend Consolidado (Hábitos Atómicos)
+      try {
+        const budgetRepo = new HybridBudgetRepository();
+        const allBudgets = await budgetRepo.getAll();
+        const currentMonthBudgets = allBudgets.filter(
+          (b) => b.year === selectedYear && b.month === selectedMonth
+        );
+        const totalBudgetLimit = currentMonthBudgets.reduce(
+          (acc, b) => acc + (Number(b.amountLimit) || 0),
+          0
+        );
+
+        if (totalBudgetLimit > 0) {
+          const consolidatedBudget: Budget = {
+            id: 'budget-consolidated',
+            familyGroupId: 'family-1',
+            categoryId: 'all',
+            amountLimit: totalBudgetLimit,
+            year: selectedYear,
+            month: selectedMonth,
+            scope: 'family',
+            ownerUserId: null,
+            createdAt: new Date().toISOString(),
+          };
+
+          const spentToday = todayTxs
+            .filter((tx) => tx.type === 'expense')
+            .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+          const pacing = CalculateDailyPacing.execute({
+            budget: consolidatedBudget,
+            monthlySpent: expensesSum,
+            spentToday,
+            currentDate: new Date(),
+            settings: useHabitSettingsStore.getState().settings,
+          });
+
+          setDailyPacing(pacing);
+        } else {
+          setDailyPacing(null);
+        }
+      } catch (err) {
+        console.warn('[Dashboard] Error calculando daily pacing:', err);
+      }
 
       return activeAccounts;
     };
@@ -619,6 +671,16 @@ export default function DashboardScreen() {
           onPressAnalysis={() => setHealthModalVisible(true)}
         />
 
+        {/* ─── HÁBITOS ATÓMICOS: DAILY SAFE-TO-SPEND CARD ────────────────── */}
+        {dailyPacing && (
+          <DailySafeToSpendCard
+            pacing={dailyPacing}
+            categoryName="Presupuesto Mensual"
+            onPressSettings={() => router.push('/(tabs)/settings')}
+            onPressDetails={() => router.push('/(tabs)/budgets')}
+          />
+        )}
+
         {/* ─── SECCIÓN ACCIONES RÁPIDAS (Justo debajo de la tarjeta de balance) ── */}
         <View style={{ marginTop: 14, marginBottom: 12 }}>
           <View style={{ flexDirection: 'row', gap: 10 }}>
@@ -735,22 +797,28 @@ export default function DashboardScreen() {
           </Card>
         )}
 
-        {/* Aviso de facturas electrónicas recibidas por correo, ya pagadas, esperando confirmación */}
-        {pendingEmailInvoices > 0 && (
+        {/* Aviso de movimientos pendientes esperando confirmación (Voz del reloj, facturas o notificaciones) */}
+        {pendingTransactionsCount > 0 && (
           <Card
             style={[styles.emailInboxCard, { backgroundColor: theme.customColors.warningLight }]}
             onPress={() => router.push('/email-inbox')}
           >
             <Card.Content style={styles.emailInboxContent}>
-              <MaterialCommunityIcons name="email-fast-outline" size={28} color={theme.customColors.warning} />
+              <MaterialCommunityIcons 
+                name={hasVoicePending ? 'microphone-clock-outline' : 'email-fast-outline'} 
+                size={28} 
+                color={theme.customColors.warning} 
+              />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={[theme.typography.body, { fontWeight: '600' }]}>
-                  {pendingEmailInvoices === 1
-                    ? 'Tienes 1 movimiento por correo sin confirmar'
-                    : `Tienes ${pendingEmailInvoices} movimientos por correo sin confirmar`}
+                  {pendingTransactionsCount === 1
+                    ? `Tienes 1 movimiento por confirmar${hasVoicePending ? ' (🎙️ Reloj)' : ''}`
+                    : `Tienes ${pendingTransactionsCount} movimientos por confirmar`}
                 </Text>
                 <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                  Notificaciones bancarias y facturas detectadas automáticamente
+                  {hasVoicePending
+                    ? 'Notas de voz del reloj sin monto o notificaciones bancarias'
+                    : 'Notificaciones bancarias y facturas detectadas automáticamente'}
                 </Text>
               </View>
               <MaterialCommunityIcons name="chevron-right" size={22} color={theme.customColors.textSecondary} />
@@ -1157,7 +1225,7 @@ export default function DashboardScreen() {
         action={
           toastTxId
             ? {
-                label: 'Editar',
+                label: params.voiceToastPending === 'true' ? 'Completar' : 'Editar',
                 onPress: () => {
                   router.push({ pathname: '/transaction/new', params: { id: toastTxId } });
                 },

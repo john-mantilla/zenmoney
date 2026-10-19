@@ -36,14 +36,14 @@ export default function EmailInboxScreen() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [pendingEmailTx, loadedCategories] = await Promise.all([
-        transactionRepo.getAll({ status: 'pending', inputMethod: 'email' }),
+      const [pendingTx, loadedCategories] = await Promise.all([
+        transactionRepo.getAll({ status: 'pending' }),
         categoryRepo.getAll(true),
       ]);
-      setInvoices(pendingEmailTx);
+      setInvoices(pendingTx);
       setCategories(loadedCategories);
     } catch (err) {
-      console.error('[Email Inbox Load Error]:', err);
+      console.error('[Pending Inbox Load Error]:', err);
     } finally {
       setLoading(false);
     }
@@ -72,8 +72,8 @@ export default function EmailInboxScreen() {
 
   const handleDiscard = (tx: Transaction) => {
     AppAlert.alert(
-      'Descartar factura',
-      `¿Descartar la factura de ${tx.merchantName || 'este comercio'} por $${tx.amount.toLocaleString('es-CO')}? No se registrará ningún gasto.`,
+      'Descartar movimiento',
+      `¿Descartar ${tx.merchantName || tx.description || 'este movimiento'} por $${tx.amount.toLocaleString('es-CO')}? No se registrará ningún gasto.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -85,7 +85,7 @@ export default function EmailInboxScreen() {
               await transactionRepo.delete(tx.id);
               loadData();
             } catch (err) {
-              console.error('Error al descartar factura:', err);
+              console.error('Error al descartar movimiento:', err);
             } finally {
               setDiscardingId(null);
             }
@@ -99,7 +99,7 @@ export default function EmailInboxScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Appbar.Header style={{ backgroundColor: theme.colors.surface }} statusBarHeight={insets.top}>
         <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="Movimientos por Confirmar" subtitle="Notificaciones bancarias y facturas por correo" />
+        <Appbar.Content title="Movimientos por Confirmar" subtitle="Notas de voz del reloj, notificaciones y facturas" />
       </Appbar.Header>
 
       {loading ? (
@@ -108,25 +108,33 @@ export default function EmailInboxScreen() {
         <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom + 16, 16) }]}>
           {invoices.length === 0 ? (
             <EmptyState
-              icon="email-check-outline"
+              icon="check-all"
               title="Sin movimientos pendientes"
-              description="Cuando recibas un correo bancario o factura electrónica reenviada, aparecerá aquí para que la confirmes con 1-tap."
+              description="Cuando recibas un correo bancario, factura electrónica o grabes una nota de voz sin monto, aparecerá aquí para que la confirmes fácilmente."
             />
           ) : (
             invoices.map(tx => {
               const isIncome = tx.type === 'income';
               const isBankNotif = tx.aiMetadata?.is_bank_notification;
+              const isVoice = tx.inputMethod === 'voice' || (tx.description && tx.description.startsWith('🎙️'));
+
+              let sourceBadge = '📄 Factura DIAN';
+              if (isVoice) {
+                sourceBadge = '🎙️ Nota de voz del reloj';
+              } else if (isBankNotif) {
+                sourceBadge = `🏦 ${tx.aiMetadata?.bank_name || 'Banco'}`;
+              }
 
               return (
                 <Card key={tx.id} style={styles.card}>
                   <Card.Content>
                     <View style={styles.row}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[theme.typography.h4, { fontWeight: '600' }]} numberOfLines={1}>
-                          {tx.merchantName || tx.description || 'Comercio desconocido'}
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={[theme.typography.h4, { fontWeight: '600' }]} numberOfLines={2}>
+                          {tx.merchantName || tx.description || 'Movimiento sin descripción'}
                         </Text>
                         <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginTop: 4 }]}>
-                          {formatDate(tx.transactionDate)} • {getCategoryName(tx.categoryId)} • {isBankNotif ? `🏦 ${tx.aiMetadata?.bank_name || 'Banco'}` : '📄 Factura DIAN'}
+                          {formatDate(tx.transactionDate)} • {getCategoryName(tx.categoryId)} • {sourceBadge}
                         </Text>
                       </View>
                       <AmountDisplay amount={tx.amount} type={isIncome ? 'income' : 'expense'} size="md" />
@@ -146,7 +154,7 @@ export default function EmailInboxScreen() {
                         disabled={discardingId === tx.id}
                         style={{ marginLeft: 8 }}
                       >
-                        Revisar y Confirmar
+                        {isVoice && tx.amount === 0 ? 'Completar Monto' : 'Revisar y Confirmar'}
                       </Button>
                     </View>
                   </Card.Content>

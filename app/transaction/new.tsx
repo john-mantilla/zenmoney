@@ -278,19 +278,29 @@ export default function NewTransactionScreen() {
                 return;
               } else if (amountVal === 0 && activeAccs.length > 0) {
                 // Si falta el monto en el dictado, guardar en la bandeja "Por confirmar"
-                await transactionRepo.create({
-                  type: 'expense',
+                const learnedCatId = parsed.merchantName
+                  ? matchRuleUseCase.execute(parsed.merchantName, categorizationRules)
+                  : null;
+                const targetCatId = learnedCatId || (parsed as any).suggestedCategoryId || (loadedCats.find(c => !c.parentCategoryId)?.id || '');
+                const targetAccountId = (parsed as any).suggestedAccountId || useAccountPreferenceStore.getState().getPreferredAccountId(activeAccs);
+
+                const pendingTx = await transactionRepo.create({
+                  type: parsed.type || 'expense',
                   amount: 0,
-                  accountId: activeAccs[0].id,
-                  categoryId: loadedCats[0]?.id || '',
-                  description: `🎙️ ${params.voiceInput}`,
-                  transactionDate: new Date().toISOString().split('T')[0],
-                });
+                  accountId: targetAccountId,
+                  categoryId: targetCatId || undefined,
+                  merchantName: parsed.merchantName || undefined,
+                  description: parsed.description || `🎙️ ${params.voiceInput}`,
+                  transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
+                  status: 'pending',
+                  inputMethod: 'voice',
+                } as any);
                 hapticSuccess();
                 router.replace({
                   pathname: '/(tabs)',
                   params: {
                     voiceToastPending: 'true',
+                    voiceTxId: pendingTx.id,
                   },
                 });
                 return;

@@ -65,6 +65,7 @@ export interface HabitSettingsState {
   setMicroSweepEnabled: (enabled: boolean) => void;
   setTargetSavingsGoalId: (goalId: string | null) => void;
   setCategoryEnabled: (categoryId: string, enabled: boolean) => void;
+  setAllCategories: (enabled: boolean, categoryIds: string[]) => void;
   isCategoryActive: (categoryId: string) => boolean;
   resetDefaults: () => void;
 }
@@ -135,6 +136,22 @@ export const useHabitSettingsStore = create<HabitSettingsState>()(
             categoryOverrides: {
               ...state.settings.categoryOverrides,
               [categoryId]: enabled,
+            },
+          },
+        }));
+      },
+
+      setAllCategories: (enabled: boolean, categoryIds: string[]) => {
+        const overrides: Record<string, boolean> = {};
+        for (const id of categoryIds) {
+          overrides[id] = enabled;
+        }
+        set((state) => ({
+          settings: {
+            ...state.settings,
+            categoryOverrides: {
+              ...state.settings.categoryOverrides,
+              ...overrides,
             },
           },
         }));

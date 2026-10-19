@@ -14,6 +14,8 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
+import { HabitSettingsSection } from '@/src/presentation/components';
+import { Category } from '@/src/domain/entities/Category';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 export default function SettingsScreen() {
@@ -24,6 +26,7 @@ export default function SettingsScreen() {
   // Estados de métricas dinámicas
   const [accountsCount, setAccountsCount] = useState<number | null>(null);
   const [categoriesCount, setCategoriesCount] = useState<number | null>(null);
+  const [categoriesList, setCategoriesList] = useState<Category[]>([]);
   const [recurrencesCount, setRecurrencesCount] = useState<number | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>('Hace un momento');
 
@@ -40,6 +43,7 @@ export default function SettingsScreen() {
       ]);
       setAccountsCount(accs.filter((a: any) => a.isActive).length);
       setCategoriesCount(cats.length);
+      setCategoriesList(cats as Category[]);
       setRecurrencesCount(recs.length);
       
       const now = new Date();
@@ -161,6 +165,12 @@ export default function SettingsScreen() {
             style={styles.menuItem}
           />
         </Surface>
+
+        {/* ─── HÁBITOS ATÓMICOS Y SAFE-TO-SPEND ──────────────────────────── */}
+        <Text style={[styles.sectionHeader, theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+          HÁBITOS ATÓMICOS Y METODOLOGÍA CONDUCTUAL
+        </Text>
+        <HabitSettingsSection categories={categoriesList} />
 
         {/* ─── TARJETA DE SEGURIDAD Y SESIONES ──────────────────────────── */}
         <Text style={[styles.sectionHeader, theme.typography.caption, { color: theme.customColors.textSecondary }]}>
