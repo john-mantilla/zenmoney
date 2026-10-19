@@ -26,6 +26,8 @@ export interface CreateBudgetData {
   startMode: 'current' | 'future';
   futureOffset: number;
   hasRollover?: boolean;
+  isOverride?: boolean;
+  overrideReason?: string;
 }
 
 interface CreateBudgetModalProps {
@@ -60,6 +62,8 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
   const [budgetStartMode, setBudgetStartMode] = useState<'current' | 'future'>('current');
   const [futureMonthOffset, setFutureMonthOffset] = useState(1);
   const [hasRollover, setHasRollover] = useState(false);
+  const [isOverride, setIsOverride] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -74,6 +78,8 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
       setBudgetStartMode('current');
       setFutureMonthOffset(1);
       setHasRollover(Boolean(editingBudget.hasRollover));
+      setIsOverride(Boolean(editingBudget.isOverride));
+      setOverrideReason(editingBudget.overrideReason || '');
     } else {
       const firstNonPrivate = categories.find((c) => !c.isPrivate) || categories[0];
       setSelectedCategoryId(firstNonPrivate ? firstNonPrivate.id : '');
@@ -82,6 +88,8 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
       setBudgetStartMode('current');
       setFutureMonthOffset(1);
       setHasRollover(false);
+      setIsOverride(false);
+      setOverrideReason('');
     }
     setIsCategoryPickerOpen(false);
     setErrorMsg(null);
@@ -115,9 +123,11 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
         categoryId: selectedCategoryId,
         amount: val,
         scope: selectedScope,
-        startMode: budgetStartMode,
+        startMode: isOverride ? 'current' : budgetStartMode,
         futureOffset: futureMonthOffset,
         hasRollover,
+        isOverride,
+        overrideReason: isOverride ? (overrideReason.trim() || undefined) : undefined,
       });
       onClose();
     } catch (err) {
@@ -349,54 +359,161 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
                   style={{ marginBottom: 16 }}
                 />
 
-                {/* Fecha de Inicio */}
+                {/* Modalidad de Límite: Regla Maestra vs Anulación Específica (Override) */}
                 <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>
-                  INICIA A PARTIR DE
+                  MODALIDAD DEL LÍMITE
                 </Text>
-                <RadioButton.Group
-                  onValueChange={(val) => {
+                <SegmentedButtons
+                  value={isOverride ? 'override' : 'master'}
+                  onValueChange={(val: string) => {
                     triggerHaptic();
-                    setBudgetStartMode(val as 'current' | 'future');
+                    const willOverride = val === 'override';
+                    setIsOverride(willOverride);
+                    if (willOverride) {
+                      setBudgetStartMode('current');
+                    }
                   }}
-                  value={budgetStartMode}
-                >
-                  <View style={styles.radioRow}>
-                    <RadioButton value="current" color={theme.colors.primary} />
-                    <Text style={[theme.typography.body, { color: theme.colors.onSurface }]}>
-                      Este mes ({selectedYear}-{String(selectedMonth).padStart(2, '0')})
-                    </Text>
-                  </View>
-                  <View style={[styles.radioRow, { marginTop: 4 }]}>
-                    <RadioButton value="future" color={theme.colors.primary} />
-                    <Text style={[theme.typography.body, { color: theme.colors.onSurface }]}>Mes futuro:</Text>
-                  </View>
-                </RadioButton.Group>
+                  buttons={[
+                    {
+                      value: 'master',
+                      label: 'Regla Maestra',
+                      icon: 'repeat',
+                      checkedColor: theme.colors.primary,
+                      uncheckedColor: theme.colors.onSurface,
+                    },
+                    {
+                      value: 'override',
+                      label: 'Solo este mes',
+                      icon: 'star-outline',
+                      checkedColor: theme.colors.primary,
+                      uncheckedColor: theme.colors.onSurface,
+                    },
+                  ]}
+                  density="small"
+                  style={{ marginBottom: 10 }}
+                />
 
-                {budgetStartMode === 'future' && (
-                  <View style={styles.futurePickerRow}>
-                    <IconButton
-                      icon="minus"
-                      size={18}
-                      onPress={() => setFutureMonthOffset(Math.max(1, futureMonthOffset - 1))}
-                    />
-                    <Text style={{ fontWeight: '700', fontSize: 13, color: theme.colors.onSurface }}>
-                      +{futureMonthOffset} mes{futureMonthOffset > 1 ? 'es' : ''}{' '}
-                      {(() => {
-                        let m = selectedMonth + futureMonthOffset;
-                        let y = selectedYear;
-                        while (m > 12) {
-                          m -= 12;
-                          y++;
-                        }
-                        return ` (${y}-${String(m).padStart(2, '0')})`;
-                      })()}
+                {isOverride ? (
+                  <View
+                    style={{
+                      padding: 12,
+                      borderRadius: 12,
+                      backgroundColor: theme.colors.primaryContainer + '25',
+                      borderWidth: 1,
+                      borderColor: theme.colors.primary + '40',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <MaterialCommunityIcons name="lightning-bolt-circle" size={18} color={theme.colors.primary} />
+                      <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.primary }]}>
+                        Límite Extraordinario Puntual ({selectedYear}-{String(selectedMonth).padStart(2, '0')})
+                      </Text>
+                    </View>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 8, lineHeight: 15 }]}>
+                      Este monto aplicará exclusivamente durante este mes. Al pasar al siguiente mes volverá automáticamente a tu regla maestra recurrente.
                     </Text>
-                    <IconButton
-                      icon="plus"
-                      size={18}
-                      onPress={() => setFutureMonthOffset(Math.min(24, futureMonthOffset + 1))}
+                    
+                    <Text style={[theme.typography.caption, { fontWeight: '600', color: theme.colors.onSurface, marginBottom: 6 }]}>
+                      Motivo del ajuste extraordinario:
+                    </Text>
+                    {/* Chips sugeridos */}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {['🎄 Navidad', '🏖️ Vacaciones', '🎒 Temporada Escolar', '🏥 Salud', '🎉 Celebración'].map((tag) => (
+                        <TouchableOpacity
+                          key={tag}
+                          activeOpacity={0.7}
+                          onPress={() => {
+                            triggerHaptic();
+                            setOverrideReason(tag);
+                          }}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 16,
+                            backgroundColor: overrideReason === tag ? theme.colors.primary : theme.colors.surfaceVariant + '80',
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: '600',
+                              color: overrideReason === tag ? '#FFFFFF' : theme.colors.onSurface,
+                            }}
+                          >
+                            {tag}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <TextInput
+                      label="O escribe un motivo personalizado"
+                      value={overrideReason}
+                      onChangeText={setOverrideReason}
+                      mode="outlined"
+                      dense
+                      placeholder="Ej: Viaje familiar o compras navideñas"
+                      style={{ backgroundColor: theme.colors.surface }}
                     />
                   </View>
+                ) : (
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 16, marginTop: -4 }]}>
+                    🔄 Aplica de forma continua mes a mes hasta nuevo aviso.
+                  </Text>
+                )}
+
+                {/* Fecha de Inicio (Solo si es Regla Maestra) */}
+                {!isOverride && (
+                  <>
+                    <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>
+                      INICIA A PARTIR DE
+                    </Text>
+                    <RadioButton.Group
+                      onValueChange={(val) => {
+                        triggerHaptic();
+                        setBudgetStartMode(val as 'current' | 'future');
+                      }}
+                      value={budgetStartMode}
+                    >
+                      <View style={styles.radioRow}>
+                        <RadioButton value="current" color={theme.colors.primary} />
+                        <Text style={[theme.typography.body, { color: theme.colors.onSurface }]}>
+                          Este mes ({selectedYear}-{String(selectedMonth).padStart(2, '0')})
+                        </Text>
+                      </View>
+                      <View style={[styles.radioRow, { marginTop: 4 }]}>
+                        <RadioButton value="future" color={theme.colors.primary} />
+                        <Text style={[theme.typography.body, { color: theme.colors.onSurface }]}>Mes futuro:</Text>
+                      </View>
+                    </RadioButton.Group>
+
+                    {budgetStartMode === 'future' && (
+                      <View style={styles.futurePickerRow}>
+                        <IconButton
+                          icon="minus"
+                          size={18}
+                          onPress={() => setFutureMonthOffset(Math.max(1, futureMonthOffset - 1))}
+                        />
+                        <Text style={{ fontWeight: '700', fontSize: 13, color: theme.colors.onSurface }}>
+                          +{futureMonthOffset} mes{futureMonthOffset > 1 ? 'es' : ''}{' '}
+                          {(() => {
+                            let m = selectedMonth + futureMonthOffset;
+                            let y = selectedYear;
+                            while (m > 12) {
+                              m -= 12;
+                              y++;
+                            }
+                            return ` (${y}-${String(m).padStart(2, '0')})`;
+                          })()}
+                        </Text>
+                        <IconButton
+                          icon="plus"
+                          size={18}
+                          onPress={() => setFutureMonthOffset(Math.min(24, futureMonthOffset + 1))}
+                        />
+                      </View>
+                    )}
+                  </>
                 )}
 
                 {/* Rollover (Arrastre Inteligente de Saldo) */}

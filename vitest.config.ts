@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/domain/**/*.test.ts', 'src/data/**/*.test.ts', 'src/infrastructure/**/*.test.ts', 'src/shared/**/*.test.ts'],
+    include: ['src/domain/**/*.test.ts', 'src/data/**/*.test.ts', 'src/infrastructure/**/*.test.ts', 'src/shared/**/*.test.ts', 'src/presentation/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/domain/**/*.ts', 'src/data/models/Mapper.ts'],
@@ -28,13 +28,14 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './'),
-      '@domain': path.resolve(__dirname, './src/domain'),
-      '@data': path.resolve(__dirname, './src/data'),
-      '@presentation': path.resolve(__dirname, './src/presentation'),
-      '@infrastructure': path.resolve(__dirname, './src/infrastructure'),
-      '@shared': path.resolve(__dirname, './src/shared'),
-    },
+    alias: [
+      { find: /.*\.(png|jpg|jpeg|gif|svg)$/, replacement: path.resolve(__dirname, './src/presentation/__tests__/__mocks__/fileMock.js') },
+      { find: '@', replacement: path.resolve(__dirname, './') },
+      { find: '@domain', replacement: path.resolve(__dirname, './src/domain') },
+      { find: '@data', replacement: path.resolve(__dirname, './src/data') },
+      { find: '@presentation', replacement: path.resolve(__dirname, './src/presentation') },
+      { find: '@infrastructure', replacement: path.resolve(__dirname, './src/infrastructure') },
+      { find: '@shared', replacement: path.resolve(__dirname, './src/shared') },
+    ],
   },
 });

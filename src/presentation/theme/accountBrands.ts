@@ -47,9 +47,29 @@ export function inferAccountBrand(name: string, type: AccountType): AccountBrand
   const n = (name || '').toLowerCase().trim();
   const icon = getTypeIcon(type);
 
+  // Marcas de pago globales y catálogo embebido
+  if (n.includes('visa')) {
+    return { color: '#1A1F71', icon: 'visa', isBrandMatch: true };
+  }
+  if (n.includes('mastercard') || n.includes('master card') || n.includes('master-card')) {
+    return { color: '#1A202C', icon: 'mastercard', isBrandMatch: true };
+  }
+  if (n.includes('amex') || n.includes('american express')) {
+    return { color: '#006FCF', icon: 'amex', isBrandMatch: true };
+  }
+  if (n.includes('cheque') || n.includes('chequera') || n.includes('checkbook')) {
+    return { color: '#0F766E', icon: 'checkbook', isBrandMatch: true };
+  }
+  if (n.includes('dolar') || n.includes('dollar') || n.includes('usd')) {
+    return { color: '#10B981', icon: 'dollar', isBrandMatch: true };
+  }
+  if (n.includes('crypto') || n.includes('bitcoin') || n.includes('binance') || n.includes('usdt')) {
+    return { color: '#F97316', icon: 'crypto', isBrandMatch: true };
+  }
+
   // 1. Bancolombia / Wompi -> #2C2A29 (Negro carbón oficial)
   if (n.includes('bancolombia') || n.includes('wompi')) {
-    return { color: '#2C2A29', icon, isBrandMatch: true };
+    return { color: '#2C2A29', icon: type === 'bank' ? 'bank' : icon, isBrandMatch: true };
   }
 
   // 2. Nequi -> #E91E63 (Fucsia Nequi)
@@ -64,7 +84,7 @@ export function inferAccountBrand(name: string, type: AccountType): AccountBrand
 
   // 4. Davivienda / Daviplata -> #E53935
   if (n.includes('davivienda') || n.includes('daviplata')) {
-    return { color: '#E53935', icon, isBrandMatch: true };
+    return { color: '#E53935', icon: type === 'bank' ? 'bank' : icon, isBrandMatch: true };
   }
 
   // 5. Bold -> #1A237E
@@ -79,12 +99,12 @@ export function inferAccountBrand(name: string, type: AccountType): AccountBrand
 
   // 7. BBVA -> #004481
   if (n.includes('bbva')) {
-    return { color: '#004481', icon, isBrandMatch: true };
+    return { color: '#004481', icon: type === 'bank' ? 'bank' : icon, isBrandMatch: true };
   }
 
   // 8. Lulo / LuloBank -> #84CC16
   if (n.includes('lulo')) {
-    return { color: '#84CC16', icon, isBrandMatch: true };
+    return { color: '#84CC16', icon: type === 'bank' ? 'bank' : icon, isBrandMatch: true };
   }
 
   // 9. Mercado Pago -> #0284C7
@@ -99,15 +119,15 @@ export function inferAccountBrand(name: string, type: AccountType): AccountBrand
 
   // 11. Efectivo
   if (n.includes('efectivo') || n.includes('cash') || type === 'cash') {
-    return { color: '#2E7D32', icon: 'cash-multiple', isBrandMatch: true };
+    return { color: '#2E7D32', icon: 'cash', isBrandMatch: true };
   }
 
   // Fallback por tipo básico
   if (type === 'credit_card') return { color: '#475569', icon, isBrandMatch: false };
-  if (type === 'investment') return { color: '#0D9488', icon, isBrandMatch: false };
+  if (type === 'investment') return { color: '#0D9488', icon: 'crypto', isBrandMatch: false };
   if (type === 'loan') return { color: '#D97706', icon, isBrandMatch: false };
 
-  return { color: '#2563EB', icon, isBrandMatch: false };
+  return { color: '#2563EB', icon: 'bank', isBrandMatch: false };
 }
 
 import { useAccountCustomizationStore } from '@/src/infrastructure/state/accountCustomizationStore';

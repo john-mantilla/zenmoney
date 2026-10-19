@@ -34,3 +34,5 @@ export * from './OneTapHabitBanner';
 export * from './StreakCelebrationBadge';
 export * from './HabitSettingsSection';
 export * from './CreateAtomicHabitModal';
+export * from './AccountIcon';
+export * from './AccountIconPicker';

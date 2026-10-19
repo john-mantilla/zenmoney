@@ -33,10 +33,12 @@ export class SqliteBudgetRepository implements BudgetRepository {
     const ownerUserId = input.scope === 'individual' ? ((input as any).ownerUserId || 'offline-user') : null;
     const createdAt = new Date().toISOString();
     const hasRolloverInt = input.hasRollover ? 1 : 0;
+    const isOverrideInt = input.isOverride ? 1 : 0;
+    const overrideReason = input.overrideReason || null;
 
     await db.runAsync(
-      `INSERT INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, is_override, override_reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         id,
         familyGroupId,
@@ -47,6 +49,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
         input.scope || 'family',
         ownerUserId,
         hasRolloverInt,
+        isOverrideInt,
+        overrideReason,
         createdAt
       ]
     );
@@ -61,6 +65,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
       scope: input.scope || 'family',
       ownerUserId,
       hasRollover: Boolean(input.hasRollover),
+      isOverride: Boolean(input.isOverride),
+      overrideReason: input.overrideReason,
       createdAt
     };
   }
@@ -78,10 +84,13 @@ export class SqliteBudgetRepository implements BudgetRepository {
     const scope = data.scope !== undefined ? data.scope : existing.scope;
     const hasRollover = data.hasRollover !== undefined ? data.hasRollover : existing.hasRollover;
     const hasRolloverInt = hasRollover ? 1 : 0;
+    const isOverride = data.isOverride !== undefined ? data.isOverride : existing.isOverride;
+    const isOverrideInt = isOverride ? 1 : 0;
+    const overrideReason = data.overrideReason !== undefined ? data.overrideReason : existing.overrideReason;
 
     await db.runAsync(
-      `UPDATE budgets SET amount_limit = ?, year = ?, month = ?, scope = ?, has_rollover = ? WHERE id = ?;`,
-      [amountLimit, year, month, scope, hasRolloverInt, id]
+      `UPDATE budgets SET amount_limit = ?, year = ?, month = ?, scope = ?, has_rollover = ?, is_override = ?, override_reason = ? WHERE id = ?;`,
+      [amountLimit, year, month, scope, hasRolloverInt, isOverrideInt, overrideReason || null, id]
     );
 
     return {
@@ -90,7 +99,9 @@ export class SqliteBudgetRepository implements BudgetRepository {
       year,
       month,
       scope,
-      hasRollover: Boolean(hasRollover)
+      hasRollover: Boolean(hasRollover),
+      isOverride: Boolean(isOverride),
+      overrideReason: overrideReason || undefined,
     };
   }
 
@@ -103,8 +114,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
     const db = this.getDb();
     for (const b of budgets) {
       await db.runAsync(
-        `INSERT OR REPLACE INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        `INSERT OR REPLACE INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, is_override, override_reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
           b.id,
           b.familyGroupId,
@@ -115,6 +126,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
           b.scope,
           b.ownerUserId,
           b.hasRollover ? 1 : 0,
+          b.isOverride ? 1 : 0,
+          b.overrideReason || null,
           b.createdAt
         ]
       );
@@ -140,6 +153,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
       scope: row.scope,
       ownerUserId: row.owner_user_id,
       hasRollover: row.has_rollover === 1 || row.has_rollover === true || row.has_rollover === 'true',
+      isOverride: row.is_override === 1 || row.is_override === true || row.is_override === 'true',
+      overrideReason: row.override_reason || undefined,
       createdAt: row.created_at
     };
   }

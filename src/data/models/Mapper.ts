@@ -312,6 +312,8 @@ export class Mapper {
       scope: row.scope,
       ownerUserId: row.owner_user_id,
       hasRollover: row.has_rollover === true || row.has_rollover === 1 || row.has_rollover === 'true',
+      isOverride: row.is_override === true || row.is_override === 1 || row.is_override === 'true',
+      overrideReason: row.override_reason || undefined,
       createdAt: row.created_at,
     };
   }
@@ -326,6 +328,8 @@ export class Mapper {
       ...(entity.month !== undefined && { month: entity.month }),
       ...(entity.scope && { scope: entity.scope }),
       ...(entity.hasRollover !== undefined && { has_rollover: Boolean(entity.hasRollover) }),
+      ...(entity.isOverride !== undefined && { is_override: Boolean(entity.isOverride) }),
+      ...(entity.overrideReason !== undefined && { override_reason: entity.overrideReason || null }),
       owner_user_id: entity.ownerUserId || null,
     };
   }

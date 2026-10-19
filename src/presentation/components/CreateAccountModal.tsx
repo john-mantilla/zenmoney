@@ -14,8 +14,10 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '@/src/presentation/theme';
 import { Account, AccountType } from '@/src/domain/entities/Account';
-import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
+import { getAccountBrandInfo, inferAccountBrand } from '@/src/presentation/theme/accountBrands';
 import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
+import { AccountIcon } from './AccountIcon';
+import { AccountIconPicker } from './AccountIconPicker';
 
 export interface CreateAccountData {
   name: string;
@@ -76,6 +78,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [accountType, setAccountType] = useState<AccountType>('bank');
   const [accountColor, setAccountColor] = useState<string>('');
   const [accountIcon, setAccountIcon] = useState<string>('');
+  const [isManualIcon, setIsManualIcon] = useState(false);
   const [initialBalanceInput, setInitialBalanceInput] = useState('');
   const [closingDay, setClosingDay] = useState('');
   const [paymentDay, setPaymentDay] = useState('');
@@ -96,6 +99,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setAccountType(editingAccount.type);
       setAccountColor(editingAccount.color || brand.color || '');
       setAccountIcon(editingAccount.icon || brand.icon || '');
+      setIsManualIcon(Boolean(editingAccount.icon));
       setInitialBalanceInput(String(editingAccount.initialBalance || '0'));
       setClosingDay(editingAccount.closingDay ? String(editingAccount.closingDay) : '');
       setPaymentDay(editingAccount.paymentDay ? String(editingAccount.paymentDay) : '');
@@ -105,7 +109,8 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setAccountName('');
       setAccountType('bank');
       setAccountColor('');
-      setAccountIcon('');
+      setAccountIcon('bank');
+      setIsManualIcon(false);
       setInitialBalanceInput('');
       setClosingDay('');
       setPaymentDay('');
@@ -118,6 +123,19 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
     }
     setErrorMsg(null);
   }, [editingAccount, visible]);
+
+  const handleNameChange = (text: string) => {
+    setAccountName(text);
+    if (!isManualIcon) {
+      const inferred = inferAccountBrand(text, accountType);
+      if (inferred.isBrandMatch) {
+        setAccountIcon(inferred.icon);
+        if (!accountColor) {
+          setAccountColor(inferred.color);
+        }
+      }
+    }
+  };
 
   const triggerHaptic = () => {
     try {
@@ -187,7 +205,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
               <View style={styles.headerRow}>
                 <View style={styles.headerTitleContainer}>
                   <View style={[styles.headerIconBadge, { backgroundColor: activeColor + '20' }]}>
-                    <MaterialCommunityIcons name="bank-outline" size={24} color={activeColor} />
+                    <AccountIcon icon={accountIcon} size={28} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}>
@@ -218,7 +236,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
                 <TextInput
                   label="Nombre de la cuenta (ej: Bancolombia, Nequi, Nu)"
                   value={accountName}
-                  onChangeText={setAccountName}
+                  onChangeText={handleNameChange}
                   mode="outlined"
                   style={styles.input}
                   disabled={isSaving}
@@ -237,6 +255,13 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
                         onPress={() => {
                           triggerHaptic();
                           setAccountType(t.type);
+                          if (!isManualIcon) {
+                            const inferred = inferAccountBrand(accountName, t.type);
+                            setAccountIcon(inferred.icon);
+                            if (!accountColor) {
+                              setAccountColor(inferred.color);
+                            }
+                          }
                         }}
                         style={[
                           styles.typePill,
@@ -265,6 +290,19 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
                     );
                   })}
                 </ScrollView>
+
+                {/* Ícono de Cuenta (Catálogo Embebido) */}
+                <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>
+                  ÍCONO DE CUENTA
+                </Text>
+                <AccountIconPicker
+                  selectedIcon={accountIcon}
+                  onSelectIcon={(iconId) => {
+                    setIsManualIcon(true);
+                    setAccountIcon(iconId);
+                  }}
+                  accentColor={activeColor}
+                />
 
                 {/* Color de Marca */}
                 <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>

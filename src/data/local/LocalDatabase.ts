@@ -94,13 +94,25 @@ export class LocalDatabase {
         scope TEXT NOT NULL DEFAULT 'family',
         owner_user_id TEXT,
         has_rollover INTEGER NOT NULL DEFAULT 0,
+        is_override INTEGER NOT NULL DEFAULT 0,
+        override_reason TEXT,
         created_at TEXT NOT NULL
       );
     `);
 
-    // Migración idempotente para bases existentes: agregar has_rollover si no existe
+    // Migraciones idempotentes para bases existentes
     try {
       await database.execAsync('ALTER TABLE budgets ADD COLUMN has_rollover INTEGER NOT NULL DEFAULT 0;');
+    } catch {
+      // Ignorar si la columna ya existe
+    }
+    try {
+      await database.execAsync('ALTER TABLE budgets ADD COLUMN is_override INTEGER NOT NULL DEFAULT 0;');
+    } catch {
+      // Ignorar si la columna ya existe
+    }
+    try {
+      await database.execAsync('ALTER TABLE budgets ADD COLUMN override_reason TEXT;');
     } catch {
       // Ignorar si la columna ya existe
     }

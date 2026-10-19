@@ -15,7 +15,7 @@ import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurr
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { inferAccountBrand, getAccountBrandInfo, BRAND_COLORS } from '@/src/presentation/theme/accountBrands';
-import { CreateAccountModal, CreateAccountData } from '@/src/presentation/components';
+import { CreateAccountModal, CreateAccountData, AccountIcon } from '@/src/presentation/components';
 import { useAccountCustomizationStore } from '@/src/infrastructure/state/accountCustomizationStore';
 import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -448,23 +448,12 @@ export default function SettingsAccountsScreen() {
                         return (
                           <View key={account.id} style={styles.accountRow}>
                             <Pressable style={styles.accountMeta} onPress={() => openAccountEditDialog(account)}>
-                              <View
-                                style={{
-                                  width: 36,
-                                  height: 36,
-                                  borderRadius: 18,
-                                  backgroundColor: account.isActive ? finalColor : theme.colors.outline,
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  marginRight: 12,
-                                }}
-                              >
-                                <MaterialCommunityIcons
-                                  name={finalIcon as any}
-                                  size={20}
-                                  color="#FFFFFF"
-                                />
-                              </View>
+                              <AccountIcon
+                                icon={finalIcon}
+                                size={38}
+                                backgroundColor={account.isActive ? finalColor : theme.colors.outline}
+                                style={{ marginRight: 12 }}
+                              />
                               <View style={{ flex: 1 }}>
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                                   <Text style={[

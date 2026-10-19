@@ -12,7 +12,7 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import * as Haptics from 'expo-haptics';
-import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard } from '@/src/presentation/components';
+import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard, AccountIcon } from '@/src/presentation/components';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -794,21 +794,12 @@ export default function DashboardScreen() {
                   }
                   onPress={() => setSelectedAccountForAction(account)}
                   left={() => (
-                    <View
-                      style={{
-                        width: 38,
-                        height: 38,
-                        borderRadius: 19,
-                        backgroundColor: brand.color,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        marginLeft: 8,
-                        alignSelf: 'center',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
-                    </View>
+                    <AccountIcon
+                      icon={brand.icon}
+                      size={38}
+                      backgroundColor={brand.color}
+                      style={{ marginLeft: 8, alignSelf: 'center' }}
+                    />
                   )}
                   right={() => (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -848,21 +839,12 @@ export default function DashboardScreen() {
                     }
                     onPress={() => setSelectedAccountForAction(account)}
                     left={() => (
-                      <View
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 19,
-                          backgroundColor: brand.color,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                          marginLeft: 8,
-                          alignSelf: 'center',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
-                      </View>
+                      <AccountIcon
+                        icon={brand.icon}
+                        size={38}
+                        backgroundColor={brand.color}
+                        style={{ marginLeft: 8, alignSelf: 'center' }}
+                      />
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -902,21 +884,12 @@ export default function DashboardScreen() {
                     }
                     onPress={() => setSelectedAccountForAction(account)}
                     left={() => (
-                      <View
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 19,
-                          backgroundColor: brand.color,
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                          marginLeft: 8,
-                          alignSelf: 'center',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <MaterialCommunityIcons name={brand.icon as any} size={20} color="#FFFFFF" />
-                      </View>
+                      <AccountIcon
+                        icon={brand.icon}
+                        size={38}
+                        backgroundColor={brand.color}
+                        style={{ marginLeft: 8, alignSelf: 'center' }}
+                      />
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -955,21 +928,12 @@ export default function DashboardScreen() {
                     }
                     onPress={() => setSelectedAccountForAction(account)}
                     left={() => (
-                      <View
-                        style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 19,
-                          backgroundColor: brand.color || '#059669',
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                          marginLeft: 8,
-                          alignSelf: 'center',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <MaterialCommunityIcons name={(brand.icon as any) || 'trending-up'} size={20} color="#FFFFFF" />
-                      </View>
+                      <AccountIcon
+                        icon={brand.icon}
+                        size={38}
+                        backgroundColor={brand.color || '#059669'}
+                        style={{ marginLeft: 8, alignSelf: 'center' }}
+                      />
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>

@@ -17,6 +17,7 @@ import { HybridTransactionRepository } from '@/src/data/repositories/HybridTrans
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { SuggestRealisticBudget, RealisticBudgetSuggestion } from '@/src/domain/usecases/SuggestRealisticBudget';
 import { CalculateBudgetRollover } from '@/src/domain/usecases/CalculateBudgetRollover';
+import { ResolveEffectiveBudget, ResolvedBudgetItem } from '@/src/domain/usecases/ResolveEffectiveBudget';
 import { AtomicPacingService } from '@/src/domain/services/AtomicPacingService';
 import { useHabitSettingsStore } from '@/src/infrastructure/state/habitSettingsStore';
 import { Budget, BudgetProgress } from '@/src/domain/entities/Budget';
@@ -35,6 +36,8 @@ export interface CreateBudgetData {
   startMode: 'current' | 'future';
   futureOffset: number;
   hasRollover?: boolean;
+  isOverride?: boolean;
+  overrideReason?: string;
 }
 
 interface BudgetTreeChild {
@@ -49,6 +52,9 @@ interface BudgetTreeChild {
   percentage: number;
   status: 'ok' | 'warning' | 'exceeded';
   budget: Budget;
+  isOverride?: boolean;
+  overrideReason?: string;
+  baseMasterLimit?: number;
 }
 
 interface BudgetTreeItem {
@@ -68,6 +74,9 @@ interface BudgetTreeItem {
   percentage: number;
   status: 'ok' | 'warning' | 'exceeded';
   children: BudgetTreeChild[];
+  isOverride?: boolean;
+  overrideReason?: string;
+  baseMasterLimit?: number;
 }
 
 const CustomProgressBar = ({ progress, color }: { progress: number; color: string }) => {
@@ -146,21 +155,12 @@ export default function BudgetsScreen() {
         b.scope === 'family' || !b.ownerUserId || b.ownerUserId === currentUserId
       );
 
-      const monthlyBudgets: Budget[] = [];
-      const targetValue = selectedYear * 12 + selectedMonth;
-      const pastBudgets = privacyBudgets.filter(b => (b.year * 12 + b.month) <= targetValue);
-      
-      const latestByKey: Record<string, { budget: Budget, value: number }> = {};
-      for (const b of pastBudgets) {
-        const bValue = b.year * 12 + b.month;
-        const key = `${b.categoryId}_${b.scope || 'family'}_${b.ownerUserId || 'family'}`;
-        if (!latestByKey[key] || latestByKey[key].value < bValue) {
-          latestByKey[key] = { budget: b, value: bValue };
-        }
-      }
-
-      for (const key in latestByKey) {
-        monthlyBudgets.push(latestByKey[key].budget);
+      // 2.1. Resolver presupuestos efectivos del mes actual (con soporte de Overrides)
+      const resolvedCurrentMonth = ResolveEffectiveBudget.resolveAll(privacyBudgets, selectedYear, selectedMonth);
+      const monthlyBudgets: Budget[] = resolvedCurrentMonth.map(r => r.budget);
+      const resolvedOverridesByKey: Record<string, ResolvedBudgetItem> = {};
+      for (const item of resolvedCurrentMonth) {
+        resolvedOverridesByKey[item.budget.categoryId] = item;
       }
 
       // 3. Cargar transacciones del mes
@@ -191,15 +191,11 @@ export default function BudgetsScreen() {
         status: 'confirmed'
       });
 
-      const prevTargetValue = prevYear * 12 + prevMonth;
-      const pastBudgetsForPrev = privacyBudgets.filter(b => (b.year * 12 + b.month) <= prevTargetValue);
-      const latestByKeyPrev: Record<string, { budget: Budget, value: number }> = {};
-      for (const b of pastBudgetsForPrev) {
-        const bValue = b.year * 12 + b.month;
-        const key = `${b.categoryId}_${b.scope || 'family'}_${b.ownerUserId || 'family'}`;
-        if (!latestByKeyPrev[key] || latestByKeyPrev[key].value < bValue) {
-          latestByKeyPrev[key] = { budget: b, value: bValue };
-        }
+      const resolvedPrevMonth = ResolveEffectiveBudget.resolveAll(privacyBudgets, prevYear, prevMonth);
+      const latestByKeyPrev: Record<string, { budget: Budget }> = {};
+      for (const item of resolvedPrevMonth) {
+        const key = `${item.budget.categoryId}_${item.budget.scope || 'family'}_${item.budget.ownerUserId || 'family'}`;
+        latestByKeyPrev[key] = { budget: item.budget };
       }
 
       const getDirectSpent = (catId: string, budget?: Budget) => {
@@ -302,6 +298,7 @@ export default function BudgetsScreen() {
             subStatus = 'warning';
           }
 
+          const resolvedSub = resolvedOverridesByKey[s.categoryId];
           return {
             id: s.budget.id,
             categoryId: s.categoryId,
@@ -314,6 +311,9 @@ export default function BudgetsScreen() {
             percentage: subPercentage,
             status: subStatus,
             budget: s.budget,
+            isOverride: resolvedSub?.isOverride,
+            overrideReason: resolvedSub?.overrideReason,
+            baseMasterLimit: resolvedSub?.baseMasterBudget?.amountLimit,
           };
         }).sort((a, b) => b.percentage - a.percentage);
 
@@ -362,6 +362,7 @@ export default function BudgetsScreen() {
         }
 
         const parentDirectSpent = parentBudgetItem ? parentBudgetItem.spent : 0;
+        const resolvedParent = parentBudgetItem ? resolvedOverridesByKey[parentId] : undefined;
 
         return {
           id: budgetId,
@@ -380,6 +381,9 @@ export default function BudgetsScreen() {
           percentage,
           status,
           children,
+          isOverride: resolvedParent?.isOverride,
+          overrideReason: resolvedParent?.overrideReason,
+          baseMasterLimit: resolvedParent?.baseMasterBudget?.amountLimit,
         };
       });
 
@@ -476,6 +480,8 @@ export default function BudgetsScreen() {
     const startModeToUse = data ? data.startMode : budgetStartMode;
     const offsetToUse = data ? data.futureOffset : futureMonthOffset;
     const hasRolloverToUse = data ? data.hasRollover : (editingBudget ? editingBudget.hasRollover : false);
+    const isOverrideToUse = data ? Boolean(data.isOverride) : false;
+    const overrideReasonToUse = data ? data.overrideReason : undefined;
 
     if (!limitNum || isNaN(limitNum) || limitNum <= 0) {
       setErrorMsg('Por favor ingresa un límite de dinero válido mayor a cero.');
@@ -487,7 +493,7 @@ export default function BudgetsScreen() {
       let targetYear = selectedYear;
       let targetMonth = selectedMonth;
       
-      if (startModeToUse === 'future') {
+      if (!isOverrideToUse && startModeToUse === 'future') {
         let rawMonth = selectedMonth + offsetToUse;
         let rawYear = selectedYear;
         while (rawMonth > 12) {
@@ -502,13 +508,21 @@ export default function BudgetsScreen() {
       const currentUserId = userProfile?.id;
       const ownerUserId = scopeToUse === 'individual' ? currentUserId : null;
 
-      if (editingBudget && startModeToUse === 'current') {
-        if (editingBudget.year === targetYear && editingBudget.month === targetMonth) {
-          await budgetRepo.update(editingBudget.id, {
+      if (isOverrideToUse) {
+        // Modo Anulación Específica (Budget Override): Solo aplica para este mes puntual
+        const targetBudgets = await budgetRepo.getByMonth(targetYear, targetMonth);
+        const existingOverride = targetBudgets.find(
+          b => b.categoryId === categoryIdToUse && b.scope === scopeToUse && b.ownerUserId === ownerUserId && b.isOverride === true
+        );
+
+        if (existingOverride) {
+          await budgetRepo.update(existingOverride.id, {
             amountLimit: limitNum,
             scope: scopeToUse,
             ownerUserId,
             hasRollover: hasRolloverToUse,
+            isOverride: true,
+            overrideReason: overrideReasonToUse,
           });
         } else {
           await budgetRepo.create({
@@ -519,29 +533,61 @@ export default function BudgetsScreen() {
             scope: scopeToUse,
             ownerUserId,
             hasRollover: hasRolloverToUse,
+            isOverride: true,
+            overrideReason: overrideReasonToUse,
           });
         }
       } else {
-        const existingTargetBudgets = await budgetRepo.getByMonth(targetYear, targetMonth);
-        const exists = existingTargetBudgets.find(b => b.categoryId === categoryIdToUse && b.scope === scopeToUse && b.ownerUserId === ownerUserId);
-        
-        if (exists) {
-          await budgetRepo.update(exists.id, {
-             amountLimit: limitNum,
-             scope: scopeToUse,
-             ownerUserId,
-             hasRollover: hasRolloverToUse,
-          });
+        // Modo Regla Maestra Recurrente
+        if (editingBudget && startModeToUse === 'current' && !editingBudget.isOverride) {
+          if (editingBudget.year === targetYear && editingBudget.month === targetMonth) {
+            await budgetRepo.update(editingBudget.id, {
+              amountLimit: limitNum,
+              scope: scopeToUse,
+              ownerUserId,
+              hasRollover: hasRolloverToUse,
+              isOverride: false,
+              overrideReason: null,
+            });
+          } else {
+            await budgetRepo.create({
+              categoryId: categoryIdToUse,
+              amountLimit: limitNum,
+              year: targetYear,
+              month: targetMonth,
+              scope: scopeToUse,
+              ownerUserId,
+              hasRollover: hasRolloverToUse,
+              isOverride: false,
+            });
+          }
         } else {
-          await budgetRepo.create({
-            categoryId: categoryIdToUse,
-            amountLimit: limitNum,
-            year: targetYear,
-            month: targetMonth,
-            scope: scopeToUse,
-            ownerUserId,
-            hasRollover: hasRolloverToUse,
-          });
+          const existingTargetBudgets = await budgetRepo.getByMonth(targetYear, targetMonth);
+          const existingMaster = existingTargetBudgets.find(
+            b => b.categoryId === categoryIdToUse && b.scope === scopeToUse && b.ownerUserId === ownerUserId && !b.isOverride
+          );
+          
+          if (existingMaster) {
+            await budgetRepo.update(existingMaster.id, {
+              amountLimit: limitNum,
+              scope: scopeToUse,
+              ownerUserId,
+              hasRollover: hasRolloverToUse,
+              isOverride: false,
+              overrideReason: null,
+            });
+          } else {
+            await budgetRepo.create({
+              categoryId: categoryIdToUse,
+              amountLimit: limitNum,
+              year: targetYear,
+              month: targetMonth,
+              scope: scopeToUse,
+              ownerUserId,
+              hasRollover: hasRolloverToUse,
+              isOverride: false,
+            });
+          }
         }
       }
 
@@ -556,12 +602,13 @@ export default function BudgetsScreen() {
   const handleDeleteBudget = async (budget: Budget) => {
     setIsLoading(true);
     try {
-      // Solo borrar si es un presupuesto explícito de este mes, no un clon
-      if (budget.year === selectedYear && budget.month === selectedMonth) {
+      if (budget.isOverride) {
+        // Es un ajuste extraordinario puntual: simplemente se elimina y vuelve a la regla maestra
+        await budgetRepo.delete(budget.id);
+        AppAlert.alert('Ajuste Eliminado', 'Se eliminó el límite extraordinario y se restauró la regla maestra habitual.');
+      } else if (budget.year === selectedYear && budget.month === selectedMonth) {
         await budgetRepo.delete(budget.id);
       } else {
-        // Si es un clon, borrarlo significa crear un límite de $0 o algo similar, pero 
-        // para simplificar en ZenMoney: indicamos que no se puede borrar la historia pasada desde aquí.
         setErrorMsg('Este límite proviene de un mes anterior. Para eliminarlo en este mes, crea un límite nuevo de $0, o bórralo en el mes donde fue creado originalmente.');
         setIsLoading(false);
         return;
@@ -1019,12 +1066,41 @@ export default function BudgetsScreen() {
                                 </Text>
                               </View>
                             )}
+                            {bp.isOverride && (
+                              <View style={{
+                                backgroundColor: '#7C3AED18',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 6,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 3
+                              }}>
+                                <MaterialCommunityIcons
+                                  name="star"
+                                  size={11}
+                                  color="#7C3AED"
+                                />
+                                <Text style={{
+                                  fontSize: 9,
+                                  fontWeight: '700',
+                                  color: '#7C3AED'
+                                }}>
+                                  {bp.overrideReason ? bp.overrideReason : 'Puntual'}
+                                </Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={[theme.typography.caption, { fontWeight: '700', color: statusColor, marginTop: 1, fontSize: 11 }]}>
                             {bp.percentage}% consumido
                             {bp.rolloverAmount !== undefined && bp.rolloverAmount !== 0 && bp.baseLimit !== undefined && (
                               <Text style={{ fontWeight: '400', color: theme.customColors.textSecondary }}>
                                 {' '}• Base: ${Math.round(bp.baseLimit).toLocaleString('es-CO')}
+                              </Text>
+                            )}
+                            {bp.isOverride && bp.baseMasterLimit !== undefined && (
+                              <Text style={{ fontWeight: '400', color: '#7C3AED' }}>
+                                {' '}• Base habitual: ${Math.round(bp.baseMasterLimit).toLocaleString('es-CO')}
                               </Text>
                             )}
                           </Text>
@@ -1141,6 +1217,30 @@ export default function BudgetsScreen() {
                                       {child.rolloverAmount > 0
                                         ? `+${Math.round(child.rolloverAmount).toLocaleString('es-CO')}`
                                         : `${Math.round(child.rolloverAmount).toLocaleString('es-CO')}`}
+                                    </Text>
+                                  </View>
+                                )}
+                                {child.isOverride && (
+                                  <View style={{
+                                    backgroundColor: '#7C3AED18',
+                                    paddingHorizontal: 5,
+                                    paddingVertical: 1,
+                                    borderRadius: 4,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 2
+                                  }}>
+                                    <MaterialCommunityIcons
+                                      name="star"
+                                      size={10}
+                                      color="#7C3AED"
+                                    />
+                                    <Text style={{
+                                      fontSize: 8,
+                                      fontWeight: '700',
+                                      color: '#7C3AED'
+                                    }}>
+                                      {child.overrideReason ? child.overrideReason : 'Puntual'}
                                     </Text>
                                   </View>
                                 )}
