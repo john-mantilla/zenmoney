@@ -164,7 +164,8 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   progressSection: {
-    marginTop: 10,
+    marginTop: 12,
+    paddingBottom: 4,
   },
   progressBar: {
     height: 8,
@@ -173,7 +174,9 @@ const styles = StyleSheet.create({
   progressLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 6,
+    alignItems: 'center',
+    marginTop: 8,
+    paddingBottom: 2,
   },
   disabledContainer: {
     flexDirection: 'row',

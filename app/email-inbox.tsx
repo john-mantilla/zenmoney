@@ -36,11 +36,13 @@ export default function EmailInboxScreen() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [pendingTx, loadedCategories] = await Promise.all([
+      const [allPendingTx, loadedCategories] = await Promise.all([
         transactionRepo.getAll({ status: 'pending' }),
         categoryRepo.getAll(true),
       ]);
-      setInvoices(pendingTx);
+      // Excluir facturas y cobros recurrentes proyectados (estos pertenecen al calendario de Facturas/Bills)
+      const nonRecurringPending = allPendingTx.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
+      setInvoices(nonRecurringPending);
       setCategories(loadedCategories);
     } catch (err) {
       console.error('[Pending Inbox Load Error]:', err);
@@ -117,12 +119,15 @@ export default function EmailInboxScreen() {
               const isIncome = tx.type === 'income';
               const isBankNotif = tx.aiMetadata?.is_bank_notification;
               const isVoice = tx.inputMethod === 'voice' || (tx.description && tx.description.startsWith('🎙️'));
+              const isEmail = tx.inputMethod === 'email';
 
-              let sourceBadge = '📄 Factura DIAN';
+              let sourceBadge = '⏳ Movimiento por confirmar';
               if (isVoice) {
                 sourceBadge = '🎙️ Nota de voz del reloj';
               } else if (isBankNotif) {
                 sourceBadge = `🏦 ${tx.aiMetadata?.bank_name || 'Banco'}`;
+              } else if (isEmail) {
+                sourceBadge = '📄 Factura DIAN';
               }
 
               return (

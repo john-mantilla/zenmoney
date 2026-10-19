@@ -8,15 +8,17 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform } from 'react-native';
-import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface, SegmentedButtons } from 'react-native-paper';
+import { Text, FAB, Card, ProgressBar, Button, Dialog, Portal, TextInput, ActivityIndicator, IconButton, HelperText, RadioButton, Surface, SegmentedButtons, Chip } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
-import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar, SmartBudgetSuggestionCard, CreateBudgetModal } from '@/src/presentation/components';
+import { EmptyState, AmountDisplay, CategoryPickerMenu, NetworkStatusBar, SmartBudgetSuggestionCard, CreateBudgetModal, CreateAtomicHabitModal } from '@/src/presentation/components';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { SuggestRealisticBudget, RealisticBudgetSuggestion } from '@/src/domain/usecases/SuggestRealisticBudget';
 import { CalculateBudgetRollover } from '@/src/domain/usecases/CalculateBudgetRollover';
+import { AtomicPacingService } from '@/src/domain/services/AtomicPacingService';
+import { useHabitSettingsStore } from '@/src/infrastructure/state/habitSettingsStore';
 import { Budget, BudgetProgress } from '@/src/domain/entities/Budget';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
@@ -109,6 +111,16 @@ export default function BudgetsScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [budgetStartMode, setBudgetStartMode] = useState<'current' | 'future'>('current');
   const [futureMonthOffset, setFutureMonthOffset] = useState<number>(1); // 1 to 12 months ahead
+
+  // Estados para Hábitos Atómicos
+  const { settings: habitSettings, isCategoryActive } = useHabitSettingsStore();
+  const [atomicModalVisible, setAtomicModalVisible] = useState(false);
+  const [selectedAtomicBudget, setSelectedAtomicBudget] = useState<{
+    budgetId: string;
+    categoryId: string;
+    categoryName: string;
+    monthlyLimit: number;
+  } | null>(null);
 
   // Repositorios
   const budgetRepo = new HybridBudgetRepository();
@@ -622,6 +634,17 @@ export default function BudgetsScreen() {
   const availableBudget = totalBudgeted - totalSpent;
   const globalPercentage = totalBudgeted > 0 ? (totalSpent / totalBudgeted) * 100 : 0;
 
+  const consolidatedSafeToSpend = AtomicPacingService.calculateSafeToSpend(
+    totalBudgeted,
+    totalSpent,
+    new Date(),
+    {
+      enableWeekendWeight: habitSettings.weekendWeightEnabled,
+      weekendWeightRatio: habitSettings.weekendWeightRatio,
+      isGloballyEnabled: habitSettings.isGloballyEnabled,
+    }
+  );
+
   // Determinar color de barra global
   let globalColor = theme.colors.primary;
   if (globalPercentage >= 100) {
@@ -760,6 +783,66 @@ export default function BudgetsScreen() {
 
           {/* Barra de Progreso Consolidada */}
           <CustomProgressBar progress={globalPercentage / 100} color={globalColor} />
+
+          {/* Ritmo Atómico Consolidado (Safe-to-Spend Hoy) */}
+          {habitSettings.isGloballyEnabled && totalBudgeted > 0 && (
+            <View
+              style={{
+                marginTop: 10,
+                padding: 10,
+                borderRadius: 12,
+                backgroundColor: theme.colors.primary + '10',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderWidth: 1,
+                borderColor: theme.colors.primary + '25',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <MaterialCommunityIcons name="lightning-bolt" size={22} color={theme.colors.primary} />
+                <View>
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 10, fontWeight: '700', letterSpacing: 0.5 }]}>
+                    SAFE-TO-SPEND (HOY)
+                  </Text>
+                  <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                    $ {Math.round(consolidatedSafeToSpend.dailySafeToSpend).toLocaleString('es-CO')}
+                    <Text style={{ fontSize: 11, fontWeight: '400', color: theme.customColors.textSecondary }}> / día</Text>
+                  </Text>
+                </View>
+              </View>
+              <View style={{ alignItems: 'flex-end', gap: 2 }}>
+                <Chip
+                  compact
+                  textStyle={{
+                    fontSize: 10,
+                    fontWeight: '700',
+                    lineHeight: 12,
+                    color:
+                      consolidatedSafeToSpend.pacingStatus === 'ahead' ? '#059669'
+                      : consolidatedSafeToSpend.pacingStatus === 'on_track' ? '#2563EB'
+                      : consolidatedSafeToSpend.pacingStatus === 'accelerated' ? '#D97706'
+                      : '#DC2626'
+                  }}
+                  style={{
+                    backgroundColor:
+                      consolidatedSafeToSpend.pacingStatus === 'ahead' ? '#05966915'
+                      : consolidatedSafeToSpend.pacingStatus === 'on_track' ? '#2563EB15'
+                      : consolidatedSafeToSpend.pacingStatus === 'accelerated' ? '#D9770615'
+                      : '#DC262615'
+                  }}
+                >
+                  {consolidatedSafeToSpend.pacingStatus === 'ahead' ? 'Holgado'
+                    : consolidatedSafeToSpend.pacingStatus === 'on_track' ? 'En Ritmo'
+                    : consolidatedSafeToSpend.pacingStatus === 'accelerated' ? 'Acelerado'
+                    : 'Agotado'}
+                </Chip>
+                <Text style={{ fontSize: 10, color: theme.customColors.textSecondary }}>
+                  {consolidatedSafeToSpend.daysRemaining} días rest. {consolidatedSafeToSpend.isWeekend ? '• Fin de sem.' : ''}
+                </Text>
+              </View>
+            </View>
+          )}
 
           {/* Insight Inferior */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.outline + '15' }}>

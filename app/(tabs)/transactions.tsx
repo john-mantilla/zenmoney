@@ -133,8 +133,9 @@ export default function TransactionsScreen() {
           status: 'pending'
         })
       ]);
+      const nonRecurringPending = pendingTxs.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
       setTransactions(loadedTxs);
-      setPendingCount(pendingTxs.length);
+      setPendingCount(nonRecurringPending.length);
     } catch (err) {
       console.error('[Transactions Load Error]:', err);
     } finally {

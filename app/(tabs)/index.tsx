@@ -12,7 +12,7 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import * as Haptics from 'expo-haptics';
-import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard, DailySafeToSpendCard } from '@/src/presentation/components';
+import { BalanceCard, TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, ChallengeCard, ZenHabitsNudgeCard } from '@/src/presentation/components';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
@@ -22,10 +22,6 @@ import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountB
 import { DetectRegistrationGap } from '@/src/domain/usecases/DetectRegistrationGap';
 import { CalculateRegistrationStreak } from '@/src/domain/usecases/CalculateRegistrationStreak';
 import { Evaluate7DayChallenge } from '@/src/domain/usecases/Evaluate7DayChallenge';
-import { CalculateDailyPacing } from '@/src/domain/usecases/CalculateDailyPacing';
-import { DailyPacing } from '@/src/domain/entities/AtomicHabit';
-import { Budget } from '@/src/domain/entities/Budget';
-import { useHabitSettingsStore } from '@/src/infrastructure/state/habitSettingsStore';
 import { Challenge } from '@/src/domain/entities/Challenge';
 import { HybridChallengeRepository } from '@/src/data/repositories/HybridChallengeRepository';
 import { RegistrationReminderService } from '@/src/infrastructure/services/RegistrationReminderService';
@@ -80,7 +76,6 @@ export default function DashboardScreen() {
   const [smartAlerts, setSmartAlerts] = useState<SmartAlert[]>([]);
   const [healthModalVisible, setHealthModalVisible] = useState(false);
   const [activeHabitNudges, setActiveHabitNudges] = useState<HabitPattern[]>([]);
-  const [dailyPacing, setDailyPacing] = useState<DailyPacing | null>(null);
 
   // Parámetros de Toast por voz
   const params = useLocalSearchParams<{
@@ -280,8 +275,9 @@ export default function DashboardScreen() {
       setMonthTransactions(filteredTxs);
       setRecentTransactions(filteredTxs.slice(0, 3));
 
-      // 3b. Movimientos pendientes (correo, notas de voz del reloj sin monto, etc.)
-      const pendingTxList = await transactionRepo.getAll({ status: 'pending' }, preferCache);
+      // 3b. Movimientos pendientes (correo, notas de voz del reloj sin monto, etc. Excluyendo facturas recurrentes)
+      const allPending = await transactionRepo.getAll({ status: 'pending' }, preferCache);
+      const pendingTxList = allPending.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
       setPendingTransactionsCount(pendingTxList.length);
       setHasVoicePending(pendingTxList.some(tx => tx.inputMethod === 'voice' || (tx.description && tx.description.startsWith('🎙️'))));
 
@@ -356,51 +352,6 @@ export default function DashboardScreen() {
         }
       }
       setActiveHabitNudges(triggeredHabits);
-
-      // 7. Calcular Daily Safe-to-Spend Consolidado (Hábitos Atómicos)
-      try {
-        const budgetRepo = new HybridBudgetRepository();
-        const allBudgets = await budgetRepo.getAll();
-        const currentMonthBudgets = allBudgets.filter(
-          (b) => b.year === selectedYear && b.month === selectedMonth
-        );
-        const totalBudgetLimit = currentMonthBudgets.reduce(
-          (acc, b) => acc + (Number(b.amountLimit) || 0),
-          0
-        );
-
-        if (totalBudgetLimit > 0) {
-          const consolidatedBudget: Budget = {
-            id: 'budget-consolidated',
-            familyGroupId: 'family-1',
-            categoryId: 'all',
-            amountLimit: totalBudgetLimit,
-            year: selectedYear,
-            month: selectedMonth,
-            scope: 'family',
-            ownerUserId: null,
-            createdAt: new Date().toISOString(),
-          };
-
-          const spentToday = todayTxs
-            .filter((tx) => tx.type === 'expense')
-            .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
-
-          const pacing = CalculateDailyPacing.execute({
-            budget: consolidatedBudget,
-            monthlySpent: expensesSum,
-            spentToday,
-            currentDate: new Date(),
-            settings: useHabitSettingsStore.getState().settings,
-          });
-
-          setDailyPacing(pacing);
-        } else {
-          setDailyPacing(null);
-        }
-      } catch (err) {
-        console.warn('[Dashboard] Error calculando daily pacing:', err);
-      }
 
       return activeAccounts;
     };
@@ -670,16 +621,6 @@ export default function DashboardScreen() {
           label="DISPONIBLE LÍQUIDO"
           onPressAnalysis={() => setHealthModalVisible(true)}
         />
-
-        {/* ─── HÁBITOS ATÓMICOS: DAILY SAFE-TO-SPEND CARD ────────────────── */}
-        {dailyPacing && (
-          <DailySafeToSpendCard
-            pacing={dailyPacing}
-            categoryName="Presupuesto Mensual"
-            onPressSettings={() => router.push('/(tabs)/settings')}
-            onPressDetails={() => router.push('/(tabs)/budgets')}
-          />
-        )}
 
         {/* ─── SECCIÓN ACCIONES RÁPIDAS (Justo debajo de la tarjeta de balance) ── */}
         <View style={{ marginTop: 14, marginBottom: 12 }}>
