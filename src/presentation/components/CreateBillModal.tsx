@@ -105,7 +105,7 @@ export const CreateBillModal: React.FC<CreateBillModalProps> = ({
       setErrorMsg(null);
       if (editingBill) {
         setBillType(editingBill.type === 'transfer' ? 'transfer' : 'expense');
-        setDescription(editingBill.description || '');
+        setDescription(editingBill.description || editingBill.merchantName || '');
         setAmount(editingBill.amount ? String(editingBill.amount) : '');
         setDate(editingBill.aiMetadata?.dueDate || editingBill.transactionDate || getTodayDateString());
         setAccountId(editingBill.accountId || useAccountPreferenceStore.getState().getPreferredAccountId(accounts));

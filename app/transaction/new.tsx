@@ -81,6 +81,7 @@ export default function NewTransactionScreen() {
     transferToAccountId?: string;
     amount?: string;
     description?: string;
+    merchantName?: string;
     action?: string;
     voiceInput?: string;
     autoProcess?: string;
@@ -194,8 +195,21 @@ export default function NewTransactionScreen() {
             setAmount(String(tx.amount));
             setType(tx.type);
             setAccountId(tx.accountId);
-            setDescription(tx.description || '');
-            setMerchantName(tx.merchantName || '');
+            if (tx.type === 'expense') {
+              const billConcept = tx.merchantName || tx.description || params.merchantName || params.description || '';
+              setMerchantName(billConcept);
+              // Si no había merchantName separado, la descripción original era el nombre del concepto/factura.
+              // En ese caso dejamos description vacía para no duplicarla como "Nota adicional",
+              // y si era diferente, la conservamos como nota.
+              if (!tx.merchantName || tx.description?.trim().toLowerCase() === tx.merchantName?.trim().toLowerCase()) {
+                setDescription('');
+              } else {
+                setDescription(tx.description || '');
+              }
+            } else {
+              setDescription(tx.description || params.description || '');
+              setMerchantName(tx.merchantName || params.merchantName || '');
+            }
             setTransferToAccountId(tx.transferToAccountId || '');
             setTransactionDate(tx.transactionDate);
             setIsPrivate(tx.isPrivate);
@@ -228,14 +242,31 @@ export default function NewTransactionScreen() {
             }
           }
         } else {
-          if (params.type) setType(params.type as any);
+          const effectiveType = (params.type as any) || 'expense';
+          if (params.type) setType(effectiveType);
           if (params.accountId) setAccountId(params.accountId);
           if (params.transferToAccountId) setTransferToAccountId(params.transferToAccountId);
           if (params.amount) setAmount(params.amount);
-          if (params.description) setDescription(params.description);
           if (params.mode) setMode(params.mode as any);
           if (params.action === 'voice' || params.action === 'ai') setMode('ai');
-          if (params.type === 'transfer') setMode('manual');
+          if (effectiveType === 'transfer') setMode('manual');
+
+          if (effectiveType === 'expense') {
+            const initialMerchant = params.merchantName || params.description || '';
+            if (initialMerchant) {
+              setMerchantName(initialMerchant);
+              if (!params.merchantName || params.description?.trim().toLowerCase() === params.merchantName?.trim().toLowerCase()) {
+                setDescription('');
+              } else {
+                setDescription(params.description || '');
+              }
+            } else if (params.description) {
+              setDescription(params.description);
+            }
+          } else {
+            if (params.description) setDescription(params.description);
+            if (params.merchantName) setMerchantName(params.merchantName);
+          }
 
           if (activeAccs.length > 0 && !params.accountId) {
             setAccountId(useAccountPreferenceStore.getState().getPreferredAccountId(activeAccs));

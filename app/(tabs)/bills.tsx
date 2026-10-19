@@ -288,11 +288,19 @@ export default function BillsScreen() {
           accountId: bill.accountId,
           transferToAccountId: bill.transferToAccountId || '',
           amount: String(bill.amount),
-          description: bill.description
+          description: bill.description,
+          merchantName: bill.merchantName || bill.description,
         }
       });
     } else {
-      router.push({ pathname: '/transaction/new', params: { id: bill.id } });
+      router.push({
+        pathname: '/transaction/new',
+        params: {
+          id: bill.id,
+          description: bill.description,
+          merchantName: bill.merchantName || bill.description,
+        }
+      });
     }
   };
 
@@ -321,6 +329,7 @@ export default function BillsScreen() {
         type: billType,
         amount: amountVal,
         description: billDescription.trim(),
+        merchantName: billType === 'expense' ? billDescription.trim() : null,
         transactionDate: billDate,
         inputMethod: 'manual',
         transferToAccountId: billType === 'transfer' ? billTransferToAccountId : null,
@@ -471,7 +480,7 @@ export default function BillsScreen() {
     }
     setEditingBill(bill);
     setBillAmount(String(bill.amount));
-    setBillDescription(bill.description || '');
+    setBillDescription(bill.description || bill.merchantName || '');
     setBillAccountId(bill.accountId);
     setBillCategoryId(bill.categoryId || '');
     setBillDate(bill.transactionDate);
@@ -1029,6 +1038,7 @@ export default function BillsScreen() {
             type: data.type,
             amount: data.amount,
             description: data.description,
+            merchantName: data.type === 'expense' ? data.description : null,
             transactionDate: data.date,
             inputMethod: 'manual',
             transferToAccountId: data.type === 'transfer' ? (data.transferToAccountId || null) : null,
