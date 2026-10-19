@@ -21,6 +21,7 @@ import { Transaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
+import { getLocalDateString } from '@/src/domain/utils/dateUtils';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
@@ -447,7 +448,7 @@ export default function BillsScreen() {
   };
 
   const openCreateDialog = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     setBillDate(selectedDate || todayStr);
     setBillType('expense');
     setBillTransferToAccountId('');
@@ -496,12 +497,11 @@ export default function BillsScreen() {
   // ─── GENERADOR DE CALENDARIO EN PURE REACT NATIVE ──────────────────────
 
   const renderCalendar = () => {
-    const todayObj = new Date();
-    const todayStr = todayObj.toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
 
     const in3Days = new Date();
     in3Days.setDate(in3Days.getDate() + 3);
-    const in3DaysStr = in3Days.toISOString().split('T')[0];
+    const in3DaysStr = getLocalDateString(in3Days);
 
     const firstDayIndex = new Date(currentYear, currentMonth - 1, 1).getDay(); // Día de la semana en que inicia
     const totalDays = new Date(currentYear, currentMonth, 0).getDate(); // Total de días de este mes
@@ -681,7 +681,7 @@ export default function BillsScreen() {
   // Cálculo de progreso mensual para la tarjeta inteligente
   const totalMonthBillsCount = paidBills.length + unpaidBills.length;
   const monthProgress = totalMonthBillsCount > 0 ? (paidBills.length / totalMonthBillsCount) * 100 : 0;
-  const todayDateStr = new Date().toISOString().split('T')[0];
+  const todayDateStr = getLocalDateString();
   const nextImminentBill = unpaidBills.find(b => {
     const d = b.aiMetadata?.dueDate || b.transactionDate;
     return d >= todayDateStr;

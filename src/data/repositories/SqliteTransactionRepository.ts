@@ -1,6 +1,7 @@
 import { TransactionRepository, TransactionFilters } from '@domain/repositories/TransactionRepository';
 import { Transaction, CreateTransactionInput } from '@domain/entities/Transaction';
 import { LocalDatabase } from '../local/LocalDatabase';
+import { getLocalDateString } from '../../infrastructure/utils/dateUtils';
 
 export class SqliteTransactionRepository implements TransactionRepository {
   private getDb() {
@@ -85,7 +86,7 @@ export class SqliteTransactionRepository implements TransactionRepository {
     const updatedAt = createdAt;
     const synced = (input as any).synced !== undefined ? ((input as any).synced ? 1 : 0) : 0;
 
-    const transactionDate = input.transactionDate || new Date().toISOString().split('T')[0];
+    const transactionDate = input.transactionDate || getLocalDateString();
     const status = (input as any).status || 'confirmed';
 
     await db.runAsync(

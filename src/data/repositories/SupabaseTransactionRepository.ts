@@ -8,6 +8,7 @@ import { TransactionRepository, TransactionFilters } from '@domain/repositories/
 import { Transaction, CreateTransactionInput } from '@domain/entities/Transaction';
 import { supabase } from '@infrastructure/supabase/client';
 import { Mapper } from '../models/Mapper';
+import { getLocalDateString } from '../../infrastructure/utils/dateUtils';
 
 export class SupabaseTransactionRepository implements TransactionRepository {
   
@@ -104,7 +105,7 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       familyGroupId: profile.family_group_id,
       createdByUserId: profile.id,
       currency: input.currency || 'COP',
-      transactionDate: input.transactionDate || new Date().toISOString().split('T')[0],
+      transactionDate: input.transactionDate || getLocalDateString(),
       status: (input as any).status || 'confirmed',
     });
 

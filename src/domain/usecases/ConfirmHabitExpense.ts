@@ -6,6 +6,7 @@
  */
 import { AtomicHabit, HabitLog } from '../entities/AtomicHabit';
 import { Transaction } from '../entities/Transaction';
+import { getLocalDateString } from '../utils/dateUtils';
 
 export interface ConfirmHabitExpenseInput {
   habit: AtomicHabit;
@@ -29,7 +30,7 @@ export class ConfirmHabitExpense {
       habit,
       familyGroupId,
       userId,
-      date = new Date().toISOString().split('T')[0],
+      date = getLocalDateString(),
       currency = 'COP',
       note,
     } = input;

@@ -5,6 +5,8 @@
  * transfiriendo el remanente del Safe-to-Spend hacia una meta de ahorro o hucha virtual.
  * Cumple la 4ª Ley de Hábitos Atómicos: "Hacerlo Satisfactorio (Recompensa Inmediata)".
  */
+import { getLocalDateString } from '../utils/dateUtils';
+
 export interface ExecuteMicroSweepInput {
   dailySurplus: number;
   targetSavingsGoalId: string;
@@ -25,7 +27,7 @@ export class ExecuteMicroSweep {
       dailySurplus,
       targetSavingsGoalId,
       savingsGoalTitle,
-      date = new Date().toISOString().split('T')[0],
+      date = getLocalDateString(),
     } = input;
 
     if (!dailySurplus || dailySurplus <= 0) {

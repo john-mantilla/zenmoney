@@ -7,6 +7,7 @@
 
 import { CreateTransactionInput, InstallmentMetadata } from '../entities/Transaction';
 import { generateUUID } from '../../infrastructure/utils/uuid';
+import { getLocalDateString } from './dateUtils';
 
 /**
  * Calcula la fecha de una cuota desplazada N meses respecto a la fecha inicial,
@@ -63,7 +64,7 @@ export function generateInstallmentTransactions(
 
   const totalAmount = Math.round(Number(baseInput.amount) || 0);
   const groupId = customGroupId || generateUUID();
-  const startDate = baseInput.transactionDate || new Date().toISOString().split('T')[0];
+  const startDate = baseInput.transactionDate || getLocalDateString();
 
   const baseMonthlyAmount = Math.floor(totalAmount / safeCount);
   const remainder = totalAmount - (baseMonthlyAmount * safeCount);

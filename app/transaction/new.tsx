@@ -33,6 +33,7 @@ import { CalculateAccountBalance } from '@/src/domain/usecases/CalculateAccountB
 import { ProjectMonthlyRunway } from '@/src/domain/usecases/ProjectMonthlyRunway';
 import { BudgetAlertService } from '@/src/infrastructure/services/BudgetAlertService';
 import { BudgetSyncHelper } from '@/src/infrastructure/services/BudgetSyncHelper';
+import { getLocalDateString } from '@/src/infrastructure/utils/dateUtils';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Account } from '@/src/domain/entities/Account';
@@ -138,7 +139,7 @@ export default function NewTransactionScreen() {
   const [description, setDescription] = useState('');
   const [merchantName, setMerchantName] = useState('');
   const [transferToAccountId, setTransferToAccountId] = useState('');
-  const [transactionDate, setTransactionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transactionDate, setTransactionDate] = useState(getLocalDateString());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [isOptionalDetailsExpanded, setIsOptionalDetailsExpanded] = useState(false);
@@ -259,7 +260,7 @@ export default function NewTransactionScreen() {
                   categoryId: targetCatId || undefined,
                   merchantName: parsed.merchantName || undefined,
                   description: parsed.description || params.voiceInput,
-                  transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
+                  transactionDate: parsed.transactionDate || getLocalDateString(),
                 });
 
                 useAccountPreferenceStore.getState().setLastUsedAccountId(targetAccountId);
@@ -291,7 +292,7 @@ export default function NewTransactionScreen() {
                   categoryId: targetCatId || undefined,
                   merchantName: parsed.merchantName || undefined,
                   description: parsed.description || `🎙️ ${params.voiceInput}`,
-                  transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
+                  transactionDate: parsed.transactionDate || getLocalDateString(),
                   status: 'pending',
                   inputMethod: 'voice',
                 } as any);

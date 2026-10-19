@@ -17,6 +17,7 @@ import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurr
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
+import { getLocalDateString } from '@/src/domain/utils/dateUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const webStyles = {
@@ -133,7 +134,7 @@ export default function SettingsRecurrencesScreen() {
   const [recDayOfMonth, setRecDayOfMonth] = useState('5');
   const [recAccountId, setRecAccountId] = useState('');
   const [recCategoryId, setRecCategoryId] = useState('');
-  const [recStartDate, setRecStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [recStartDate, setRecStartDate] = useState(getLocalDateString());
   const [recEndDate, setRecEndDate] = useState('');
   const [savingRecurrence, setSavingRecurrence] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -180,7 +181,7 @@ export default function SettingsRecurrencesScreen() {
     setRecDescription('');
     setRecFrequency('monthly');
     setRecDayOfMonth('5');
-    setRecStartDate(new Date().toISOString().split('T')[0]);
+    setRecStartDate(getLocalDateString());
     setRecEndDate('');
     setErrorMsg(null);
     setRecAccountId(activeAccounts[0]?.id || '');

@@ -941,6 +941,20 @@ export default function BudgetsScreen() {
                 if (displayPercentage >= 100) statusColor = '#DC2626';
                 else if (displayPercentage >= 80) statusColor = '#D97706';
 
+                const catPacing = (habitSettings.isGloballyEnabled && isCategoryActive(bp.categoryId) && displayLimit > 0)
+                  ? AtomicPacingService.calculateSafeToSpend(
+                      displayLimit,
+                      displaySpent,
+                      new Date(),
+                      {
+                        enableWeekendWeight: habitSettings.weekendWeightEnabled,
+                        weekendWeightRatio: habitSettings.weekendWeightRatio,
+                        isGloballyEnabled: habitSettings.isGloballyEnabled,
+                        isCategoryEnabled: true,
+                      }
+                    )
+                  : null;
+
               return (
                 <Surface
                   key={bp.id}
@@ -1028,6 +1042,24 @@ export default function BudgetsScreen() {
                           </Text>
                         </View>
 
+                        {habitSettings.isGloballyEnabled && isCategoryActive(bp.categoryId) && bp.hasDirectBudget && bp.budget && isParentMatching && (
+                          <IconButton
+                            icon="lightning-bolt-outline"
+                            size={18}
+                            iconColor={theme.colors.primary}
+                            style={{ margin: 0, padding: 0 }}
+                            accessibilityLabel="Convertir en hábito atómico"
+                            onPress={() => {
+                              setSelectedAtomicBudget({
+                                budgetId: bp.budget!.id,
+                                categoryId: bp.categoryId,
+                                categoryName: bp.name,
+                                monthlyLimit: bp.amountLimit,
+                              });
+                              setAtomicModalVisible(true);
+                            }}
+                          />
+                        )}
                         {bp.hasDirectBudget && bp.budget && isParentMatching && (
                           <IconButton
                             icon="pencil-outline"
@@ -1052,8 +1084,17 @@ export default function BudgetsScreen() {
                     {/* Barra de progreso */}
                     <CustomProgressBar progress={displayPercentage / 100} color={statusColor} />
 
-                    {/* Footer de remanente */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4 }}>
+                    {/* Footer de remanente y Safe-to-Spend */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                      {catPacing ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <MaterialCommunityIcons name="lightning-bolt" size={13} color={theme.colors.primary} />
+                          <Text style={[theme.typography.caption, { fontWeight: '600', color: theme.colors.primary, fontSize: 11 }]}>
+                            Safe-to-Spend: ${Math.round(catPacing.dailySafeToSpend).toLocaleString('es-CO')}/d
+                          </Text>
+                        </View>
+                      ) : <View />}
+
                       <Text style={[theme.typography.caption, { fontWeight: '600', color: displayRemaining < 0 ? '#DC2626' : '#059669', fontSize: 11 }]}>
                         {displayRemaining < 0 
                           ? `Excedido por $ ${Math.abs(displayRemaining).toLocaleString('es-CO')}` 
@@ -1111,6 +1152,24 @@ export default function BudgetsScreen() {
                                 <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 10 }]}>
                                   de $ {Math.round(child.amountLimit).toLocaleString('es-CO')}
                                 </Text>
+                                {habitSettings.isGloballyEnabled && isCategoryActive(child.categoryId) && (
+                                  <IconButton
+                                    icon="lightning-bolt-outline"
+                                    size={14}
+                                    iconColor={theme.colors.primary}
+                                    style={{ margin: 0, padding: 0 }}
+                                    accessibilityLabel="Convertir en hábito atómico"
+                                    onPress={() => {
+                                      setSelectedAtomicBudget({
+                                        budgetId: child.budget.id,
+                                        categoryId: child.categoryId,
+                                        categoryName: child.name,
+                                        monthlyLimit: child.amountLimit,
+                                      });
+                                      setAtomicModalVisible(true);
+                                    }}
+                                  />
+                                )}
                                 <IconButton
                                   icon="pencil-outline"
                                   size={14}
@@ -1166,6 +1225,30 @@ export default function BudgetsScreen() {
         selectedYear={selectedYear}
         selectedMonth={selectedMonth}
       />
+
+      {/* ─── MODAL: CONVERTIR PRESUPUESTO EN HÁBITO ATÓMICO ───── */}
+      {selectedAtomicBudget && (
+        <CreateAtomicHabitModal
+          visible={atomicModalVisible}
+          budgetId={selectedAtomicBudget.budgetId}
+          categoryId={selectedAtomicBudget.categoryId}
+          categoryName={selectedAtomicBudget.categoryName}
+          monthlyLimit={selectedAtomicBudget.monthlyLimit}
+          onDismiss={() => {
+            setAtomicModalVisible(false);
+            setSelectedAtomicBudget(null);
+          }}
+          onHabitCreated={(habit) => {
+            setAtomicModalVisible(false);
+            setSelectedAtomicBudget(null);
+            hapticSuccess();
+            AppAlert.alert(
+              '¡Hábito Creado!',
+              `Se configuró "${habit.title}" con Safe-to-Spend y micro-reglas de comportamiento.`
+            );
+          }}
+        />
+      )}
     </View>
   );
 }
