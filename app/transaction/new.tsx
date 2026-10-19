@@ -195,7 +195,7 @@ export default function NewTransactionScreen() {
             setAmount(String(tx.amount));
             setType(tx.type);
             setAccountId(tx.accountId);
-            if (tx.type === 'expense') {
+            if (tx.type === 'expense' || tx.type === 'income') {
               const billConcept = tx.merchantName || tx.description || params.merchantName || params.description || '';
               setMerchantName(billConcept);
               // Si no había merchantName separado, la descripción original era el nombre del concepto/factura.
@@ -251,7 +251,7 @@ export default function NewTransactionScreen() {
           if (params.action === 'voice' || params.action === 'ai') setMode('ai');
           if (effectiveType === 'transfer') setMode('manual');
 
-          if (effectiveType === 'expense') {
+          if (effectiveType === 'expense' || effectiveType === 'income') {
             const initialMerchant = params.merchantName || params.description || '';
             if (initialMerchant) {
               setMerchantName(initialMerchant);
@@ -841,9 +841,9 @@ export default function NewTransactionScreen() {
     if (type === 'expense') {
       finalCategoryId = selectedSubCategoryId || selectedParentCategoryId || null;
     } else if (type === 'income') {
-      // Auto-asociar la categoría de ingreso disponible
+      // Auto-asociar la categoría de ingreso disponible o respetar la seleccionada / existente
       const defaultIncomeCat = incomeCategories.length > 0 ? incomeCategories[0].id : null;
-      finalCategoryId = defaultIncomeCat;
+      finalCategoryId = selectedSubCategoryId || selectedParentCategoryId || (originalTx?.categoryId ?? null) || defaultIncomeCat;
     }
 
     // Valores por defecto en Modo Rápido (Modo Simple) o unificación de Concepto / Comercio
@@ -1822,28 +1822,30 @@ export default function NewTransactionScreen() {
                 </View>
               )}
 
-              {/* Tarjeta Categoría (50%) - Solo para gastos */}
-              {type === 'expense' && (
+              {/* Tarjeta Categoría (50%) - Para gastos e ingresos */}
+              {type !== 'transfer' && (
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600' }]}>
                       Categoría
                     </Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const numericAmount = parseFloat(amount.replace(/[^0-9]/g, '')) || 0;
-                        if (numericAmount <= 0) {
-                          AppAlert.alert('Monto requerido', 'Ingresa primero el monto de la compra para poder desglosarla.');
-                          return;
-                        }
-                        setIsSplitSheetVisible(true);
-                      }}
-                      style={{ paddingHorizontal: 4, paddingVertical: 2 }}
-                    >
-                      <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700', fontSize: 11 }]}>
-                        {splits.length > 0 ? 'Editar split' : '🧩 Dividir'}
-                      </Text>
-                    </TouchableOpacity>
+                    {type === 'expense' && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          const numericAmount = parseFloat(amount.replace(/[^0-9]/g, '')) || 0;
+                          if (numericAmount <= 0) {
+                            AppAlert.alert('Monto requerido', 'Ingresa primero el monto de la compra para poder desglosarla.');
+                            return;
+                          }
+                          setIsSplitSheetVisible(true);
+                        }}
+                        style={{ paddingHorizontal: 4, paddingVertical: 2 }}
+                      >
+                        <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700', fontSize: 11 }]}>
+                          {splits.length > 0 ? 'Editar split' : '🧩 Dividir'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
 
                   {splits.length > 0 ? (
@@ -1979,15 +1981,17 @@ export default function NewTransactionScreen() {
             })()}
 
             {/* 4. Sección Concepto / Comercio + Chips Recientes (Enfoque Unificado) */}
-            {type === 'expense' && (
+            {type !== 'transfer' && (
               <View style={{ marginBottom: 16 }}>
                 <TextInput
-                  label="Concepto / Comercio"
-                  placeholder="¿En qué o dónde gastaste? ej. Éxito, Café, Gasolina..."
+                  label={type === 'income' ? 'Concepto / Fuente de Ingreso' : 'Concepto / Comercio'}
+                  placeholder={type === 'income' ? '¿De qué o quién recibiste este ingreso? ej. Salario, Nómina, Cliente...' : '¿En qué o dónde gastaste? ej. Éxito, Café, Gasolina...'}
                   value={merchantName}
                   onChangeText={(text) => {
                     setMerchantName(text);
-                    handlePredictiveCategorization(text);
+                    if (type === 'expense') {
+                      handlePredictiveCategorization(text);
+                    }
                   }}
                   mode="outlined"
                   style={{ marginBottom: 8 }}
@@ -1995,7 +1999,7 @@ export default function NewTransactionScreen() {
                 />
 
                 {/* Recientes (Chips de texto sutiles sin íconos redundantes) */}
-                {!!suggestions?.recentMerchantsByAccount[accountId]?.length && (
+                {type === 'expense' && !!suggestions?.recentMerchantsByAccount[accountId]?.length && (
                   <View style={{ marginTop: 4 }}>
                     <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 6, fontWeight: '600' }]}>
                       Recientes:

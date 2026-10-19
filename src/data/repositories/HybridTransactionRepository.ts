@@ -185,8 +185,37 @@ export class HybridTransactionRepository implements TransactionRepository {
   async update(id: string, data: Partial<CreateTransactionInput>): Promise<Transaction> {
     if (Platform.OS === 'web') return this.remoteRepo.update(id, data);
 
-    // Actualización Optimista Local-First (< 5ms)
-    const local = await this.localRepo!.update(id, { ...data, synced: false } as any);
+    let local: Transaction;
+    try {
+      // 1. Si no existe en SQLite, intentar traer de la nube para tener la copia local completa
+      const existing = await this.localRepo!.getById(id);
+      if (!existing && (await this.isOnline())) {
+        try {
+          const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
+          if (remote) {
+            await this.localRepo!.bulkSave([remote]);
+          }
+        } catch {
+          // Ignorar fallo de red temporal
+        }
+      }
+
+      local = await this.localRepo!.update(id, { ...data, synced: false } as any);
+    } catch (localErr: any) {
+      // 2. Si falló la actualización local pero tenemos conexión, actualizar directamente en Supabase y persistir local
+      if (await this.isOnline()) {
+        try {
+          const remoteUpdated = await this.remoteRepo.update(id, data);
+          if (remoteUpdated) {
+            await this.localRepo!.bulkSave([remoteUpdated]);
+            return remoteUpdated;
+          }
+        } catch (remoteErr) {
+          throw remoteErr;
+        }
+      }
+      throw localErr;
+    }
 
     const db = LocalDatabase.getDb();
     const actionId = 'act_' + Math.random().toString(36).substring(2, 15);

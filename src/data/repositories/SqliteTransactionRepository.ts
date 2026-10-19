@@ -165,8 +165,15 @@ export class SqliteTransactionRepository implements TransactionRepository {
 
   async update(id: string, data: Partial<CreateTransactionInput>): Promise<Transaction> {
     const db = this.getDb();
-    const existing = await this.getById(id);
+    let existing = await this.getById(id);
     if (!existing) {
+      if (data.accountId && data.amount !== undefined && data.type) {
+        return this.create({
+          ...(data as any),
+          id,
+          synced: (data as any).synced !== undefined ? (data as any).synced : false,
+        });
+      }
       throw new Error(`Transacción no encontrada: ${id}`);
     }
 
@@ -328,7 +335,7 @@ export class SqliteTransactionRepository implements TransactionRepository {
     }
 
     const remoteIds = remoteTransactions.map(t => t.id);
-    let deleteQuery = "DELETE FROM transactions WHERE synced = 1";
+    let deleteQuery = "DELETE FROM transactions WHERE synced = 1 AND id NOT IN (SELECT record_id FROM sync_actions_queue WHERE table_name = 'transactions')";
     const deleteParams: any[] = [];
 
     if (filters.accountId) {
