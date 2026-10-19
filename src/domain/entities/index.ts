@@ -14,3 +14,4 @@ export * from './NLQ';
 export * from './CategorizationRule';
 export * from './AssistantMessage';
 export * from './HabitPattern';
+export * from './AtomicHabit';

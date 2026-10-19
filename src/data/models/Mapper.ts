@@ -311,6 +311,7 @@ export class Mapper {
       month: row.month,
       scope: row.scope,
       ownerUserId: row.owner_user_id,
+      hasRollover: row.has_rollover === true || row.has_rollover === 1 || row.has_rollover === 'true',
       createdAt: row.created_at,
     };
   }
@@ -324,6 +325,7 @@ export class Mapper {
       ...(entity.year !== undefined && { year: entity.year }),
       ...(entity.month !== undefined && { month: entity.month }),
       ...(entity.scope && { scope: entity.scope }),
+      ...(entity.hasRollover !== undefined && { has_rollover: entity.hasRollover ? 1 : 0 }),
       owner_user_id: entity.ownerUserId || null,
     };
   }

@@ -136,9 +136,20 @@ function RootLayoutNav() {
       }
       await initialize();
       // Si hay internet al arrancar, ejecutar sincronización bidireccional en segundo plano
-      SyncService.fullSync().catch(err => {
-        console.warn('[Sync] Background initial sync error:', err);
-      });
+      SyncService.fullSync()
+        .then(() => {
+          if (Platform.OS === 'android') {
+            const { BudgetSyncHelper } = require('@/src/infrastructure/services/BudgetSyncHelper');
+            BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
+          }
+        })
+        .catch(err => {
+          console.warn('[Sync] Background initial sync error:', err);
+          if (Platform.OS === 'android') {
+            const { BudgetSyncHelper } = require('@/src/infrastructure/services/BudgetSyncHelper');
+            BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
+          }
+        });
     };
     initApp();
   }, []);

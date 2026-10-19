@@ -13,6 +13,7 @@ export interface Budget {
   month: number; // 1-12
   scope: BudgetScope;
   ownerUserId: string | null; // Null si es compartido familiar
+  hasRollover?: boolean; // Si true, acumula el superávit o descuenta el déficit del mes anterior
   createdAt: string;
 }
 
@@ -22,6 +23,8 @@ export interface BudgetProgress {
   remaining: number;
   percentage: number; // 0 a 100+
   status: 'ok' | 'warning' | 'exceeded';
+  rolloverAmount?: number; // Saldo trasladado del mes anterior (positivo si hubo ahorro, negativo si hubo déficit)
+  effectiveLimit?: number; // amountLimit + rolloverAmount
 }
 
 export interface CreateBudgetInput {
@@ -32,4 +35,5 @@ export interface CreateBudgetInput {
   month: number;
   scope?: BudgetScope;
   ownerUserId?: string | null;
+  hasRollover?: boolean;
 }

@@ -113,7 +113,7 @@ export const useHabitStore = create<HabitState>()(
       toggleHabit: (id) => {
         set((state) => ({
           habits: state.habits.map((h) =>
-            h.id === id ? { ...h, ...h.isActive, isActive: !h.isActive } : h
+            h.id === id ? { ...h, isActive: !h.isActive } : h
           ),
         }));
       },

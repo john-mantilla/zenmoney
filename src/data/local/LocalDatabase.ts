@@ -93,9 +93,17 @@ export class LocalDatabase {
         month INTEGER NOT NULL,
         scope TEXT NOT NULL DEFAULT 'family',
         owner_user_id TEXT,
+        has_rollover INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
     `);
+
+    // Migración idempotente para bases existentes: agregar has_rollover si no existe
+    try {
+      await database.execAsync('ALTER TABLE budgets ADD COLUMN has_rollover INTEGER NOT NULL DEFAULT 0;');
+    } catch {
+      // Ignorar si la columna ya existe
+    }
 
     // Tabla de cola de sincronización (Sync Queue)
     await database.execAsync(`

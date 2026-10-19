@@ -16,6 +16,7 @@ import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepo
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { SuggestRealisticBudget, RealisticBudgetSuggestion } from '@/src/domain/usecases/SuggestRealisticBudget';
+import { CalculateBudgetRollover } from '@/src/domain/usecases/CalculateBudgetRollover';
 import { Budget, BudgetProgress } from '@/src/domain/entities/Budget';
 import { Category } from '@/src/domain/entities/Category';
 import { Transaction } from '@/src/domain/entities/Transaction';
@@ -31,13 +32,16 @@ export interface CreateBudgetData {
   scope: 'family' | 'individual';
   startMode: 'current' | 'future';
   futureOffset: number;
+  hasRollover?: boolean;
 }
 
 interface BudgetTreeChild {
   id: string;
   categoryId: string;
   name: string;
-  amountLimit: number;
+  amountLimit: number; // Límite efectivo (base + rollover)
+  baseLimit?: number;
+  rolloverAmount?: number;
   spent: number;
   remaining: number;
   percentage: number;
@@ -54,7 +58,9 @@ interface BudgetTreeItem {
   hasDirectBudget: boolean;
   budget?: Budget;
   parentDirectSpent: number;
-  amountLimit: number;
+  amountLimit: number; // Límite efectivo (base + rollover)
+  baseLimit?: number;
+  rolloverAmount?: number;
   spent: number;
   remaining: number;
   percentage: number;
@@ -158,6 +164,32 @@ export default function BudgetsScreen() {
         status: 'confirmed'
       });
 
+      // 3.1. Cargar transacciones y presupuestos del mes anterior para calcular el Rollover
+      const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
+      const prevYear = selectedMonth === 1 ? selectedYear - 1 : selectedYear;
+      const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
+      const prevMonthStr = String(prevMonth).padStart(2, '0');
+      const prevStartDate = `${prevYear}-${prevMonthStr}-01`;
+      const prevEndDate = `${prevYear}-${prevMonthStr}-${String(prevLastDay).padStart(2, '0')}`;
+
+      const pastMonthExpenses = await transactionRepo.getAll({
+        startDate: prevStartDate,
+        endDate: prevEndDate,
+        type: 'expense',
+        status: 'confirmed'
+      });
+
+      const prevTargetValue = prevYear * 12 + prevMonth;
+      const pastBudgetsForPrev = privacyBudgets.filter(b => (b.year * 12 + b.month) <= prevTargetValue);
+      const latestByKeyPrev: Record<string, { budget: Budget, value: number }> = {};
+      for (const b of pastBudgetsForPrev) {
+        const bValue = b.year * 12 + b.month;
+        const key = `${b.categoryId}_${b.scope || 'family'}_${b.ownerUserId || 'family'}`;
+        if (!latestByKeyPrev[key] || latestByKeyPrev[key].value < bValue) {
+          latestByKeyPrev[key] = { budget: b, value: bValue };
+        }
+      }
+
       const getDirectSpent = (catId: string, budget?: Budget) => {
         return monthlyExpenses
           .filter(tx => {
@@ -225,34 +257,29 @@ export default function BudgetsScreen() {
 
         const parentBudgetItem = group.parentBudgets[0];
 
-        let amountLimit = 0;
-        let spent = 0;
-        let hasDirectBudget = group.parentBudgets.length > 0;
-        let budgetId = parentBudgetItem?.budget.id || `virtual-${parentId}`;
-
-        if (group.subBudgets.length > 0) {
-          amountLimit = parentBudgetItem ? parentBudgetItem.budget.amountLimit : group.subBudgets.reduce((sum, s) => sum + s.budget.amountLimit, 0);
-          spent = getCategoryAndSubcategoriesSpent(parentId, parentBudgetItem?.budget || group.subBudgets[0]?.budget);
-        } else {
-          const p = parentBudgetItem!;
-          amountLimit = p ? p.budget.amountLimit : 0;
-          spent = p ? getCategoryAndSubcategoriesSpent(parentId, p.budget) : 0;
-        }
-
-        const remaining = amountLimit - spent;
-        const percentage = amountLimit > 0 ? Math.round((spent / amountLimit) * 100) : 0;
-        
-        let status: 'ok' | 'warning' | 'exceeded' = 'ok';
-        if (percentage >= 100) {
-          status = 'exceeded';
-        } else if (percentage >= 80) {
-          status = 'warning';
-        }
-
+        // 5.1. Calcular subcategorías con soporte de Rollover
         const children: BudgetTreeChild[] = group.subBudgets.map(s => {
           const subCat = loadedCats.find(c => c.id === s.categoryId);
           const subSpent = s.spent;
-          const subLimit = s.budget.amountLimit;
+
+          let subBaseLimit = s.budget.amountLimit;
+          let subRolloverAmount = 0;
+          let subLimit = s.budget.amountLimit;
+
+          if (s.budget.hasRollover) {
+            const sKey = `${s.budget.categoryId}_${s.budget.scope || 'family'}_${s.budget.ownerUserId || 'family'}`;
+            const pastSubBudget = latestByKeyPrev[sKey]?.budget;
+            const rolloverRes = CalculateBudgetRollover.execute({
+              budget: s.budget,
+              pastMonthBudget: pastSubBudget,
+              pastMonthExpenses,
+              categories: loadedCats,
+            });
+            subBaseLimit = rolloverRes.baseLimit;
+            subRolloverAmount = rolloverRes.rolloverAmount;
+            subLimit = rolloverRes.effectiveLimit;
+          }
+
           const subRemaining = subLimit - subSpent;
           const subPercentage = subLimit > 0 ? Math.round((subSpent / subLimit) * 100) : 0;
           
@@ -268,6 +295,8 @@ export default function BudgetsScreen() {
             categoryId: s.categoryId,
             name: subCat ? subCat.name : 'Subcategoría',
             amountLimit: subLimit,
+            baseLimit: subBaseLimit,
+            rolloverAmount: subRolloverAmount,
             spent: subSpent,
             remaining: subRemaining,
             percentage: subPercentage,
@@ -275,6 +304,50 @@ export default function BudgetsScreen() {
             budget: s.budget,
           };
         }).sort((a, b) => b.percentage - a.percentage);
+
+        // 5.2. Calcular presupuesto consolidado o del padre con soporte de Rollover
+        let amountLimit = 0;
+        let baseLimit = 0;
+        let rolloverAmount = 0;
+        let spent = 0;
+        let hasDirectBudget = group.parentBudgets.length > 0;
+        let budgetId = parentBudgetItem?.budget.id || `virtual-${parentId}`;
+
+        if (parentBudgetItem) {
+          const pBudget = parentBudgetItem.budget;
+          baseLimit = pBudget.amountLimit;
+          amountLimit = pBudget.amountLimit;
+
+          if (pBudget.hasRollover) {
+            const pKey = `${pBudget.categoryId}_${pBudget.scope || 'family'}_${pBudget.ownerUserId || 'family'}`;
+            const pastParentBudget = latestByKeyPrev[pKey]?.budget;
+            const rolloverRes = CalculateBudgetRollover.execute({
+              budget: pBudget,
+              pastMonthBudget: pastParentBudget,
+              pastMonthExpenses,
+              categories: loadedCats,
+            });
+            baseLimit = rolloverRes.baseLimit;
+            rolloverAmount = rolloverRes.rolloverAmount;
+            amountLimit = rolloverRes.effectiveLimit;
+          }
+          spent = getCategoryAndSubcategoriesSpent(parentId, pBudget);
+        } else if (children.length > 0) {
+          baseLimit = children.reduce((sum, c) => sum + (c.baseLimit ?? c.amountLimit), 0);
+          rolloverAmount = children.reduce((sum, c) => sum + (c.rolloverAmount ?? 0), 0);
+          amountLimit = children.reduce((sum, c) => sum + c.amountLimit, 0);
+          spent = getCategoryAndSubcategoriesSpent(parentId, group.subBudgets[0]?.budget);
+        }
+
+        const remaining = amountLimit - spent;
+        const percentage = amountLimit > 0 ? Math.round((spent / amountLimit) * 100) : 0;
+        
+        let status: 'ok' | 'warning' | 'exceeded' = 'ok';
+        if (percentage >= 100) {
+          status = 'exceeded';
+        } else if (percentage >= 80) {
+          status = 'warning';
+        }
 
         const parentDirectSpent = parentBudgetItem ? parentBudgetItem.spent : 0;
 
@@ -288,6 +361,8 @@ export default function BudgetsScreen() {
           budget: parentBudgetItem?.budget,
           parentDirectSpent,
           amountLimit,
+          baseLimit,
+          rolloverAmount,
           spent,
           remaining,
           percentage,
@@ -318,7 +393,25 @@ export default function BudgetsScreen() {
 
       // Ordenar por consumo consolidado (de mayor a menor)
       setBudgetsProgress(treeItems.sort((a, b) => b.percentage - a.percentage));
-      BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
+
+      // El Widget Android SIEMPRE debe reflejar el mes actual en curso (nunca meses pasados o futuros explorados)
+      const now = new Date();
+      const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === (now.getMonth() + 1);
+
+      if (isCurrentMonth) {
+        let widgetTotalLimit = 0;
+        let widgetTotalSpent = 0;
+        for (const item of treeItems) {
+          widgetTotalLimit += item.amountLimit;
+          widgetTotalSpent += item.spent;
+        }
+        const widgetAvailable = Math.max(0, widgetTotalLimit - widgetTotalSpent);
+        const widgetPercentage = widgetTotalLimit > 0 ? (widgetTotalSpent / widgetTotalLimit) * 100 : 0;
+        BudgetSyncHelper.syncMonthlyBudget(widgetAvailable, widgetPercentage).catch(() => {});
+      } else {
+        // Si el usuario está explorando otro mes en la app, mantener el widget anclado al mes en curso actual
+        BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
+      }
     } catch (err) {
       console.error('[Budgets Load Error]:', err);
     } finally {
@@ -370,6 +463,7 @@ export default function BudgetsScreen() {
     const scopeToUse = data ? data.scope : selectedScope;
     const startModeToUse = data ? data.startMode : budgetStartMode;
     const offsetToUse = data ? data.futureOffset : futureMonthOffset;
+    const hasRolloverToUse = data ? data.hasRollover : (editingBudget ? editingBudget.hasRollover : false);
 
     if (!limitNum || isNaN(limitNum) || limitNum <= 0) {
       setErrorMsg('Por favor ingresa un límite de dinero válido mayor a cero.');
@@ -402,6 +496,7 @@ export default function BudgetsScreen() {
             amountLimit: limitNum,
             scope: scopeToUse,
             ownerUserId,
+            hasRollover: hasRolloverToUse,
           });
         } else {
           await budgetRepo.create({
@@ -411,6 +506,7 @@ export default function BudgetsScreen() {
             month: targetMonth,
             scope: scopeToUse,
             ownerUserId,
+            hasRollover: hasRolloverToUse,
           });
         }
       } else {
@@ -422,6 +518,7 @@ export default function BudgetsScreen() {
              amountLimit: limitNum,
              scope: scopeToUse,
              ownerUserId,
+             hasRollover: hasRolloverToUse,
           });
         } else {
           await budgetRepo.create({
@@ -431,6 +528,7 @@ export default function BudgetsScreen() {
             month: targetMonth,
             scope: scopeToUse,
             ownerUserId,
+            hasRollover: hasRolloverToUse,
           });
         }
       }
@@ -798,9 +896,40 @@ export default function BudgetsScreen() {
                                 </Text>
                               </View>
                             )}
+                            {bp.rolloverAmount !== undefined && bp.rolloverAmount !== 0 && (
+                              <View style={{
+                                backgroundColor: bp.rolloverAmount > 0 ? '#05966915' : '#DC262615',
+                                paddingHorizontal: 6,
+                                paddingVertical: 2,
+                                borderRadius: 6,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 3
+                              }}>
+                                <MaterialCommunityIcons
+                                  name="swap-horizontal-bold"
+                                  size={11}
+                                  color={bp.rolloverAmount > 0 ? '#059669' : '#DC2626'}
+                                />
+                                <Text style={{
+                                  fontSize: 9,
+                                  fontWeight: '700',
+                                  color: bp.rolloverAmount > 0 ? '#059669' : '#DC2626'
+                                }}>
+                                  {bp.rolloverAmount > 0
+                                    ? `+${Math.round(bp.rolloverAmount).toLocaleString('es-CO')} Rollover`
+                                    : `${Math.round(bp.rolloverAmount).toLocaleString('es-CO')} Rollover`}
+                                </Text>
+                              </View>
+                            )}
                           </View>
                           <Text style={[theme.typography.caption, { fontWeight: '700', color: statusColor, marginTop: 1, fontSize: 11 }]}>
                             {bp.percentage}% consumido
+                            {bp.rolloverAmount !== undefined && bp.rolloverAmount !== 0 && bp.baseLimit !== undefined && (
+                              <Text style={{ fontWeight: '400', color: theme.customColors.textSecondary }}>
+                                {' '}• Base: ${Math.round(bp.baseLimit).toLocaleString('es-CO')}
+                              </Text>
+                            )}
                           </Text>
                         </View>
                       </View>
@@ -861,9 +990,37 @@ export default function BudgetsScreen() {
                         return (
                           <View key={child.id} style={{ paddingLeft: 8, paddingVertical: 4 }}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Text style={[theme.typography.caption, { fontWeight: '600', color: theme.colors.onSurface }]}>
-                                {child.name} ({child.percentage}%)
-                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                                <Text style={[theme.typography.caption, { fontWeight: '600', color: theme.colors.onSurface }]}>
+                                  {child.name} ({child.percentage}%)
+                                </Text>
+                                {child.rolloverAmount !== undefined && child.rolloverAmount !== 0 && (
+                                  <View style={{
+                                    backgroundColor: child.rolloverAmount > 0 ? '#05966915' : '#DC262615',
+                                    paddingHorizontal: 5,
+                                    paddingVertical: 1,
+                                    borderRadius: 4,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 2
+                                  }}>
+                                    <MaterialCommunityIcons
+                                      name="swap-horizontal-bold"
+                                      size={10}
+                                      color={child.rolloverAmount > 0 ? '#059669' : '#DC2626'}
+                                    />
+                                    <Text style={{
+                                      fontSize: 8,
+                                      fontWeight: '700',
+                                      color: child.rolloverAmount > 0 ? '#059669' : '#DC2626'
+                                    }}>
+                                      {child.rolloverAmount > 0
+                                        ? `+${Math.round(child.rolloverAmount).toLocaleString('es-CO')}`
+                                        : `${Math.round(child.rolloverAmount).toLocaleString('es-CO')}`}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                 <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
                                   $ {Math.round(child.spent).toLocaleString('es-CO')}

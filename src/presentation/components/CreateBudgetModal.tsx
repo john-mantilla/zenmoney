@@ -8,7 +8,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Modal, Pressable, Platform, TouchableWithoutFeedback, TouchableOpacity } from 'react-native';
-import { Surface, Text, Button, TextInput, SegmentedButtons, RadioButton, IconButton } from 'react-native-paper';
+import { Surface, Text, Button, TextInput, SegmentedButtons, RadioButton, IconButton, Switch } from 'react-native-paper';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +25,7 @@ export interface CreateBudgetData {
   scope: 'family' | 'individual';
   startMode: 'current' | 'future';
   futureOffset: number;
+  hasRollover?: boolean;
 }
 
 interface CreateBudgetModalProps {
@@ -58,6 +59,7 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
   const [selectedScope, setSelectedScope] = useState<'family' | 'individual'>('family');
   const [budgetStartMode, setBudgetStartMode] = useState<'current' | 'future'>('current');
   const [futureMonthOffset, setFutureMonthOffset] = useState(1);
+  const [hasRollover, setHasRollover] = useState(false);
   const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -71,6 +73,7 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
       setSelectedScope(isIndividual ? 'individual' : 'family');
       setBudgetStartMode('current');
       setFutureMonthOffset(1);
+      setHasRollover(Boolean(editingBudget.hasRollover));
     } else {
       const firstNonPrivate = categories.find((c) => !c.isPrivate) || categories[0];
       setSelectedCategoryId(firstNonPrivate ? firstNonPrivate.id : '');
@@ -78,6 +81,7 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
       setSelectedScope('family');
       setBudgetStartMode('current');
       setFutureMonthOffset(1);
+      setHasRollover(false);
     }
     setIsCategoryPickerOpen(false);
     setErrorMsg(null);
@@ -113,6 +117,7 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
         scope: selectedScope,
         startMode: budgetStartMode,
         futureOffset: futureMonthOffset,
+        hasRollover,
       });
       onClose();
     } catch (err) {
@@ -393,6 +398,42 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
                     />
                   </View>
                 )}
+
+                {/* Rollover (Arrastre Inteligente de Saldo) */}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 18,
+                    marginBottom: 10,
+                    padding: 14,
+                    borderRadius: 14,
+                    backgroundColor: theme.colors.surfaceVariant + '35',
+                    borderWidth: 1,
+                    borderColor: hasRollover ? theme.colors.primary + '50' : theme.colors.outline + '20',
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialCommunityIcons name="swap-horizontal-bold" size={18} color={hasRollover ? theme.colors.primary : theme.customColors.textSecondary} />
+                      <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                        Acumular saldo (Rollover)
+                      </Text>
+                    </View>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginTop: 4, lineHeight: 16 }]}>
+                      Si gastas menos, el ahorro se suma al límite del siguiente mes. Si te pasas, el déficit se descuenta para compensar.
+                    </Text>
+                  </View>
+                  <Switch
+                    value={hasRollover}
+                    onValueChange={(val) => {
+                      triggerHaptic();
+                      setHasRollover(val);
+                    }}
+                    color={theme.colors.primary}
+                  />
+                </View>
 
                 {/* Botones de Acción */}
                 <View style={styles.actionsRow}>

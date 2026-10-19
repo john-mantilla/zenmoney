@@ -32,10 +32,11 @@ export class SqliteBudgetRepository implements BudgetRepository {
     const familyGroupId = (input as any).familyGroupId || 'offline-family';
     const ownerUserId = input.scope === 'individual' ? ((input as any).ownerUserId || 'offline-user') : null;
     const createdAt = new Date().toISOString();
+    const hasRolloverInt = input.hasRollover ? 1 : 0;
 
     await db.runAsync(
-      `INSERT INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         id,
         familyGroupId,
@@ -45,6 +46,7 @@ export class SqliteBudgetRepository implements BudgetRepository {
         input.month,
         input.scope || 'family',
         ownerUserId,
+        hasRolloverInt,
         createdAt
       ]
     );
@@ -58,6 +60,7 @@ export class SqliteBudgetRepository implements BudgetRepository {
       month: input.month,
       scope: input.scope || 'family',
       ownerUserId,
+      hasRollover: Boolean(input.hasRollover),
       createdAt
     };
   }
@@ -73,10 +76,12 @@ export class SqliteBudgetRepository implements BudgetRepository {
     const year = data.year !== undefined ? data.year : existing.year;
     const month = data.month !== undefined ? data.month : existing.month;
     const scope = data.scope !== undefined ? data.scope : existing.scope;
+    const hasRollover = data.hasRollover !== undefined ? data.hasRollover : existing.hasRollover;
+    const hasRolloverInt = hasRollover ? 1 : 0;
 
     await db.runAsync(
-      `UPDATE budgets SET amount_limit = ?, year = ?, month = ?, scope = ? WHERE id = ?;`,
-      [amountLimit, year, month, scope, id]
+      `UPDATE budgets SET amount_limit = ?, year = ?, month = ?, scope = ?, has_rollover = ? WHERE id = ?;`,
+      [amountLimit, year, month, scope, hasRolloverInt, id]
     );
 
     return {
@@ -84,7 +89,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
       amountLimit,
       year,
       month,
-      scope
+      scope,
+      hasRollover: Boolean(hasRollover)
     };
   }
 
@@ -97,8 +103,8 @@ export class SqliteBudgetRepository implements BudgetRepository {
     const db = this.getDb();
     for (const b of budgets) {
       await db.runAsync(
-        `INSERT OR REPLACE INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        `INSERT OR REPLACE INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
           b.id,
           b.familyGroupId,
@@ -108,6 +114,7 @@ export class SqliteBudgetRepository implements BudgetRepository {
           b.month,
           b.scope,
           b.ownerUserId,
+          b.hasRollover ? 1 : 0,
           b.createdAt
         ]
       );
@@ -132,6 +139,7 @@ export class SqliteBudgetRepository implements BudgetRepository {
       month: row.month,
       scope: row.scope,
       ownerUserId: row.owner_user_id,
+      hasRollover: row.has_rollover === 1 || row.has_rollover === true || row.has_rollover === 'true',
       createdAt: row.created_at
     };
   }
