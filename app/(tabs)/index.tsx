@@ -39,6 +39,7 @@ import { useHabitStore } from '@/src/infrastructure/state/habitStore';
 import { HabitPattern } from '@/src/domain/entities/HabitPattern';
 import { EvaluateHabitNudge } from '@/src/domain/usecases/EvaluateHabitNudge';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { getLocalDateString, filterRecentTransactions } from '@/src/domain/utils/dateUtils';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 export default function DashboardScreen() {
@@ -273,7 +274,7 @@ export default function DashboardScreen() {
         filteredTxs = loadedTransactions.filter(tx => !tx.isPrivate || tx.createdByUserId === userProfile.id);
       }
       setMonthTransactions(filteredTxs);
-      setRecentTransactions(filteredTxs.slice(0, 3));
+      setRecentTransactions(filterRecentTransactions(filteredTxs));
 
       // 3b. Movimientos pendientes (correo, notas de voz del reloj sin monto, etc. Excluyendo facturas recurrentes)
       const allPending = await transactionRepo.getAll({ status: 'pending' }, preferCache);

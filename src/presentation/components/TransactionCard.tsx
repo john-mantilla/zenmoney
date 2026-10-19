@@ -51,7 +51,9 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
 
   let finalTitle = transaction.description;
   if (!finalTitle || finalTitle.trim().toLowerCase() === 'sin clasificar') {
-    if (isTransfer) {
+    if (transaction.merchantName && transaction.merchantName.trim()) {
+      finalTitle = transaction.merchantName.trim();
+    } else if (isTransfer) {
       finalTitle = destinationAccountName ? `Transferencia a ${destinationAccountName}` : 'Transferencia entre cuentas';
     } else {
       finalTitle = categoryName;

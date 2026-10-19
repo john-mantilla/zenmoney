@@ -36,3 +36,6 @@ export * from './HabitSettingsSection';
 export * from './CreateAtomicHabitModal';
 export * from './AccountIcon';
 export * from './AccountIconPicker';
+export * from './CategorySplitSheet';
+export * from './PeriodSplitSelector';
+

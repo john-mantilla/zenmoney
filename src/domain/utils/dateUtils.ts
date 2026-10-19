@@ -15,3 +15,24 @@ export const getLocalDateString = (d: Date = new Date()): string => {
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+/**
+ * Filtra y ordena transacciones recientes blindando contra fechas futuras (ej. cuotas diferidas de TC).
+ * Solo incluye transacciones con transactionDate <= todayStr, ordenadas DESC por transactionDate
+ * y secundariamente DESC por createdAt.
+ */
+export function filterRecentTransactions<T extends { transactionDate: string; createdAt?: string | null }>(
+  transactions: T[],
+  todayStr: string = getLocalDateString(),
+  limit: number = 3
+): T[] {
+  return transactions
+    .filter(tx => tx.transactionDate <= todayStr)
+    .sort((a, b) => {
+      const dateDiff = b.transactionDate.localeCompare(a.transactionDate);
+      if (dateDiff !== 0) return dateDiff;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    })
+    .slice(0, limit);
+}
+

@@ -162,8 +162,18 @@ export class Mapper {
       }
     }
 
+    let splits = row.splits || undefined;
+    let periodSplit = row.period_split || row.periodSplit || undefined;
+
     if (row.ai_metadata && (!isPrivate || isOwner)) {
-      const meta = row.ai_metadata;
+      let meta = row.ai_metadata;
+      if (typeof meta === 'string') {
+        try {
+          meta = JSON.parse(meta);
+        } catch {
+          meta = {};
+        }
+      }
       let installments = meta.installments || null;
       if (typeof installments === 'string') {
         try {
@@ -172,17 +182,22 @@ export class Mapper {
           installments = null;
         }
       }
+      if (meta.splits) splits = meta.splits;
+      if (meta.period_split || meta.periodSplit) periodSplit = meta.period_split || meta.periodSplit;
+
       aiMetadata = {
-        rawInput: meta.raw_input || '',
-        parsedAmount: meta.parsed_amount !== undefined ? meta.parsed_amount : null,
-        parsedCategory: meta.parsed_category || null,
-        parsedAccount: meta.parsed_account || null,
-        parsedMerchant: meta.parsed_merchant || null,
+        rawInput: meta.raw_input || meta.rawInput || '',
+        parsedAmount: meta.parsed_amount !== undefined ? meta.parsed_amount : (meta.parsedAmount !== undefined ? meta.parsedAmount : null),
+        parsedCategory: meta.parsed_category || meta.parsedCategory || null,
+        parsedAccount: meta.parsed_account || meta.parsedAccount || null,
+        parsedMerchant: meta.parsed_merchant || meta.parsedMerchant || null,
         confidence: meta.confidence || 0,
         corrections: meta.corrections || {},
-        dueDate: meta.due_date || undefined,
+        dueDate: meta.due_date || meta.dueDate || undefined,
         installments,
-        isCCStatement: meta.is_cc_statement || false,
+        splits,
+        periodSplit,
+        isCCStatement: meta.is_cc_statement || meta.isCCStatement || false,
       } as any;
     }
 
@@ -212,6 +227,8 @@ export class Mapper {
       aiMetadata,
       isPrivate,
       tags,
+      splits,
+      periodSplit,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       syncedAt: row.synced_at,
@@ -220,22 +237,27 @@ export class Mapper {
 
   static toDbTransaction(entity: Partial<Transaction>): any {
     let ai_metadata = undefined;
-    if (entity.aiMetadata !== undefined) {
-      if (entity.aiMetadata === null) {
+    const splits = entity.splits || entity.aiMetadata?.splits;
+    const periodSplit = entity.periodSplit || entity.aiMetadata?.periodSplit;
+
+    if (entity.aiMetadata !== undefined || splits !== undefined || periodSplit !== undefined) {
+      if (entity.aiMetadata === null && !splits && !periodSplit) {
         ai_metadata = null;
       } else {
-        const meta = entity.aiMetadata;
+        const meta = entity.aiMetadata || ({} as any);
         ai_metadata = {
-          raw_input: meta.rawInput,
-          parsed_amount: meta.parsedAmount,
-          parsed_category: meta.parsedCategory,
-          parsed_account: meta.parsedAccount,
-          parsed_merchant: meta.parsedMerchant,
-          confidence: meta.confidence,
-          corrections: meta.corrections,
+          raw_input: meta.rawInput || '',
+          parsed_amount: meta.parsedAmount !== undefined ? meta.parsedAmount : null,
+          parsed_category: meta.parsedCategory || null,
+          parsed_account: meta.parsedAccount || null,
+          parsed_merchant: meta.parsedMerchant || null,
+          confidence: meta.confidence || 0,
+          corrections: meta.corrections || {},
           due_date: meta.dueDate || null,
           installments: (meta as any).installments || null,
           is_cc_statement: (meta as any).isCCStatement || false,
+          splits: splits || null,
+          period_split: periodSplit || null,
         };
       }
     }

@@ -17,6 +17,21 @@ export interface InstallmentMetadata {
   startDate: string;
 }
 
+export interface TransactionCategorySplit {
+  id: string;
+  categoryId: string;
+  amount: number;
+  note?: string | null;
+}
+
+export interface TransactionPeriodSplit {
+  totalMonths: number;          // 2 a 36 meses
+  monthlyAmount: number;        // Monto prorrateado mensual (round(amount / totalMonths))
+  startMonth: string;           // "YYYY-MM"
+  endMonth: string;             // "YYYY-MM"
+  accountFlowDate: string;      // "YYYY-MM-DD" fecha real del débito bancario
+}
+
 export interface AIMetadata {
   rawInput: string;
   parsedAmount: number | null;
@@ -30,6 +45,8 @@ export interface AIMetadata {
   is_bank_notification?: boolean;
   bank_name?: string;
   installments?: InstallmentMetadata;
+  splits?: TransactionCategorySplit[];
+  periodSplit?: TransactionPeriodSplit;
 }
 
 export interface Transaction {
@@ -53,6 +70,8 @@ export interface Transaction {
   /** Si es true, solo el creador puede verla — el resto de la familia no (RLS). */
   isPrivate: boolean;
   tags?: Tag[]; // Etiquetas de la transacción
+  splits?: TransactionCategorySplit[];
+  periodSplit?: TransactionPeriodSplit;
   createdAt: string;
   updatedAt: string;
   syncedAt: string | null;
@@ -73,6 +92,8 @@ export interface CreateTransactionInput {
   aiMetadata?: AIMetadata | null;
   isPrivate?: boolean;
   tags?: string[]; // IDs de los tags a asociar
+  splits?: TransactionCategorySplit[];
+  periodSplit?: TransactionPeriodSplit;
 }
 
 export interface TransactionFilters {

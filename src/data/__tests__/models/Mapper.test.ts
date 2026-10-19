@@ -138,6 +138,85 @@ describe('Mapper — Pruebas de Integración Bidireccional (DB snake_case ↔ Do
       expect(dbRow).not.toHaveProperty('merchant_name');
       expect(dbRow).not.toHaveProperty('ai_metadata');
     });
+
+    it('serializa y deserializa limpiamente splits y periodSplit a través de ai_metadata', () => {
+      const splits = [
+        { id: 's1', categoryId: 'cat-market', amount: 200000, note: 'Comida' },
+        { id: 's2', categoryId: 'cat-home', amount: 100000, note: 'Aseo' },
+      ];
+      const periodSplit = {
+        totalMonths: 12,
+        monthlyAmount: 25000,
+        startMonth: '2026-01',
+        endMonth: '2026-12',
+        accountFlowDate: '2026-01-15',
+      };
+
+      const domainTx: Partial<Transaction> = {
+        id: 'tx-split-1',
+        familyGroupId: 'fam-1',
+        accountId: 'acc-1',
+        categoryId: 'cat-market',
+        createdByUserId: 'usr-1',
+        type: 'expense',
+        amount: 300000,
+        currency: 'COP',
+        splits,
+        periodSplit,
+      };
+
+      // 1. Dominio -> DB
+      const dbRow = Mapper.toDbTransaction(domainTx);
+      expect(dbRow.ai_metadata).toBeDefined();
+      expect(dbRow.ai_metadata.splits).toEqual(splits);
+      expect(dbRow.ai_metadata.period_split).toEqual(periodSplit);
+
+      // 2. DB -> Dominio
+      const restoredTx = Mapper.toDomainTransaction({
+        id: 'tx-split-1',
+        family_group_id: 'fam-1',
+        account_id: 'acc-1',
+        category_id: 'cat-market',
+        created_by_user_id: 'usr-1',
+        type: 'expense',
+        amount: '300000',
+        currency: 'COP',
+        ai_metadata: dbRow.ai_metadata,
+      });
+
+      expect(restoredTx.splits).toEqual(splits);
+      expect(restoredTx.periodSplit).toEqual(periodSplit);
+      expect(restoredTx.aiMetadata?.splits).toEqual(splits);
+      expect(restoredTx.aiMetadata?.periodSplit).toEqual(periodSplit);
+    });
+
+    it('deserializa correctamente ai_metadata cuando viene como string JSON', () => {
+      const splits = [{ id: 's1', categoryId: 'cat-1', amount: 50 }, { id: 's2', categoryId: 'cat-2', amount: 50 }];
+      const dbRow = {
+        id: 'tx-json-str',
+        family_group_id: 'fam-1',
+        account_id: 'acc-1',
+        category_id: 'cat-1',
+        created_by_user_id: 'usr-1',
+        type: 'expense',
+        amount: '100',
+        currency: 'USD',
+        ai_metadata: JSON.stringify({
+          splits,
+          period_split: {
+            totalMonths: 3,
+            monthlyAmount: 33.33,
+            startMonth: '2026-02',
+            endMonth: '2026-04',
+            accountFlowDate: '2026-02-01',
+          },
+        }),
+      };
+
+      const tx = Mapper.toDomainTransaction(dbRow);
+      expect(tx.splits).toEqual(splits);
+      expect(tx.periodSplit?.totalMonths).toBe(3);
+    });
   });
 
   describe('Account Mapping', () => {

@@ -58,6 +58,35 @@ export class ValidateTransaction {
       }
     }
 
+    // 5. Validar Desglose Multicategoría (Category Split)
+    if (input.splits && input.splits.length > 0) {
+      if (input.splits.length < 2) {
+        errors.push('El desglose multicategoría debe contener al menos 2 categorías.');
+      }
+      const sumSplits = input.splits.reduce((acc, s) => acc + s.amount, 0);
+      const diff = Math.abs(sumSplits - input.amount);
+      if (diff > 0.01) {
+        if (sumSplits < input.amount) {
+          const missing = input.amount - sumSplits;
+          errors.push(`La suma de las categorías no coincide con el total. Faltan $${missing} por asignar.`);
+        } else {
+          const excess = sumSplits - input.amount;
+          errors.push(`La suma de las categorías supera el total por $${excess}.`);
+        }
+      }
+      if (input.splits.some((s) => s.amount <= 0)) {
+        errors.push('Cada categoría desglosada debe tener un monto mayor a cero.');
+      }
+    }
+
+    // 6. Validar Prorrateo Temporal (Period Split)
+    if (input.periodSplit) {
+      const { totalMonths } = input.periodSplit;
+      if (totalMonths < 2 || totalMonths > 36) {
+        errors.push('El prorrateo debe ser de entre 2 y 36 meses.');
+      }
+    }
+
     // Eliminar posibles errores duplicados manteniendo el primer mensaje
     const uniqueErrors = Array.from(new Set(errors));
 

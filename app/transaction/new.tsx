@@ -13,7 +13,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
 import { getAccountBrandInfo } from '@/src/presentation/theme/accountBrands';
-import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet, LiveBudgetMeter, MicroCelebrationModal, CelebrationType, InstallmentSelector } from '@/src/presentation/components';
+import { CategoryPickerMenu, NetworkStatusBar, CustomNumpad, NumpadBottomSheet, VoicePulseWave, CategoryBottomSheet, LiveBudgetMeter, MicroCelebrationModal, CelebrationType, InstallmentSelector, CategorySplitSheet, PeriodSplitSelector } from '@/src/presentation/components';
 import { CalculateRegistrationStreak } from '@/src/domain/usecases/CalculateRegistrationStreak';
 import { hapticLight, hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
@@ -38,7 +38,7 @@ import { generateInstallmentTransactions } from '@/src/domain/utils/installmentU
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
-import { Transaction } from '@/src/domain/entities/Transaction';
+import { Transaction, TransactionCategorySplit } from '@/src/domain/entities/Transaction';
 import { Tag } from '@/src/domain/entities/Tag';
 import { CategorizationRule } from '@/src/domain/entities/CategorizationRule';
 import { HybridTagRepository } from '@/src/data/repositories/HybridTagRepository';
@@ -105,6 +105,11 @@ export default function NewTransactionScreen() {
   const [loadingRate, setLoadingRate] = useState(false);
   const [isInstallments, setIsInstallments] = useState(false);
   const [installmentsCount, setInstallmentsCount] = useState<number>(3);
+  // Splits & Period Split (Desglose multicategoría y Prorrateo temporal)
+  const [splits, setSplits] = useState<TransactionCategorySplit[]>([]);
+  const [isSplitSheetVisible, setIsSplitSheetVisible] = useState(false);
+  const [isPeriodSplit, setIsPeriodSplit] = useState(false);
+  const [periodSplitMonths, setPeriodSplitMonths] = useState<number>(12);
   // Mapa de presupuestos precargados para el LiveBudgetMeter
   const [budgetSpentMap, setBudgetSpentMap] = useState<Record<string, { limit: number; spent: number }>>({});
   // Estado para disparar micro-celebraciones (inversión, racha, meta de ahorro)
@@ -200,6 +205,13 @@ export default function NewTransactionScreen() {
             if (tx.aiMetadata?.installments) {
               setIsInstallments(true);
               setInstallmentsCount(Number(tx.aiMetadata.installments.count) || 3);
+            }
+            if (tx.splits && tx.splits.length > 0) {
+              setSplits(tx.splits);
+            }
+            if (tx.periodSplit) {
+              setIsPeriodSplit(true);
+              setPeriodSplitMonths(tx.periodSplit.totalMonths);
             }
 
             if (tx.categoryId) {
@@ -803,9 +815,15 @@ export default function NewTransactionScreen() {
       finalCategoryId = defaultIncomeCat;
     }
 
-    // Valores por defecto en Modo Rápido (Modo Simple)
+    // Valores por defecto en Modo Rápido (Modo Simple) o unificación de Concepto / Comercio
     let finalAccountId = accountId;
     let finalDescription = description.trim();
+    const cleanConceptOrMerchant = merchantName.trim();
+    if (!finalDescription && cleanConceptOrMerchant) {
+      finalDescription = cleanConceptOrMerchant;
+    } else if (finalDescription && cleanConceptOrMerchant && finalDescription.toLowerCase() !== cleanConceptOrMerchant.toLowerCase()) {
+      finalDescription = `${cleanConceptOrMerchant} — ${finalDescription}`;
+    }
     let finalType = type;
     if (mode === 'quick' && !isEditing) {
       finalType = 'expense';
@@ -831,6 +849,25 @@ export default function NewTransactionScreen() {
 
     const countVal = Math.max(2, installmentsCount || 3);
 
+    // Period Split (Prorrateo / Amortización contable)
+    let periodSplitObj = undefined;
+    if (type === 'expense' && isPeriodSplit && periodSplitMonths >= 2) {
+      const safeMonths = Math.min(36, Math.max(2, periodSplitMonths));
+      const monthlyAmount = Math.round(finalAmountValue / safeMonths);
+      const dateBase = transactionDate ? new Date(transactionDate + 'T00:00:00') : new Date();
+      const startMonth = `${dateBase.getFullYear()}-${String(dateBase.getMonth() + 1).padStart(2, '0')}`;
+      const endDate = new Date(dateBase.getFullYear(), dateBase.getMonth() + safeMonths - 1, 1);
+      const endMonth = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`;
+
+      periodSplitObj = {
+        totalMonths: safeMonths,
+        monthlyAmount,
+        startMonth,
+        endMonth,
+        accountFlowDate: transactionDate,
+      };
+    }
+
     const initialAiMetadata = isEditing && originalTx?.aiMetadata ? {
       ...originalTx.aiMetadata,
       ...(aiPreviewData && {
@@ -853,7 +890,7 @@ export default function NewTransactionScreen() {
 
     const inputData = {
       accountId: finalAccountId,
-      categoryId: finalCategoryId,
+      categoryId: splits.length > 0 ? (finalCategoryId || splits[0].categoryId) : finalCategoryId,
       type: finalType,
       amount: finalAmountValue,
       currency: (isEditing && originalTx?.currency) || 'COP',
@@ -866,6 +903,8 @@ export default function NewTransactionScreen() {
       // aplica hoy (cuenta propia, no transferencia). La base de datos también lo valida.
       isPrivate: canBePrivate ? isPrivate : false,
       tags: selectedTagIds,
+      splits: splits.length > 0 ? splits : undefined,
+      periodSplit: periodSplitObj,
       inputMethod: isEditing
         ? (originalTx?.inputMethod || 'manual')
         : aiPreviewData
@@ -1755,10 +1794,78 @@ export default function NewTransactionScreen() {
               {/* Tarjeta Categoría (50%) - Solo para gastos */}
               {type === 'expense' && (
                 <View style={{ flex: 1 }}>
-                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 4, fontWeight: '600' }]}>
-                    Categoría
-                  </Text>
-                  {(() => {
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600' }]}>
+                      Categoría
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const numericAmount = parseFloat(amount.replace(/[^0-9]/g, '')) || 0;
+                        if (numericAmount <= 0) {
+                          AppAlert.alert('Monto requerido', 'Ingresa primero el monto de la compra para poder desglosarla.');
+                          return;
+                        }
+                        setIsSplitSheetVisible(true);
+                      }}
+                      style={{ paddingHorizontal: 4, paddingVertical: 2 }}
+                    >
+                      <Text style={[theme.typography.caption, { color: theme.colors.primary, fontWeight: '700', fontSize: 11 }]}>
+                        {splits.length > 0 ? 'Editar split' : '🧩 Dividir'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {splits.length > 0 ? (
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setIsSplitSheetVisible(true)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
+                        borderRadius: 14,
+                        borderWidth: 1.5,
+                        borderColor: '#10B981',
+                        backgroundColor: '#10B98115',
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 4 }}>
+                        <View
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                            backgroundColor: '#10B98130',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginRight: 8,
+                          }}
+                        >
+                          <MaterialCommunityIcons name="call-split" size={18} color="#059669" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}
+                            numberOfLines={1}
+                          >
+                            {splits.length} categorías
+                          </Text>
+                          <Text style={[theme.typography.caption, { color: '#059669', fontSize: 10, fontWeight: '600' }]}>
+                            Desglose exacto ✓
+                          </Text>
+                        </View>
+                      </View>
+                      <IconButton
+                        icon="close-circle-outline"
+                        size={18}
+                        iconColor={theme.customColors.textSecondary}
+                        onPress={() => setSplits([])}
+                        style={{ margin: 0 }}
+                      />
+                    </TouchableOpacity>
+                  ) : (() => {
                     const selectedCatId = selectedSubCategoryId || selectedParentCategoryId;
                     const selectedCatObj = categories.find((c) => c.id === selectedCatId);
                     return (
@@ -1840,12 +1947,12 @@ export default function NewTransactionScreen() {
               return null;
             })()}
 
-            {/* 4. Sección Comercio / Establecimiento + Chips Recientes (Limpio, sin íconos recargados) */}
+            {/* 4. Sección Concepto / Comercio + Chips Recientes (Enfoque Unificado) */}
             {type === 'expense' && (
               <View style={{ marginBottom: 16 }}>
                 <TextInput
-                  label="Comercio / Establecimiento"
-                  placeholder="Escribe el nombre del comercio"
+                  label="Concepto / Comercio"
+                  placeholder="¿En qué o dónde gastaste? ej. Éxito, Café, Gasolina..."
                   value={merchantName}
                   onChangeText={(text) => {
                     setMerchantName(text);
@@ -1954,7 +2061,10 @@ export default function NewTransactionScreen() {
             {type === 'expense' && (!isEditing || originalTx?.status === 'pending') && accounts.find(a => a.id === accountId)?.type === 'credit_card' && (
               <InstallmentSelector
                 enabled={isInstallments}
-                onToggle={setIsInstallments}
+                onToggle={(val) => {
+                  setIsInstallments(val);
+                  if (val) setIsPeriodSplit(false);
+                }}
                 count={installmentsCount}
                 onChangeCount={setInstallmentsCount}
                 totalAmount={parseFloat(amount) || 0}
@@ -2000,6 +2110,13 @@ export default function NewTransactionScreen() {
                   <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
                     Detalles opcionales
                   </Text>
+                  {isPeriodSplit && (
+                    <View style={{ backgroundColor: '#0284C720', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#0284C7' }}>
+                        Prorrateado ({periodSplitMonths}m)
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 <MaterialCommunityIcons
                   name={isOptionalDetailsExpanded ? 'chevron-up' : 'chevron-down'}
@@ -2038,15 +2155,15 @@ export default function NewTransactionScreen() {
                   </View>
 
                   {/* Fila Notas / Descripción */}
-                  <View style={{ paddingVertical: 8, borderBottomWidth: canBePrivate ? 1 : 0, borderBottomColor: theme.colors.outline + '20' }}>
+                  <View style={{ paddingVertical: 8, borderBottomWidth: (canBePrivate || type === 'expense') ? 1 : 0, borderBottomColor: theme.colors.outline + '20' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                       <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceVariant, justifyContent: 'center', alignItems: 'center' }}>
                         <MaterialCommunityIcons name="comment-text-outline" size={18} color={theme.colors.primary} />
                       </View>
-                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Notas</Text>
+                      <Text style={[theme.typography.caption, { color: theme.colors.onSurface, fontWeight: '600' }]}>Nota adicional</Text>
                     </View>
                     <TextInput
-                      placeholder="Añadir nota opcional"
+                      placeholder="Detalles o comentario adicional (opcional)"
                       value={description}
                       onChangeText={(text) => {
                         setDescription(text);
@@ -2058,6 +2175,24 @@ export default function NewTransactionScreen() {
                       disabled={isLoading}
                     />
                   </View>
+
+                  {/* Fila Prorrateo Temporal de Presupuestos (Amortización Contable) */}
+                  {type === 'expense' && (!isEditing || originalTx?.status === 'pending') && (
+                    <View style={{ paddingTop: 12, paddingBottom: 4, borderBottomWidth: canBePrivate ? 1 : 0, borderBottomColor: theme.colors.outline + '20' }}>
+                      <PeriodSplitSelector
+                        enabled={isPeriodSplit}
+                        onToggle={(val) => {
+                          setIsPeriodSplit(val);
+                          if (val) setIsInstallments(false);
+                        }}
+                        totalMonths={periodSplitMonths}
+                        onChangeMonths={setPeriodSplitMonths}
+                        totalAmount={parseFloat(amount) || 0}
+                        transactionDate={transactionDate}
+                        disabled={isLoading}
+                      />
+                    </View>
+                  )}
 
                   {/* Fila Ocultar del resto de la familia (Privado) */}
                   {canBePrivate && (
@@ -2139,6 +2274,18 @@ export default function NewTransactionScreen() {
         onSelect={applyCategoryId}
         onClose={() => setIsCategorySheetVisible(false)}
         excludeNamesContaining="ingreso"
+      />
+
+      <CategorySplitSheet
+        visible={isSplitSheetVisible}
+        onDismiss={() => setIsSplitSheetVisible(false)}
+        totalAmount={parseFloat(amount.replace(/[^0-9]/g, '')) || 0}
+        categories={categories.filter(c => !c.name.toLowerCase().includes('ingreso'))}
+        initialSplits={splits}
+        onConfirmSplits={(newSplits) => {
+          setSplits(newSplits);
+        }}
+        initialCategoryId={selectedSubCategoryId || selectedParentCategoryId || null}
       />
 
       {/* ─── PORTAL: DIÁLOGO SELECTOR DE CUENTAS ──────────────────────────── */}

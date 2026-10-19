@@ -19,6 +19,7 @@ import { SuggestRealisticBudget, RealisticBudgetSuggestion } from '@/src/domain/
 import { CalculateBudgetRollover } from '@/src/domain/usecases/CalculateBudgetRollover';
 import { ResolveEffectiveBudget, ResolvedBudgetItem } from '@/src/domain/usecases/ResolveEffectiveBudget';
 import { AtomicPacingService } from '@/src/domain/services/AtomicPacingService';
+import { getImputedAmountForCategoryInMonth } from '@/src/domain/utils/budgetUtils';
 import { useHabitSettingsStore } from '@/src/infrastructure/state/habitSettingsStore';
 import { Budget, BudgetProgress } from '@/src/domain/entities/Budget';
 import { Category } from '@/src/domain/entities/Category';
@@ -198,16 +199,17 @@ export default function BudgetsScreen() {
         latestByKeyPrev[key] = { budget: item.budget };
       }
 
+      const targetYearMonth = `${selectedYear}-${monthStr}`;
+
       const getDirectSpent = (catId: string, budget?: Budget) => {
         return monthlyExpenses
           .filter(tx => {
-            if (tx.categoryId !== catId) return false;
             if (budget && budget.scope === 'individual' && budget.ownerUserId) {
               return tx.createdByUserId === budget.ownerUserId;
             }
             return true;
           })
-          .reduce((sum, tx) => sum + Number(tx.amount), 0);
+          .reduce((sum, tx) => sum + getImputedAmountForCategoryInMonth(tx, catId, targetYearMonth), 0);
       };
 
       const getCategoryAndSubcategoriesSpent = (catId: string, budget?: Budget) => {
@@ -215,13 +217,12 @@ export default function BudgetsScreen() {
         const targetIds = [catId, ...subCatIds];
         return monthlyExpenses
           .filter(tx => {
-            if (!tx.categoryId || !targetIds.includes(tx.categoryId)) return false;
             if (budget && budget.scope === 'individual' && budget.ownerUserId) {
               return tx.createdByUserId === budget.ownerUserId;
             }
             return true;
           })
-          .reduce((sum, tx) => sum + Number(tx.amount), 0);
+          .reduce((sum, tx) => sum + getImputedAmountForCategoryInMonth(tx, targetIds, targetYearMonth), 0);
       };
 
       // 4. Clasificar cada presupuesto y construir agrupaciones por categoría padre

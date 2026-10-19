@@ -46,13 +46,18 @@ export class SqliteTransactionRepository implements TransactionRepository {
         conditions.push('recurring_rule_id = ?');
         params.push(filters.recurringRuleId);
       }
-      if (filters.startDate) {
-        conditions.push('transaction_date >= ?');
-        params.push(filters.startDate);
-      }
-      if (filters.endDate) {
-        conditions.push('transaction_date <= ?');
-        params.push(filters.endDate);
+      if (filters.startDate && filters.endDate) {
+        conditions.push('((transaction_date >= ? AND transaction_date <= ?) OR ai_metadata LIKE "%period_split%" OR ai_metadata LIKE "%periodSplit%")');
+        params.push(filters.startDate, filters.endDate);
+      } else {
+        if (filters.startDate) {
+          conditions.push('(transaction_date >= ? OR ai_metadata LIKE "%period_split%" OR ai_metadata LIKE "%periodSplit%")');
+          params.push(filters.startDate);
+        }
+        if (filters.endDate) {
+          conditions.push('(transaction_date <= ? OR ai_metadata LIKE "%period_split%" OR ai_metadata LIKE "%periodSplit%")');
+          params.push(filters.endDate);
+        }
       }
     }
 
@@ -74,7 +79,18 @@ export class SqliteTransactionRepository implements TransactionRepository {
     }
 
     const rows = await db.getAllAsync<any>(query, params);
-    return rows.map(this.toDomain);
+    return rows.map(this.toDomain).filter(tx => {
+      if (tx.periodSplit && (filters?.startDate || filters?.endDate)) {
+        const txStartMonth = tx.periodSplit.startMonth;
+        const txEndMonth = tx.periodSplit.endMonth;
+        const fStartMonth = filters.startDate ? filters.startDate.substring(0, 7) : txStartMonth;
+        const fEndMonth = filters.endDate ? filters.endDate.substring(0, 7) : txEndMonth;
+        if (txStartMonth > fEndMonth || txEndMonth < fStartMonth) {
+          return false;
+        }
+      }
+      return true;
+    });
   }
 
   async create(input: CreateTransactionInput): Promise<Transaction> {

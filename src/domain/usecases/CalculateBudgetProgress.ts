@@ -8,6 +8,7 @@
 import { Budget, BudgetProgress } from '../entities/Budget';
 import { Category } from '../entities/Category';
 import { TransactionRepository } from '../repositories/TransactionRepository';
+import { getImputedAmountForCategoryInMonth } from '../utils/budgetUtils';
 
 export class CalculateBudgetProgress {
   constructor(private transactionRepository: TransactionRepository) {}
@@ -17,14 +18,15 @@ export class CalculateBudgetProgress {
    *
    * Reglas de negocio:
    * - Filtra transacciones de tipo 'expense' para la categoría específica y sus subcategorías.
-   * - Filtra en el rango de fechas del mes y año especificado por el presupuesto.
+   * - Imputa transacciones desglosadas (splits) y amortizadas temporalmente (periodSplit).
    * - Alerta al alcanzar el 80% (warning) y al superar el 100% (exceeded).
    */
   async execute(budget: Budget, categories: Category[] = []): Promise<BudgetProgress> {
-    const startDate = `${budget.year}-${String(budget.month).padStart(2, '0')}-01`;
-    // Obtener el último día del mes
+    const monthStr = String(budget.month).padStart(2, '0');
+    const startDate = `${budget.year}-${monthStr}-01`;
     const lastDay = new Date(budget.year, budget.month, 0).getDate();
-    const endDate = `${budget.year}-${String(budget.month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    const endDate = `${budget.year}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+    const targetYearMonth = `${budget.year}-${monthStr}`;
 
     // Construir conjunto de IDs que pertenecen al presupuesto (categoría + subcategorías)
     const targetCategoryIds = new Set<string>([budget.categoryId]);
@@ -43,14 +45,15 @@ export class CalculateBudgetProgress {
       status: 'confirmed',
     });
 
-    let transactions = allExpenses.filter((tx) => tx.categoryId && targetCategoryIds.has(tx.categoryId));
-
+    let eligibleExpenses = allExpenses;
     // Regla de Negocio: Si el presupuesto es individual/personal, solo sumar los gastos de ese usuario
     if (budget.scope === 'individual' && budget.ownerUserId) {
-      transactions = transactions.filter(tx => tx.createdByUserId === budget.ownerUserId);
+      eligibleExpenses = eligibleExpenses.filter(tx => tx.createdByUserId === budget.ownerUserId);
     }
 
-    const spent = transactions.reduce((acc, tx) => acc + Number(tx.amount), 0);
+    const spent = eligibleExpenses.reduce((acc, tx) => {
+      return acc + getImputedAmountForCategoryInMonth(tx, targetCategoryIds, targetYearMonth);
+    }, 0);
     const remaining = Number(budget.amountLimit) - spent;
     const percentage = Number(budget.amountLimit) > 0 
       ? (spent / Number(budget.amountLimit)) * 100 

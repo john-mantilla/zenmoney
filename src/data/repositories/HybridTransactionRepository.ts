@@ -109,11 +109,23 @@ export class HybridTransactionRepository implements TransactionRepository {
     if (filters.status && tx.status !== filters.status) {
       return false;
     }
-    if (filters.startDate && tx.transactionDate < filters.startDate) {
-      return false;
-    }
-    if (filters.endDate && tx.transactionDate > filters.endDate) {
-      return false;
+    if (filters.startDate || filters.endDate) {
+      if (tx.periodSplit) {
+        const txStartMonth = tx.periodSplit.startMonth;
+        const txEndMonth = tx.periodSplit.endMonth;
+        const fStartMonth = filters.startDate ? filters.startDate.substring(0, 7) : txStartMonth;
+        const fEndMonth = filters.endDate ? filters.endDate.substring(0, 7) : txEndMonth;
+        if (txStartMonth > fEndMonth || txEndMonth < fStartMonth) {
+          return false;
+        }
+      } else {
+        if (filters.startDate && tx.transactionDate < filters.startDate) {
+          return false;
+        }
+        if (filters.endDate && tx.transactionDate > filters.endDate) {
+          return false;
+        }
+      }
     }
     if (filters.inputMethod && tx.inputMethod !== filters.inputMethod) {
       return false;
