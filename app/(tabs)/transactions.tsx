@@ -16,7 +16,7 @@ import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
-import { Transaction } from '@/src/domain/entities/Transaction';
+import { Transaction, isPendingConfirmationTransaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
@@ -144,9 +144,9 @@ export default function TransactionsScreen() {
           status: 'pending'
         }, preferCache)
       ]);
-      const nonRecurringPending = pendingTxs.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
+      const pendingConfirmationList = pendingTxs.filter(isPendingConfirmationTransaction);
       setTransactions(loadedTxs);
-      setPendingCount(nonRecurringPending.length);
+      setPendingCount(pendingConfirmationList.length);
       return loadedTxs;
     };
 
