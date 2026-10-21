@@ -118,23 +118,33 @@ export class SqliteCategoryRepository implements CategoryRepository {
   }
 
   async bulkSave(categories: Category[]): Promise<void> {
+    if (!categories || categories.length === 0) return;
     const db = this.getDb();
-    for (const cat of categories) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO categories (id, family_group_id, name, icon, color, parent_category_id, is_system, is_private, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-        [
-          cat.id,
-          cat.familyGroupId,
-          cat.name,
-          cat.icon,
-          cat.color,
-          cat.parentCategoryId,
-          cat.isSystem ? 1 : 0,
-          cat.isPrivate ? 1 : 0,
-          cat.createdAt
-        ]
-      );
+
+    const runInserts = async () => {
+      for (const cat of categories) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO categories (id, family_group_id, name, icon, color, parent_category_id, is_system, is_private, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [
+            cat.id,
+            cat.familyGroupId,
+            cat.name,
+            cat.icon,
+            cat.color,
+            cat.parentCategoryId,
+            cat.isSystem ? 1 : 0,
+            cat.isPrivate ? 1 : 0,
+            cat.createdAt
+          ]
+        );
+      }
+    };
+
+    if (typeof (db as any).withTransactionAsync === 'function') {
+      await (db as any).withTransactionAsync(runInserts);
+    } else {
+      await runInserts();
     }
   }
 

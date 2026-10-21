@@ -275,52 +275,62 @@ export class SqliteTransactionRepository implements TransactionRepository {
   }
 
   async bulkSave(transactions: Transaction[]): Promise<void> {
+    if (!transactions || transactions.length === 0) return;
     const db = this.getDb();
     const nowIso = new Date().toISOString();
-    for (const tx of transactions) {
-      try {
-        await db.runAsync(
-          `INSERT OR REPLACE INTO transactions (
-            id, family_group_id, account_id, category_id, created_by_user_id,
-            type, amount, currency, description, merchant_name,
-            transaction_date, transfer_to_account_id, is_recurring_instance,
-            recurring_rule_id, status, input_method, ai_metadata, is_private,
-            synced, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-          [
-            tx.id,
-            tx.familyGroupId || 'offline-family',
-            tx.accountId,
-            tx.categoryId || null,
-            tx.createdByUserId || 'offline-user',
-            tx.type,
-            tx.amount,
-            tx.currency || 'COP',
-            tx.description || null,
-            tx.merchantName || null,
-            tx.transactionDate,
-            tx.transferToAccountId || null,
-            tx.isRecurringInstance ? 1 : 0,
-            tx.recurringRuleId || null,
-            tx.status || 'confirmed',
-            tx.inputMethod || 'manual',
-            tx.aiMetadata ? JSON.stringify(tx.aiMetadata) : null,
-            tx.isPrivate ? 1 : 0,
-            1, // bulk saved are always synced = 1
-            tx.createdAt || nowIso,
-            tx.updatedAt || tx.createdAt || nowIso
-          ]
-        );
 
-        if (tx.tags && tx.tags.length > 0) {
-          await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [tx.id]);
-          for (const tag of tx.tags) {
-            await db.runAsync('INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);', [tx.id, tag.id]);
+    const runInserts = async () => {
+      for (const tx of transactions) {
+        try {
+          await db.runAsync(
+            `INSERT OR REPLACE INTO transactions (
+              id, family_group_id, account_id, category_id, created_by_user_id,
+              type, amount, currency, description, merchant_name,
+              transaction_date, transfer_to_account_id, is_recurring_instance,
+              recurring_rule_id, status, input_method, ai_metadata, is_private,
+              synced, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+            [
+              tx.id,
+              tx.familyGroupId || 'offline-family',
+              tx.accountId,
+              tx.categoryId || null,
+              tx.createdByUserId || 'offline-user',
+              tx.type,
+              tx.amount,
+              tx.currency || 'COP',
+              tx.description || null,
+              tx.merchantName || null,
+              tx.transactionDate,
+              tx.transferToAccountId || null,
+              tx.isRecurringInstance ? 1 : 0,
+              tx.recurringRuleId || null,
+              tx.status || 'confirmed',
+              tx.inputMethod || 'manual',
+              tx.aiMetadata ? JSON.stringify(tx.aiMetadata) : null,
+              tx.isPrivate ? 1 : 0,
+              1, // bulk saved are always synced = 1
+              tx.createdAt || nowIso,
+              tx.updatedAt || tx.createdAt || nowIso
+            ]
+          );
+
+          if (tx.tags && tx.tags.length > 0) {
+            await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [tx.id]);
+            for (const tag of tx.tags) {
+              await db.runAsync('INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);', [tx.id, tag.id]);
+            }
           }
+        } catch (err) {
+          console.warn(`[SqliteTxRepo] Error in bulkSave for tx ${tx.id}:`, err);
         }
-      } catch (err) {
-        console.warn(`[SqliteTxRepo] Error in bulkSave for tx ${tx.id}:`, err);
       }
+    };
+
+    if (typeof (db as any).withTransactionAsync === 'function') {
+      await (db as any).withTransactionAsync(runInserts);
+    } else {
+      await runInserts();
     }
   }
 

@@ -241,6 +241,21 @@ export class AuthService {
   }
 
   /**
+   * Obtiene de forma inmediata la sesión en caché local (< 2ms)
+   * para permitir arranque instantáneo (Zero-Latency Local-First).
+   */
+  static async getCachedSession(): Promise<{ userProfile: UserProfile; familyGroup: FamilyGroup; isGoogleLinked?: boolean } | null> {
+    const cached = await getCachedSessionData();
+    if (cached) {
+      return {
+        ...cached,
+        isGoogleLinked: false,
+      };
+    }
+    return null;
+  }
+
+  /**
    * Obtiene la sesión actual y sus datos de perfil/familia correspondientes.
    * Si el dispositivo está sin conexión o en modo avión, recurre a la caché local.
    * Deduplica llamadas concurrentes en vuelo (ej. initApp + onAuthStateChange).

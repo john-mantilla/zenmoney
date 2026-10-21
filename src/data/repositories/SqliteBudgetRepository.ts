@@ -111,26 +111,36 @@ export class SqliteBudgetRepository implements BudgetRepository {
   }
 
   async bulkSave(budgets: Budget[]): Promise<void> {
+    if (!budgets || budgets.length === 0) return;
     const db = this.getDb();
-    for (const b of budgets) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, is_override, override_reason, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
-        [
-          b.id,
-          b.familyGroupId,
-          b.categoryId,
-          b.amountLimit,
-          b.year,
-          b.month,
-          b.scope,
-          b.ownerUserId,
-          b.hasRollover ? 1 : 0,
-          b.isOverride ? 1 : 0,
-          b.overrideReason || null,
-          b.createdAt
-        ]
-      );
+
+    const runInserts = async () => {
+      for (const b of budgets) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO budgets (id, family_group_id, category_id, amount_limit, year, month, scope, owner_user_id, has_rollover, is_override, override_reason, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [
+            b.id,
+            b.familyGroupId,
+            b.categoryId,
+            b.amountLimit,
+            b.year,
+            b.month,
+            b.scope,
+            b.ownerUserId,
+            b.hasRollover ? 1 : 0,
+            b.isOverride ? 1 : 0,
+            b.overrideReason || null,
+            b.createdAt
+          ]
+        );
+      }
+    };
+
+    if (typeof (db as any).withTransactionAsync === 'function') {
+      await (db as any).withTransactionAsync(runInserts);
+    } else {
+      await runInserts();
     }
   }
 

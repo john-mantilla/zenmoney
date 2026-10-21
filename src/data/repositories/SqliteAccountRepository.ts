@@ -95,36 +95,46 @@ export class SqliteAccountRepository implements AccountRepository {
   }
 
   async bulkSave(accounts: Account[]): Promise<void> {
+    if (!accounts || accounts.length === 0) return;
     const db = this.getDb();
     const nowIso = new Date().toISOString();
-    for (const acc of accounts) {
-      try {
-        await db.runAsync(
-          `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, current_balance, currency, is_active, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             name = excluded.name,
-             type = excluded.type,
-             initial_balance = excluded.initial_balance,
-             current_balance = COALESCE(excluded.current_balance, accounts.current_balance),
-             currency = excluded.currency,
-             is_active = excluded.is_active;`,
-          [
-            acc.id,
-            acc.familyGroupId || 'offline-family',
-            acc.ownerUserId || 'offline-user',
-            acc.name,
-            acc.type,
-            acc.initialBalance,
-            acc.currentBalance ?? null,
-            acc.currency || 'COP',
-            acc.isActive ? 1 : 0,
-            acc.createdAt || nowIso
-          ]
-        );
-      } catch (err) {
-        console.warn(`[SqliteAccRepo] Error in bulkSave for account ${acc.id}:`, err);
+
+    const runInserts = async () => {
+      for (const acc of accounts) {
+        try {
+          await db.runAsync(
+            `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, current_balance, currency, is_active, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+               name = excluded.name,
+               type = excluded.type,
+               initial_balance = excluded.initial_balance,
+               current_balance = COALESCE(excluded.current_balance, accounts.current_balance),
+               currency = excluded.currency,
+               is_active = excluded.is_active;`,
+            [
+              acc.id,
+              acc.familyGroupId || 'offline-family',
+              acc.ownerUserId || 'offline-user',
+              acc.name,
+              acc.type,
+              acc.initialBalance,
+              acc.currentBalance ?? null,
+              acc.currency || 'COP',
+              acc.isActive ? 1 : 0,
+              acc.createdAt || nowIso
+            ]
+          );
+        } catch (err) {
+          console.warn(`[SqliteAccRepo] Error in bulkSave for account ${acc.id}:`, err);
+        }
       }
+    };
+
+    if (typeof (db as any).withTransactionAsync === 'function') {
+      await (db as any).withTransactionAsync(runInserts);
+    } else {
+      await runInserts();
     }
   }
 

@@ -1,4 +1,4 @@
-﻿import { TagRepository } from '@domain/repositories/TagRepository';
+import { TagRepository } from '@domain/repositories/TagRepository';
 import { Tag, CreateTagInput } from '@domain/entities/Tag';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
@@ -55,20 +55,29 @@ export class SqliteTagRepository implements TagRepository {
   }
 
   async bulkSave(tags: Tag[]): Promise<void> {
-    if (tags.length === 0) return;
+    if (!tags || tags.length === 0) return;
     const db = this.getDb();
-    for (const tag of tags) {
-      await db.runAsync(
-        `INSERT OR REPLACE INTO tags (id, family_group_id, name, color, created_at)
-         VALUES (?, ?, ?, ?, ?);`,
-        [
-          tag.id,
-          tag.familyGroupId,
-          tag.name,
-          tag.color,
-          tag.createdAt,
-        ]
-      );
+
+    const runInserts = async () => {
+      for (const tag of tags) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO tags (id, family_group_id, name, color, created_at)
+           VALUES (?, ?, ?, ?, ?);`,
+          [
+            tag.id,
+            tag.familyGroupId,
+            tag.name,
+            tag.color,
+            tag.createdAt,
+          ]
+        );
+      }
+    };
+
+    if (typeof (db as any).withTransactionAsync === 'function') {
+      await (db as any).withTransactionAsync(runInserts);
+    } else {
+      await runInserts();
     }
   }
 

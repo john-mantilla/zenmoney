@@ -192,10 +192,10 @@ export default function DashboardScreen() {
     const executeFetch = async (preferCache: boolean) => {
       const loadedAccounts = await accountRepo.getAll(preferCache);
       
-      // Calcular saldos dinámicos reales para cada cuenta en base a transacciones confirmadas
+      // Calcular saldos dinámicos reales para cada cuenta en base a transacciones confirmadas (Zero-Latency Local)
       const accountsWithRealBalances = await Promise.all(
         loadedAccounts.map(async (acc) => {
-          const realBalance = await balanceUseCase.execute(acc, preferCache);
+          const realBalance = await balanceUseCase.execute(acc, true);
           return {
             ...acc,
             initialBalance: realBalance,
@@ -221,17 +221,27 @@ export default function DashboardScreen() {
         setCurrentUserId(userProfile.id);
         try {
           const userRepo = new SupabaseUserProfileRepository();
-          const profiles = await userRepo.getByFamilyGroup(familyGroup.id);
+          const profiles = await userRepo.getByFamilyGroup(familyGroup.id, preferCache);
           const membersMap: Record<string, string> = {};
-          profiles.forEach(p => {
-            const name = p.displayName || p.email || '?';
+          if (profiles.length > 0) {
+            profiles.forEach(p => {
+              const name = p.displayName || p.email || '?';
+              const parts = name.trim().split(' ');
+              let initials = name.substring(0, 2).toUpperCase();
+              if (parts.length >= 2) {
+                initials = (parts[0][0] + parts[1][0]).toUpperCase();
+              }
+              membersMap[p.id] = initials;
+            });
+          } else {
+            const name = userProfile.displayName || userProfile.email || '?';
             const parts = name.trim().split(' ');
             let initials = name.substring(0, 2).toUpperCase();
             if (parts.length >= 2) {
               initials = (parts[0][0] + parts[1][0]).toUpperCase();
             }
-            membersMap[p.id] = initials;
-          });
+            membersMap[userProfile.id] = initials;
+          }
           setFamilyMembers(membersMap);
         } catch (e) {
           console.warn('[Dashboard] Error loading family members', e);
@@ -377,17 +387,22 @@ export default function DashboardScreen() {
 
     // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
     // Si el dispositivo está online, actualiza con la nube en background sin bloquear la pantalla
-    try {
-      const isOnline = await isOnlineFast();
+    isOnlineFast().then((isOnline) => {
       if (isOnline) {
-        await executeFetch(false);
+        executeFetch(false).catch((err) => {
+          console.error('[Dashboard Revalidation Error]:', err);
+        }).finally(() => {
+          setIsLoading(false);
+          setRefreshing(false);
+        });
+      } else {
+        setIsLoading(false);
+        setRefreshing(false);
       }
-    } catch (err) {
-      console.error('[Dashboard Revalidation Error]:', err);
-    } finally {
+    }).catch(() => {
       setIsLoading(false);
       setRefreshing(false);
-    }
+    });
   };
 
   // Recargar datos automáticamente cuando la pestaña gana foco

@@ -20,6 +20,7 @@ import { Transaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
+import { isOnlineFast } from '@/src/infrastructure/utils/network';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 export default function TransactionsScreen() {
@@ -84,11 +85,11 @@ export default function TransactionsScreen() {
     lastLoadRef.current = Date.now();
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
-    try {
-      const loadedAccs = await accountRepo.getAll();
+    const executeFetch = async (preferCache: boolean) => {
+      const loadedAccs = await accountRepo.getAll(preferCache);
       setAccounts(loadedAccs);
 
-      const loadedCats = await categoryRepo.getAll(true);
+      const loadedCats = await categoryRepo.getAll(true, preferCache);
       setCategories(loadedCats);
 
       const loadedTags = await tagRepoInstance.getAll();
@@ -101,17 +102,27 @@ export default function TransactionsScreen() {
         setCurrentUserId(userProfile.id);
         try {
           const userRepo = new SupabaseUserProfileRepository();
-          const profiles = await userRepo.getByFamilyGroup(familyGroup.id);
+          const profiles = await userRepo.getByFamilyGroup(familyGroup.id, preferCache);
           const membersMap: Record<string, string> = {};
-          profiles.forEach(p => {
-            const name = p.displayName || p.email || '?';
+          if (profiles.length > 0) {
+            profiles.forEach(p => {
+              const name = p.displayName || p.email || '?';
+              const parts = name.trim().split(' ');
+              let initials = name.substring(0, 2).toUpperCase();
+              if (parts.length >= 2) {
+                initials = (parts[0][0] + parts[1][0]).toUpperCase();
+              }
+              membersMap[p.id] = initials;
+            });
+          } else {
+            const name = userProfile.displayName || userProfile.email || '?';
             const parts = name.trim().split(' ');
             let initials = name.substring(0, 2).toUpperCase();
             if (parts.length >= 2) {
               initials = (parts[0][0] + parts[1][0]).toUpperCase();
             }
-            membersMap[p.id] = initials;
-          });
+            membersMap[userProfile.id] = initials;
+          }
           setFamilyMembers(membersMap);
         } catch (e) {
           console.warn('[Transactions] Error loading family members', e);
@@ -128,20 +139,50 @@ export default function TransactionsScreen() {
           startDate, 
           endDate,
           status: 'confirmed'
-        }),
+        }, preferCache),
         transactionRepo.getAll({
           status: 'pending'
-        })
+        }, preferCache)
       ]);
       const nonRecurringPending = pendingTxs.filter(tx => !tx.isRecurringInstance && !tx.recurringRuleId);
       setTransactions(loadedTxs);
       setPendingCount(nonRecurringPending.length);
-    } catch (err) {
-      console.error('[Transactions Load Error]:', err);
-    } finally {
+      return loadedTxs;
+    };
+
+    // 1. CARGA INMEDIATA LOCAL-FIRST (Zero Latency)
+    let hasLocalData = false;
+    try {
+      const localTxs = await executeFetch(true);
+      if (localTxs) {
+        hasLocalData = true;
+        setIsLoading(false);
+      }
+    } catch (localErr) {
+      console.warn('[Transactions Local Load Error]', localErr);
+    }
+
+    if (!hasLocalData) {
+      setIsLoading(true);
+    }
+
+    // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
+    isOnlineFast().then((isOnline) => {
+      if (isOnline) {
+        executeFetch(false).catch((err) => {
+          console.error('[Transactions Revalidation Error]:', err);
+        }).finally(() => {
+          setIsLoading(false);
+          setRefreshing(false);
+        });
+      } else {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
+    }).catch(() => {
       setIsLoading(false);
       setRefreshing(false);
-    }
+    });
   };
 
   useFocusEffect(

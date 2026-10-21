@@ -90,7 +90,29 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   isGoogleLinked: false,
 
   initialize: async () => {
-    set({ isLoading: true });
+    // 1. FAST-PATH: Hidratar inmediatamente desde caché local (< 2ms)
+    try {
+      const cached = await AuthService.getCachedSession();
+      if (cached) {
+        const has = await checkHasAccountsOfflineFirst();
+        set({
+          isAuthenticated: true,
+          userProfile: cached.userProfile,
+          familyGroup: cached.familyGroup,
+          hasAccounts: has,
+          isGoogleLinked: cached.isGoogleLinked || false,
+          isInitialized: true,
+          isLoading: false,
+        });
+      }
+    } catch {
+      // Ignorar y continuar
+    }
+
+    if (!get().isAuthenticated) {
+      set({ isLoading: true });
+    }
+
     try {
       const sessionData = await AuthService.getCurrentSession();
       if (sessionData) {
@@ -103,7 +125,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           hasAccounts: has,
           isGoogleLinked: sessionData.isGoogleLinked,
         });
-      } else {
+      } else if (!get().isAuthenticated) {
         set({ isAuthenticated: false, userProfile: null, familyGroup: null, hasAccounts: false, isGoogleLinked: false });
       }
     } catch (err) {
