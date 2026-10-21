@@ -7,7 +7,7 @@ import { View, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-
 import { Button, Card, Text, ActivityIndicator, Dialog, Portal, TextInput, Appbar } from 'react-native-paper';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
-import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
+import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { Category, inferCategoryBudgetRole } from '@/src/domain/entities/Category';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { CreateCategoryModal } from '@/src/presentation/components';
@@ -33,12 +33,20 @@ export default function SettingsCategoriesScreen() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
 
-  const categoryRepo = new SupabaseCategoryRepository();
+  const categoryRepo = new HybridCategoryRepository();
 
   const loadData = async () => {
-    setLoading(true);
+    // 1. Mostrar categorías locales de inmediato (< 5ms)
     try {
-      const loadedCats = await categoryRepo.getAll(true);
+      const localCats = await categoryRepo.getAll(true, true);
+      if (localCats.length > 0) {
+        setCategories(localCats);
+        setLoading(false);
+      }
+    } catch {}
+
+    try {
+      const loadedCats = await categoryRepo.getAll(true, false);
       setCategories(loadedCats);
     } catch (err) {
       console.error('[Categories Settings Screen Load Error]:', err);

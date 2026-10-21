@@ -26,6 +26,7 @@ import { BillAlertService } from '@/src/infrastructure/services/BillAlertService
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
+import { isOnlineFast } from '@/src/infrastructure/utils/network';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 const parseLocalDate = (dateStr: string): Date => {
@@ -93,19 +94,19 @@ export default function BillsScreen() {
     lastLoadRef.current = Date.now();
     lastLoadedMonthRef.current = currentMonth;
     lastLoadedYearRef.current = currentYear;
-    try {
+    const executeFetch = async (preferCache: boolean) => {
       // Las facturas recurrentes ya NO se generan aquí: se crean todas de una sola vez
       // cuando el usuario define la recurrencia (con su fecha de inicio y fin), desde
       // Configuración > Cuentas o Configuración > Recurrencias. Esta pantalla solo lee
       // y muestra lo que ya existe — así una factura editada nunca "reaparece" duplicada.
-      const loadedAccounts = await accountRepo.getAll();
+      const loadedAccounts = await accountRepo.getAll(preferCache);
       const activeLoadedAccs = loadedAccounts.filter(a => a.isActive);
       setAccounts(activeLoadedAccs);
       if (activeLoadedAccs.length > 0 && !billAccountId) {
         setBillAccountId(useAccountPreferenceStore.getState().getPreferredAccountId(activeLoadedAccs));
       }
 
-      const loadedCats = await categoryRepo.getAll(true);
+      const loadedCats = await categoryRepo.getAll(true, preferCache);
       setCategories(loadedCats);
       if (loadedCats.length > 0 && !billCategoryId) {
         setBillCategoryId(loadedCats[0].id);
@@ -116,10 +117,10 @@ export default function BillsScreen() {
       const startDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-01`;
       const endDate = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
       
-      const txs = await transactionRepo.getAll({ startDate, endDate });
+      const txs = await transactionRepo.getAll({ startDate, endDate }, preferCache);
       
       // Obtener todas las transacciones históricas para consolidar diferidos de tarjetas de crédito
-      const allHistoricTxs = await transactionRepo.getAll({});
+      const allHistoricTxs = await transactionRepo.getAll({}, preferCache);
       
       const statementBills: Transaction[] = [];
       const ccAccounts = loadedAccounts.filter(a => a.type === 'credit_card' && a.closingDay && a.paymentDay);
@@ -259,13 +260,39 @@ export default function BillsScreen() {
 
       // Programar o actualizar las alertas de facturas por vencer
       BillAlertService.scheduleBillAlerts().catch(() => {});
+    };
 
-    } catch (err) {
-      console.error('[Bills Load Error]:', err);
-    } finally {
+    // 1. CARGA INMEDIATA LOCAL-FIRST (Zero Latency)
+    let hasLocalData = false;
+    try {
+      await executeFetch(true);
+      hasLocalData = true;
+      setIsLoading(false);
+    } catch (localErr) {
+      console.warn('[Bills Local Load Error]', localErr);
+    }
+
+    if (!hasLocalData) {
+      setIsLoading(true);
+    }
+
+    // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
+    isOnlineFast().then((isOnline) => {
+      if (isOnline) {
+        executeFetch(false).catch((err) => {
+          console.error('[Bills Revalidation Error]:', err);
+        }).finally(() => {
+          setIsLoading(false);
+          setRefreshing(false);
+        });
+      } else {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
+    }).catch(() => {
       setIsLoading(false);
       setRefreshing(false);
-    }
+    });
   };
 
   useFocusEffect(

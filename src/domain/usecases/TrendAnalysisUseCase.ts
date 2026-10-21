@@ -49,16 +49,16 @@ export class TrendAnalysisUseCase {
     }
 
     const startDate = `${points[0].fullDate}-01`;
-    // Traer todas las transacciones de los últimos 12 meses
-    const txs = await this.transactionRepo.getAll({ startDate });
+    // Traer todas las transacciones de los últimos 12 meses (modo caché/local-first)
+    const txs = await (this.transactionRepo as any).getAll({ startDate }, true);
     
     // Cargar todos los presupuestos para aplicar la regla de herencia temporal/carry-forward
     // (un presupuesto creado en un mes anterior sigue activo hasta que se actualice o elimine)
-    const allBudgets = await this.budgetRepo.getAll();
+    const allBudgets = await (this.budgetRepo as any).getAll(true);
     let loadedCats: any[] = [];
     try {
       if (this.categoryRepo) {
-        loadedCats = await this.categoryRepo.getAll(true);
+        loadedCats = await (this.categoryRepo as any).getAll(true, true);
       }
     } catch {
       // Ignorar si categoryRepo no está disponible

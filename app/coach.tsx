@@ -49,7 +49,7 @@ export default function CoachScreen() {
         startDate: ninetyDaysAgo.toISOString().split('T')[0],
         endDate: todayStr,
         status: 'confirmed',
-      });
+      }, true);
 
       const userTxs = userProfile
         ? allTxs.filter((tx) => tx.createdByUserId === userProfile.id)

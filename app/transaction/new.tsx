@@ -175,11 +175,11 @@ export default function NewTransactionScreen() {
   useEffect(() => {
     async function loadData() {
       try {
-        // 1. Carga Crítica Ultrarrápida (<30ms): Cuentas y Categorías básicas
+        // 1. Carga Crítica Ultrarrápida (<10ms): Cuentas y Categorías básicas desde SQLite
         const [loadedAccs, loadedCats, loadedTags] = await Promise.all([
-          accountRepo.getAll(),
-          categoryRepo.getAll(true),
-          tagRepo.getAll(),
+          accountRepo.getAll(true),
+          categoryRepo.getAll(true, true),
+          tagRepo.getAll(true),
         ]);
 
         const activeAccs = loadedAccs.filter(a => a.isActive);
@@ -374,7 +374,7 @@ export default function NewTransactionScreen() {
             const today = new Date();
             const startOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
             const endOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
-            const monthTransactions = await transactionRepo.getAll({ startDate: startOfMonth, endDate: endOfMonth });
+            const monthTransactions = await transactionRepo.getAll({ startDate: startOfMonth, endDate: endOfMonth }, true);
             const usageCount: Record<string, number> = {};
             for (const tx of monthTransactions) {
               usageCount[tx.accountId] = (usageCount[tx.accountId] || 0) + 1;
@@ -388,7 +388,7 @@ export default function NewTransactionScreen() {
         (async () => {
           try {
             const now = new Date();
-            const currentBudgets = await budgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1);
+            const currentBudgets = await budgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1, true);
             const calcProgress = new CalculateBudgetProgress(transactionRepo);
             const map: Record<string, { limit: number; spent: number }> = {};
             for (const b of currentBudgets) {
@@ -401,7 +401,7 @@ export default function NewTransactionScreen() {
 
         // Background C: Reglas de categorización e historial predictivo
         categorizationRuleRepo.getAll().then(setCategorizationRules).catch(() => {});
-        transactionRepo.getAll({}).then(txs => { historicTxsRef.current = txs; }).catch(() => {});
+        transactionRepo.getAll({}, true).then(txs => { historicTxsRef.current = txs; }).catch(() => {});
         if (!isEditing) {
           quickAddUseCase.execute().then(setSuggestions).catch(() => {});
         }

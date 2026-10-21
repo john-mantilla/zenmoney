@@ -49,11 +49,11 @@ export default function AnalyticsScreen() {
           status: 'confirmed',
           startDate,
           endDate
-        });
+        }, true);
         setMonthTransactions(txs);
 
         // 3. Cargar categorías
-        const cats = await categoryRepo.getAll(true);
+        const cats = await categoryRepo.getAll(true, true);
         setCategories(cats);
         
       } catch (err) {

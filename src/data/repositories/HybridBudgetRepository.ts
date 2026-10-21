@@ -34,8 +34,15 @@ export class HybridBudgetRepository implements BudgetRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(): Promise<Budget[]> {
+  async getAll(preferCache = false): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll();
+
+    if (preferCache && this.localRepo) {
+      const local = await this.localRepo.getAll();
+      if (local.length > 0) {
+        return local;
+      }
+    }
 
     if (await this.isOnline()) {
       try {

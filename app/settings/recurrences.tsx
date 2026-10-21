@@ -10,9 +10,9 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import { CategoryPickerMenu, CreateRecurrenceModal } from '@/src/presentation/components';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
-import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
-import { SupabaseAccountRepository } from '@/src/data/repositories/SupabaseAccountRepository';
-import { SupabaseCategoryRepository } from '@/src/data/repositories/SupabaseCategoryRepository';
+import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
+import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
+import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurringInstances';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
 import { Account } from '@/src/domain/entities/Account';
@@ -140,9 +140,9 @@ export default function SettingsRecurrencesScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const recurrenceRepo = new SupabaseRecurringRuleRepository();
-  const accountRepo = new SupabaseAccountRepository();
-  const categoryRepo = new SupabaseCategoryRepository();
-  const transactionRepo = new SupabaseTransactionRepository();
+  const accountRepo = new HybridAccountRepository();
+  const categoryRepo = new HybridCategoryRepository();
+  const transactionRepo = new HybridTransactionRepository();
 
   // Solo cuentas activas pueden recibir nuevas recurrencias
   const activeAccounts = accounts.filter((a) => a.isActive);
@@ -151,12 +151,22 @@ export default function SettingsRecurrencesScreen() {
   );
 
   const loadData = async () => {
-    setLoading(true);
+    // 1. Cargar local de inmediato (< 5ms)
     try {
-      const loadedAccounts = await accountRepo.getAll();
+      const [localAccs, localCats] = await Promise.all([
+        accountRepo.getAll(true),
+        categoryRepo.getAll(true, true),
+      ]);
+      if (localAccs.length > 0) setAccounts(localAccs);
+      if (localCats.length > 0) setCategories(localCats);
+      if (localAccs.length > 0 || localCats.length > 0) setLoading(false);
+    } catch {}
+
+    try {
+      const loadedAccounts = await accountRepo.getAll(false);
       setAccounts(loadedAccounts);
 
-      const loadedCategories = await categoryRepo.getAll(true);
+      const loadedCategories = await categoryRepo.getAll(true, false);
       setCategories(loadedCategories);
 
       const loadedRecs = await recurrenceRepo.getAllActive();

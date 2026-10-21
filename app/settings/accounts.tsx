@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '@/src/presentation/theme';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
-import { SupabaseTransactionRepository } from '@/src/data/repositories/SupabaseTransactionRepository';
+import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { GenerateRecurringInstances } from '@/src/domain/usecases/GenerateRecurringInstances';
 import { Account, AccountType } from '@/src/domain/entities/Account';
 import { RecurringRule } from '@/src/domain/entities/RecurringRule';
@@ -58,7 +58,7 @@ export default function SettingsAccountsScreen() {
 
   const accountRepo = new HybridAccountRepository();
   const recurrenceRepo = new SupabaseRecurringRuleRepository();
-  const transactionRepo = new SupabaseTransactionRepository();
+  const transactionRepo = new HybridTransactionRepository();
 
   // Calcula la próxima fecha (hoy o futura) en que cae el día de pago elegido, para que
   // la primera cuota generada caiga en el día correcto en vez de en la fecha de "hoy"
@@ -80,9 +80,17 @@ export default function SettingsAccountsScreen() {
   };
 
   const loadData = async () => {
-    setLoading(true);
+    // 1. Cargar local de inmediato (< 5ms)
     try {
-      const loadedAccounts = await accountRepo.getAll();
+      const localAccounts = await accountRepo.getAll(true);
+      if (localAccounts.length > 0) {
+        setAccounts(localAccounts);
+        setLoading(false);
+      }
+    } catch {}
+
+    try {
+      const loadedAccounts = await accountRepo.getAll(false);
       setAccounts(loadedAccounts);
 
       const loadedRules = await recurrenceRepo.getAllActive();

@@ -29,6 +29,7 @@ import { useFocusEffect } from 'expo-router';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import { BudgetSyncHelper } from '@/src/infrastructure/services/BudgetSyncHelper';
+import { isOnlineFast } from '@/src/infrastructure/utils/network';
 
 export interface CreateBudgetData {
   categoryId: string;
@@ -138,9 +139,9 @@ export default function BudgetsScreen() {
   const categoryRepo = new HybridCategoryRepository();
 
   const loadData = async (force = false) => {
-    try {
+    const executeFetch = async (preferCache: boolean) => {
       // 1. Cargar todas las categorías
-      const loadedCats = await categoryRepo.getAll(true);
+      const loadedCats = await categoryRepo.getAll(true, preferCache);
       setCategories(loadedCats);
       if (loadedCats.length > 0 && !selectedCategoryId) {
         setSelectedCategoryId(loadedCats[0].id);
@@ -151,7 +152,7 @@ export default function BudgetsScreen() {
       const { userProfile } = require('@/src/infrastructure/auth/authStore').useAuthStore.getState();
       const currentUserId = userProfile?.id;
 
-      const allBudgets = await budgetRepo.getAll();
+      const allBudgets = await budgetRepo.getAll(preferCache);
       const privacyBudgets = allBudgets.filter(b => 
         b.scope === 'family' || !b.ownerUserId || b.ownerUserId === currentUserId
       );
@@ -175,7 +176,7 @@ export default function BudgetsScreen() {
         endDate,
         type: 'expense',
         status: 'confirmed'
-      });
+      }, preferCache);
 
       // 3.1. Cargar transacciones y presupuestos del mes anterior para calcular el Rollover
       const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
@@ -190,7 +191,7 @@ export default function BudgetsScreen() {
         endDate: prevEndDate,
         type: 'expense',
         status: 'confirmed'
-      });
+      }, preferCache);
 
       const resolvedPrevMonth = ResolveEffectiveBudget.resolveAll(privacyBudgets, prevYear, prevMonth);
       const latestByKeyPrev: Record<string, { budget: Budget }> = {};
@@ -429,12 +430,39 @@ export default function BudgetsScreen() {
         // Si el usuario está explorando otro mes en la app, mantener el widget anclado al mes en curso actual
         BudgetSyncHelper.syncMonthlyBudget().catch(() => {});
       }
-    } catch (err) {
-      console.error('[Budgets Load Error]:', err);
-    } finally {
+    };
+
+    // 1. CARGA INMEDIATA LOCAL-FIRST (Zero Latency)
+    let hasLocalData = false;
+    try {
+      await executeFetch(true);
+      hasLocalData = true;
+      setIsLoading(false);
+    } catch (localErr) {
+      console.warn('[Budgets Local Load Error]', localErr);
+    }
+
+    if (!hasLocalData) {
+      setIsLoading(true);
+    }
+
+    // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
+    isOnlineFast().then((isOnline) => {
+      if (isOnline) {
+        executeFetch(false).catch((err) => {
+          console.error('[Budgets Revalidation Error]:', err);
+        }).finally(() => {
+          setIsLoading(false);
+          setRefreshing(false);
+        });
+      } else {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
+    }).catch(() => {
       setIsLoading(false);
       setRefreshing(false);
-    }
+    });
   };
 
   useFocusEffect(
