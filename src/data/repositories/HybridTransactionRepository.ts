@@ -48,8 +48,10 @@ export class HybridTransactionRepository implements TransactionRepository {
           await (this.localRepo as any).syncWithRemote(remote, filters);
         }
 
-        if (filters?.inputMethod === 'email' && filters?.status === 'pending' && this.localRepo) {
-          await this.localRepo.syncPendingEmailInvoices(remote);
+        if (filters?.status === 'pending' && this.localRepo) {
+          if (typeof (this.localRepo as any).reconcilePendingTransactions === 'function') {
+            await (this.localRepo as any).reconcilePendingTransactions(remote, filters.inputMethod);
+          }
         }
 
         // Obtener acciones pendientes de borrado en cola para no resucitar registros

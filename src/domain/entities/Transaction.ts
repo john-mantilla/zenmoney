@@ -43,11 +43,16 @@ export interface AIMetadata {
   dueDate?: string;
   occurrenceDate?: string;
   is_bank_notification?: boolean;
+  isBankNotification?: boolean;
   bank_name?: string;
+  bankName?: string;
+  is_dian_invoice?: boolean;
+  isDianInvoice?: boolean;
   installments?: InstallmentMetadata;
   splits?: TransactionCategorySplit[];
   periodSplit?: TransactionPeriodSplit;
   isBill?: boolean;
+  is_bill?: boolean;
   isCCStatement?: boolean;
 }
 
@@ -57,8 +62,13 @@ export interface AIMetadata {
  * y pertenecen al calendario de Facturas, NO a la bandeja de confirmación de correos.
  */
 export function isBillTransaction(tx: Partial<Transaction>): boolean {
+  // Las facturas DIAN y correos bancarios son pagos ya efectuados; nunca son una cuenta por pagar (Bill)
+  // a menos que explícitamente se hayan marcado con isBill.
+  if (tx.inputMethod === 'email') {
+    return tx.aiMetadata?.isBill === true || (tx.aiMetadata as any)?.is_bill === true;
+  }
   if (tx.isRecurringInstance || tx.recurringRuleId) return true;
-  if (tx.aiMetadata?.isBill || tx.aiMetadata?.dueDate || (tx.aiMetadata as any)?.isCCStatement) return true;
+  if (tx.aiMetadata?.isBill || (tx.aiMetadata as any)?.is_bill || tx.aiMetadata?.dueDate || (tx.aiMetadata as any)?.isCCStatement) return true;
   return false;
 }
 

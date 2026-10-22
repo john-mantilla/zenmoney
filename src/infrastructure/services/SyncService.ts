@@ -236,6 +236,26 @@ export class SyncService {
         console.warn('[SyncService] Error syncing transactions to local:', txErr);
       }
 
+      // 4b. Descargar y reconciliar movimientos pendientes (Facturas DIAN, correos bancarios, notas de voz)
+      try {
+        const remotePending = await withTimeout(
+          this.remoteTransactionRepo.getAll({
+            status: 'pending',
+          }),
+          4500,
+          []
+        );
+
+        if (remotePending && remotePending.length > 0) {
+          await localTxRepo.bulkSave(remotePending);
+        }
+        if (remotePending && typeof (localTxRepo as any).reconcilePendingTransactions === 'function') {
+          await (localTxRepo as any).reconcilePendingTransactions(remotePending);
+        }
+      } catch (pendingErr) {
+        console.warn('[SyncService] Error syncing pending transactions to local:', pendingErr);
+      }
+
       // 5. Descargar y sincronizar presupuestos
       try {
         const now = new Date();

@@ -33,11 +33,25 @@ export default function EmailInboxScreen() {
   const transactionRepo = new HybridTransactionRepository();
   const categoryRepo = new HybridCategoryRepository();
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (preferCacheFirst = true) => {
     try {
+      if (preferCacheFirst) {
+        // Carga inmediata desde SQLite local (<10ms)
+        const [cachedPendingTx, cachedCategories] = await Promise.all([
+          transactionRepo.getAll({ status: 'pending' }, true),
+          categoryRepo.getAll(true),
+        ]);
+        const unconfirmedCached = cachedPendingTx.filter(isPendingConfirmationTransaction);
+        setInvoices(unconfirmedCached);
+        setCategories(cachedCategories);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
+      // Revalidación remota en segundo plano
       const [allPendingTx, loadedCategories] = await Promise.all([
-        transactionRepo.getAll({ status: 'pending' }),
+        transactionRepo.getAll({ status: 'pending' }, false),
         categoryRepo.getAll(true),
       ]);
       // Excluir Facturas y Cuentas por Pagar (éstas pertenecen al calendario de Facturas/Bills)
@@ -53,7 +67,7 @@ export default function EmailInboxScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      loadData(true);
     }, [])
   );
 
@@ -85,7 +99,7 @@ export default function EmailInboxScreen() {
             setDiscardingId(tx.id);
             try {
               await transactionRepo.delete(tx.id);
-              loadData();
+              loadData(false);
             } catch (err) {
               console.error('Error al descartar movimiento:', err);
             } finally {
@@ -117,15 +131,15 @@ export default function EmailInboxScreen() {
           ) : (
             invoices.map(tx => {
               const isIncome = tx.type === 'income';
-              const isBankNotif = tx.aiMetadata?.is_bank_notification;
+              const isBankNotif = tx.aiMetadata?.is_bank_notification || (tx.aiMetadata as any)?.isBankNotification;
               const isVoice = tx.inputMethod === 'voice' || (tx.description && tx.description.startsWith('🎙️'));
-              const isEmail = tx.inputMethod === 'email';
+              const isEmail = tx.inputMethod === 'email' || tx.aiMetadata?.is_dian_invoice || (tx.aiMetadata as any)?.isDianInvoice;
 
               let sourceBadge = '⏳ Movimiento por confirmar';
               if (isVoice) {
                 sourceBadge = '🎙️ Nota de voz del reloj';
               } else if (isBankNotif) {
-                sourceBadge = `🏦 ${tx.aiMetadata?.bank_name || 'Banco'}`;
+                sourceBadge = `🏦 ${tx.aiMetadata?.bank_name || (tx.aiMetadata as any)?.bankName || 'Banco'}`;
               } else if (isEmail) {
                 sourceBadge = '📄 Factura DIAN';
               }

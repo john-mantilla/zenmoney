@@ -142,6 +142,26 @@ describe('Transaction Entity', () => {
       };
       expect(isBillTransaction(emailInvoice)).toBe(false);
       expect(isPendingConfirmationTransaction(emailInvoice)).toBe(true);
+
+      const dianWithMetadata: Partial<Transaction> = {
+        status: 'pending',
+        inputMethod: 'email',
+        isRecurringInstance: false,
+        recurringRuleId: null,
+        aiMetadata: {
+          rawInput: '900123456;FE-1024',
+          parsedAmount: 120000,
+          parsedCategory: null,
+          parsedAccount: null,
+          parsedMerchant: 'Almacenes Exito',
+          confidence: 1,
+          corrections: {},
+          is_dian_invoice: true,
+          dueDate: '2026-10-30', // Aunque un correo traiga fecha de vencimiento informativa, fue un pago efectuado
+        },
+      };
+      expect(isBillTransaction(dianWithMetadata)).toBe(false);
+      expect(isPendingConfirmationTransaction(dianWithMetadata)).toBe(true);
     });
 
     it('debe identificar notas de voz del smartwatch como pendientes por confirmar y NO como Bill', () => {

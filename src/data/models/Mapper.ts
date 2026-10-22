@@ -186,6 +186,7 @@ export class Mapper {
       if (meta.period_split || meta.periodSplit) periodSplit = meta.period_split || meta.periodSplit;
 
       aiMetadata = {
+        ...meta,
         rawInput: meta.raw_input || meta.rawInput || '',
         parsedAmount: meta.parsed_amount !== undefined ? meta.parsed_amount : (meta.parsedAmount !== undefined ? meta.parsedAmount : null),
         parsedCategory: meta.parsed_category || meta.parsedCategory || null,
@@ -198,6 +199,14 @@ export class Mapper {
         splits,
         periodSplit,
         isCCStatement: meta.is_cc_statement || meta.isCCStatement || false,
+        isDianInvoice: meta.is_dian_invoice ?? meta.isDianInvoice ?? false,
+        is_dian_invoice: meta.is_dian_invoice ?? meta.isDianInvoice ?? false,
+        isBankNotification: meta.is_bank_notification ?? meta.isBankNotification ?? false,
+        is_bank_notification: meta.is_bank_notification ?? meta.isBankNotification ?? false,
+        bankName: meta.bank_name || meta.bankName || undefined,
+        bank_name: meta.bank_name || meta.bankName || undefined,
+        isBill: meta.is_bill ?? meta.isBill ?? false,
+        is_bill: meta.is_bill ?? meta.isBill ?? false,
       } as any;
     }
 

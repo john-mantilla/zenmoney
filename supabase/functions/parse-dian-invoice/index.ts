@@ -246,8 +246,8 @@ serve(async (req) => {
     }
     const familyGroupId = familyGroup.id;
 
-    // Obtener la cuenta y el usuario administrador por defecto
-    const { data: defaultAccount } = await supabase
+    // Obtener la cuenta y el usuario por defecto (con fallback resiliente si no hay rol admin específico)
+    let { data: defaultAccount } = await supabase
       .from("accounts")
       .select("id")
       .eq("family_group_id", familyGroupId)
@@ -256,7 +256,18 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const { data: adminProfile } = await supabase
+    if (!defaultAccount) {
+      const { data: fallbackAccount } = await supabase
+        .from("accounts")
+        .select("id")
+        .eq("family_group_id", familyGroupId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      defaultAccount = fallbackAccount;
+    }
+
+    let { data: adminProfile } = await supabase
       .from("user_profiles")
       .select("id")
       .eq("family_group_id", familyGroupId)
@@ -264,102 +275,121 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    if (!adminProfile) {
+      const { data: fallbackProfile } = await supabase
+        .from("user_profiles")
+        .select("id")
+        .eq("family_group_id", familyGroupId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      adminProfile = fallbackProfile;
+    }
+
     if (!defaultAccount || !adminProfile) {
       return new Response(
-        JSON.stringify({ error: "La familia no tiene cuenta activa o administrador configurado." }),
+        JSON.stringify({ error: "La familia no tiene cuenta o usuario configurado." }),
         { status: 422 }
       );
     }
 
     const todayStr = new Date().toISOString().split("T")[0];
 
-    // ─── MODO 1: PROCESAR COMO FACTURA ELECTRÓNICA DIAN (CON ADJUNTO ZIP) ───
+    // ─── MODO 1: PROCESAR COMO FACTURA ELECTRÓNICA DIAN (CON ADJUNTO ZIP/XML) ───
     const cleanSubject = (subject || "").replace(/^(\s*(fwd?|rv|re)\s*:\s*)+/gi, "");
     const subjectMatch = /^\s*(\d{6,12})\s*;\s*([^;]+);\s*([^;]+);\s*(\d{2});/.exec(cleanSubject);
 
-    if (subjectMatch) {
-      const [, supplierNitFromSubject, supplierNameFromSubject, invoiceNumber] = subjectMatch;
-      const rawInputTag = `${supplierNitFromSubject};${invoiceNumber}`;
+    const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    // Procesar como DIAN si coincide el asunto estándar O si Resend tiene adjuntos
+    if (resendApiKey && email_id) {
+      try {
+        const attachmentsRes = await fetch(`https://api.resend.com/emails/receiving/${email_id}/attachments`, {
+          headers: { Authorization: `Bearer ${resendApiKey}` },
+        });
 
-      // Evitar duplicados
-      const { data: existing } = await supabase
-        .from("transactions")
-        .select("id")
-        .eq("family_group_id", familyGroupId)
-        .contains("ai_metadata", { raw_input: rawInputTag })
-        .maybeSingle();
-
-      if (existing) {
-        return new Response(
-          JSON.stringify({ skipped: "factura ya registrada", transactionId: existing.id }),
-          { status: 200 }
-        );
-      }
-
-      // Descargar el adjunto .zip vía la API de Resend
-      const resendApiKey = Deno.env.get("RESEND_API_KEY")!;
-      const attachmentsRes = await fetch(`https://api.resend.com/emails/receiving/${email_id}/attachments`, {
-        headers: { Authorization: `Bearer ${resendApiKey}` },
-      });
-
-      if (attachmentsRes.ok) {
-        const attachmentsJson = await attachmentsRes.json();
-        const zipAttachment = (attachmentsJson.data || []).find(
-          (a: any) => a.content_type === "application/zip" || a.filename?.toLowerCase().endsWith(".zip")
-        );
-
-        if (zipAttachment) {
-          const zipRes = await fetch(zipAttachment.download_url);
-          const zipBuffer = await zipRes.arrayBuffer();
-          const zip = await JSZip.loadAsync(zipBuffer);
-          const xmlEntry = Object.values(zip.files).find(
-            (f: any) => !f.dir && f.name.toLowerCase().endsWith(".xml")
+        if (attachmentsRes.ok) {
+          const attachmentsJson = await attachmentsRes.json();
+          const zipAttachment = (attachmentsJson.data || []).find(
+            (a: any) => a.content_type === "application/zip" || a.filename?.toLowerCase().endsWith(".zip")
           );
 
-          if (xmlEntry) {
-            const outerXml = await (xmlEntry as any).async("string");
-            const cdataMatch = /<cac:ExternalReference>[\s\S]*?<cbc:Description>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/cbc:Description>/.exec(outerXml);
-            const invoiceXml = cdataMatch ? cdataMatch[1] : outerXml;
+          if (zipAttachment) {
+            const zipRes = await fetch(zipAttachment.download_url);
+            const zipBuffer = await zipRes.arrayBuffer();
+            const zip = await JSZip.loadAsync(zipBuffer);
+            const xmlEntry = Object.values(zip.files).find(
+              (f: any) => !f.dir && f.name.toLowerCase().endsWith(".xml")
+            );
 
-            const amountMatch = /<cbc:PayableAmount[^>]*>([\d.]+)<\/cbc:PayableAmount>/.exec(invoiceXml);
-            const issueDateMatch = /<cbc:IssueDate>([\d-]+)<\/cbc:IssueDate>/.exec(invoiceXml);
-            const supplierBlockMatch = /<cac:AccountingSupplierParty>[\s\S]*?<\/cac:AccountingSupplierParty>/.exec(invoiceXml);
-            const supplierBlock = supplierBlockMatch ? supplierBlockMatch[0] : "";
-            const storeNameMatch = /<cac:PhysicalLocation>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
-            const legalNameMatch = /<cac:PartyName>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
+            if (xmlEntry) {
+              const outerXml = await (xmlEntry as any).async("string");
+              const cdataMatch = /<cac:ExternalReference>[\s\S]*?<cbc:Description>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/cbc:Description>/.exec(outerXml);
+              const invoiceXml = cdataMatch ? cdataMatch[1] : outerXml;
 
-            const amount = amountMatch ? parseFloat(amountMatch[1]) : null;
-            const issueDate = issueDateMatch ? issueDateMatch[1] : todayStr;
-            const merchantName = (storeNameMatch?.[1] || legalNameMatch?.[1] || supplierNameFromSubject).trim();
+              const amountMatch = /<cbc:PayableAmount[^>]*>([\d.]+)<\/cbc:PayableAmount>/.exec(invoiceXml);
+              const issueDateMatch = /<cbc:IssueDate>([\d-]+)<\/cbc:IssueDate>/.exec(invoiceXml);
+              const supplierBlockMatch = /<cac:AccountingSupplierParty>[\s\S]*?<\/cac:AccountingSupplierParty>/.exec(invoiceXml);
+              const supplierBlock = supplierBlockMatch ? supplierBlockMatch[0] : "";
+              const storeNameMatch = /<cac:PhysicalLocation>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
+              const legalNameMatch = /<cac:PartyName>\s*<cbc:Name>([^<]+)<\/cbc:Name>/.exec(supplierBlock);
+              const invoiceIdMatch = /<cbc:ID>([^<]+)<\/cbc:ID>/.exec(invoiceXml);
+              const supplierNitMatch = /<cbc:CompanyID[^>]*>([^<]+)<\/cbc:CompanyID>/.exec(supplierBlock);
 
-            if (amount) {
-              const { data: newTx } = await supabase
+              const amount = amountMatch ? parseFloat(amountMatch[1]) : null;
+              const issueDate = issueDateMatch ? issueDateMatch[1] : todayStr;
+              const invoiceNumber = invoiceIdMatch?.[1] || (subjectMatch ? subjectMatch[3] : email_id);
+              const supplierNit = supplierNitMatch?.[1] || (subjectMatch ? subjectMatch[1] : 'dian');
+              const rawInputTag = `${supplierNit};${invoiceNumber}`;
+
+              // Evitar duplicados
+              const { data: existing } = await supabase
                 .from("transactions")
-                .insert({
-                  family_group_id: familyGroupId,
-                  account_id: defaultAccount.id,
-                  category_id: null,
-                  created_by_user_id: adminProfile.id,
-                  type: "expense",
-                  amount,
-                  currency: "COP",
-                  description: `Factura Electrónica (${merchantName})`,
-                  merchant_name: merchantName,
-                  transaction_date: issueDate,
-                  status: "pending",
-                  input_method: "email",
-                  ai_metadata: { raw_input: rawInputTag, parsed_amount: amount, is_dian_invoice: true },
-                })
                 .select("id")
-                .single();
+                .eq("family_group_id", familyGroupId)
+                .contains("ai_metadata", { raw_input: rawInputTag })
+                .maybeSingle();
 
-              return new Response(
-                JSON.stringify({ ok: true, transactionId: newTx?.id, mode: "dian_invoice" }),
-                { status: 200 }
-              );
+              if (existing) {
+                return new Response(
+                  JSON.stringify({ skipped: "factura ya registrada", transactionId: existing.id }),
+                  { status: 200 }
+                );
+              }
+
+              const fallbackName = subjectMatch ? subjectMatch[2] : cleanSubject || 'Proveedor Factura Electrónica';
+              const merchantName = (storeNameMatch?.[1] || legalNameMatch?.[1] || fallbackName).trim();
+
+              if (amount) {
+                const { data: newTx } = await supabase
+                  .from("transactions")
+                  .insert({
+                    family_group_id: familyGroupId,
+                    account_id: defaultAccount.id,
+                    category_id: null,
+                    created_by_user_id: adminProfile.id,
+                    type: "expense",
+                    amount,
+                    currency: "COP",
+                    description: `Factura Electrónica (${merchantName})`,
+                    merchant_name: merchantName,
+                    transaction_date: issueDate,
+                    status: "pending",
+                    input_method: "email",
+                    ai_metadata: { raw_input: rawInputTag, parsed_amount: amount, is_dian_invoice: true },
+                  })
+                  .select("id")
+                  .single();
+
+                return new Response(
+                  JSON.stringify({ ok: true, transactionId: newTx?.id, mode: "dian_invoice" }),
+                  { status: 200 }
+                );
+              }
             }
           }
         }
+      } catch (attErr) {
+        console.warn("[parse-dian-invoice] Error al consultar adjuntos DIAN:", attErr);
       }
     }
 

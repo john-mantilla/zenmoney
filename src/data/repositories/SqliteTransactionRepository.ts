@@ -338,9 +338,8 @@ export class SqliteTransactionRepository implements TransactionRepository {
     const db = this.getDb();
     await this.bulkSave(remoteTransactions);
 
-    // Solo eliminamos registros locales de forma segura si se especificó un rango delimitado
-    // para evitar borrados accidentales de otros periodos o cuentas.
-    if (!filters || (!filters.startDate && !filters.endDate && !filters.accountId)) {
+    // Permitir reconciliación segura si hay un rango delimitado O si se sincronizan movimientos pendientes
+    if (!filters || (!filters.startDate && !filters.endDate && !filters.accountId && filters.status !== 'pending')) {
       return;
     }
 
@@ -356,6 +355,10 @@ export class SqliteTransactionRepository implements TransactionRepository {
       deleteQuery += " AND status = ?";
       deleteParams.push(filters.status);
     }
+    if (filters.inputMethod) {
+      deleteQuery += " AND input_method = ?";
+      deleteParams.push(filters.inputMethod);
+    }
     if (filters.startDate) {
       deleteQuery += " AND transaction_date >= ?";
       deleteParams.push(filters.startDate);
@@ -370,26 +373,32 @@ export class SqliteTransactionRepository implements TransactionRepository {
       deleteQuery += ` AND id NOT IN (${placeholders})`;
       deleteParams.push(...remoteIds);
       await db.runAsync(deleteQuery, deleteParams);
-    } else if (filters.startDate && filters.endDate) {
-      // Si explícitamente se consultó un rango de fechas y la nube no tiene transacciones en ese rango
+    } else if ((filters.startDate && filters.endDate) || filters.status === 'pending') {
+      // Si la nube no tiene transacciones en ese rango o estado
       await db.runAsync(deleteQuery, deleteParams);
     }
   }
 
-  async syncPendingEmailInvoices(remotePendingList: Transaction[]): Promise<void> {
+  async reconcilePendingTransactions(remotePendingList: Transaction[], inputMethod?: string): Promise<void> {
     const db = this.getDb();
-    const remoteIds = remotePendingList.map(t => t.id);
-    if (remoteIds.length === 0) {
-      await db.runAsync(
-        "DELETE FROM transactions WHERE input_method = 'email' AND status = 'pending';"
-      );
-    } else {
-      const placeholders = remoteIds.map(() => '?').join(',');
-      await db.runAsync(
-        `DELETE FROM transactions WHERE input_method = 'email' AND status = 'pending' AND id NOT IN (${placeholders});`,
-        remoteIds
-      );
+    const remoteIds = (remotePendingList || []).map(t => t.id);
+    let query = "DELETE FROM transactions WHERE synced = 1 AND status = 'pending' AND id NOT IN (SELECT record_id FROM sync_actions_queue WHERE table_name = 'transactions')";
+    const params: any[] = [];
+    if (inputMethod) {
+      query += " AND input_method = ?";
+      params.push(inputMethod);
     }
+    if (remoteIds.length > 0) {
+      const placeholders = remoteIds.map(() => '?').join(',');
+      query += ` AND id NOT IN (${placeholders})`;
+      await db.runAsync(query, params);
+    } else {
+      await db.runAsync(query, params);
+    }
+  }
+
+  async syncPendingEmailInvoices(remotePendingList: Transaction[]): Promise<void> {
+    return this.reconcilePendingTransactions(remotePendingList, 'email');
   }
 
   async getUnsynced(): Promise<Transaction[]> {

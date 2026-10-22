@@ -86,6 +86,45 @@ describe('Mapper — Pruebas de Integración Bidireccional (DB snake_case ↔ Do
       expect(tx.aiMetadata?.rawInput).toBe('Gaste 125.5 dolares en Exito');
     });
 
+    it('preserva metadatos de factura DIAN y notificaciones bancarias en aiMetadata', () => {
+      const dianRow = {
+        id: 'tx-dian-1',
+        family_group_id: 'fam-1',
+        account_id: 'acc-1',
+        category_id: null,
+        created_by_user_id: 'usr-1',
+        type: 'expense',
+        amount: '89000',
+        currency: 'COP',
+        description: 'Factura Electrónica (Éxito)',
+        merchant_name: 'Éxito',
+        transaction_date: '2026-10-22',
+        transfer_to_account_id: null,
+        is_recurring_instance: false,
+        recurring_rule_id: null,
+        status: 'pending',
+        input_method: 'email',
+        is_private: false,
+        ai_metadata: {
+          raw_input: '900123456;FE-1024',
+          parsed_amount: 89000,
+          is_dian_invoice: true,
+          bank_name: 'Bancolombia',
+          is_bank_notification: true,
+        },
+      };
+
+      const tx = Mapper.toDomainTransaction(dianRow);
+      expect(tx.status).toBe('pending');
+      expect(tx.inputMethod).toBe('email');
+      expect(tx.aiMetadata?.is_dian_invoice).toBe(true);
+      expect(tx.aiMetadata?.isDianInvoice).toBe(true);
+      expect(tx.aiMetadata?.is_bank_notification).toBe(true);
+      expect(tx.aiMetadata?.isBankNotification).toBe(true);
+      expect(tx.aiMetadata?.bank_name).toBe('Bancolombia');
+      expect(tx.aiMetadata?.bankName).toBe('Bancolombia');
+    });
+
     it('mapea correctamente una entidad Transaction de Dominio a formato DB', () => {
       const domainTx: Partial<Transaction> = {
         id: 'tx-200',
