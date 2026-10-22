@@ -5,12 +5,12 @@
  */
 
 import React from 'react';
-import { Text, ColorValue } from 'react-native';
+import { View, Text, ColorValue, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useAppTheme } from '@/src/presentation/theme';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { GlobalMonthSelector } from '@/src/presentation/components';
+import { GlobalMonthSelector, WebDownloadApkButton } from '@/src/presentation/components';
 
 export default function TabLayout() {
   const theme = useAppTheme();
@@ -47,7 +47,12 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: true,
-        headerRight: () => <GlobalMonthSelector />,
+        headerRight: () => (
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {Platform.OS === 'web' && <WebDownloadApkButton />}
+            <GlobalMonthSelector />
+          </View>
+        ),
         headerStyle: {
           backgroundColor: theme.colors.surface,
           shadowColor: 'transparent',

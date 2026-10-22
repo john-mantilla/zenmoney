@@ -799,11 +799,11 @@ export default function BillsScreen() {
             },
             {
               value: 'cashflow',
-              label: 'Flujo de Caja & Escenarios',
+              label: 'Flujo de Caja',
               icon: 'chart-timeline-variant',
             },
           ]}
-          density="medium"
+          density="small"
           style={{ borderRadius: 14 }}
         />
       </View>

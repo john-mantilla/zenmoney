@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform, Linking, Image } from 'react-native';
 import { Button, Text, Avatar, List, Divider, Surface, ActivityIndicator } from 'react-native-paper';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
@@ -16,6 +16,7 @@ import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategory
 import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
 import { HabitSettingsSection } from '@/src/presentation/components';
 import { Category } from '@/src/domain/entities/Category';
+import { BUILD_CONFIG } from '@/src/config/buildInfo';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
 export default function SettingsScreen() {
@@ -172,6 +173,72 @@ export default function SettingsScreen() {
         </Text>
         <HabitSettingsSection categories={categoriesList} />
 
+        {/* ─── DESCARGA DE APP MÓVIL (SOLO WEB) ────────────────────────── */}
+        {Platform.OS === 'web' && (
+          <>
+            <Text style={[styles.sectionHeader, theme.typography.caption, { color: theme.customColors.textSecondary }]}>
+              APLICACIÓN MÓVIL ANDROID
+            </Text>
+            <Surface style={[styles.downloadCard, { backgroundColor: theme.colors.surface, borderColor: '#10B98140' }]}>
+              <View style={styles.downloadRow}>
+                <View style={styles.downloadInfo}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                    <View style={[styles.iconCircle, { backgroundColor: '#10B98120', marginRight: 10 }]}>
+                      <MaterialCommunityIcons name="android" size={24} color="#10B981" />
+                    </View>
+                    <View>
+                      <Text style={[theme.typography.body, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                        Instalar ZenMoney APK
+                      </Text>
+                      <Text style={[theme.typography.caption, { color: '#10B981', fontWeight: '600' }]}>
+                        Versión v{BUILD_CONFIG.version} (Estable)
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, marginBottom: 14, lineHeight: 18 }]}>
+                    Disfruta de sincronización offline local-first, reconocimiento de voz nativo, widgets para Android y alertas predictivas.
+                  </Text>
+
+                  <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                    <Button
+                      mode="contained"
+                      icon="download"
+                      onPress={() => Linking.openURL(BUILD_CONFIG.android.latestBuildUrl)}
+                      style={{ borderRadius: 10, backgroundColor: '#10B981' }}
+                      labelStyle={{ fontWeight: '700', fontSize: 13 }}
+                    >
+                      Descargar APK
+                    </Button>
+                    <Button
+                      mode="outlined"
+                      icon="history"
+                      onPress={() => Linking.openURL(BUILD_CONFIG.android.allBuildsUrl)}
+                      style={{ borderRadius: 10, borderColor: theme.colors.outline + '40' }}
+                      textColor={theme.colors.onSurface}
+                      labelStyle={{ fontSize: 12 }}
+                    >
+                      Historial
+                    </Button>
+                  </View>
+                </View>
+
+                {/* Código QR para escanear desde el móvil */}
+                <View style={styles.qrContainer}>
+                  <Image
+                    source={{ uri: BUILD_CONFIG.android.getQrCodeUrl() }}
+                    style={styles.qrImage}
+                    resizeMode="contain"
+                  />
+                  <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 10, marginTop: 6, textAlign: 'center' }]}>
+                    Escanea para instalar en tu celular
+                  </Text>
+                </View>
+              </View>
+            </Surface>
+          </>
+        )}
+
         {/* ─── TARJETA DE SEGURIDAD Y SESIONES ──────────────────────────── */}
         <Text style={[styles.sectionHeader, theme.typography.caption, { color: theme.customColors.textSecondary }]}>
           SEGURIDAD Y CUENTA
@@ -256,7 +323,7 @@ export default function SettingsScreen() {
         </Button>
 
         <Text style={styles.versionText}>
-          ZenMoney v1.2.0 • Sistema Financiero Familiar
+          ZenMoney v{BUILD_CONFIG.version} • Sistema Financiero Familiar
         </Text>
       </ScrollView>
     </View>
@@ -326,6 +393,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 20,
     alignItems: 'center',
+  },
+  downloadCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 20,
+  },
+  downloadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  downloadInfo: {
+    flex: 1,
+    minWidth: 260,
+  },
+  qrContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  qrImage: {
+    width: 120,
+    height: 120,
   },
   signOutButton: {
     borderRadius: 12,

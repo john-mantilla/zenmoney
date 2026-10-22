@@ -7,7 +7,7 @@
  */
 
 import React, { useState } from 'react';
-import { View, StyleSheet, Dimensions, ScrollView, Pressable } from 'react-native';
+import { View, StyleSheet, Dimensions, ScrollView, Pressable, Platform } from 'react-native';
 import { Surface, Text, SegmentedButtons, Button, Chip } from 'react-native-paper';
 import { LineChart } from 'react-native-gifted-charts';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -51,6 +51,7 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
 }) => {
   const theme = useAppTheme();
   const screenWidth = Dimensions.get('window').width;
+  const isMobile = screenWidth < 600;
   const [selectedPoint, setSelectedPoint] = useState<DailyLiquidityPoint | null>(null);
 
   // Muestreo adaptativo de puntos para la gráfica para evitar saturar la pantalla
@@ -65,10 +66,22 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
     sampledBasePoints.push(lastBase);
   }
 
+  // Decimación inteligente de etiquetas en el eje X para evitar que los textos se sobrelapen en móvil
+  // En móvil mostramos máx 4 fechas; en tablet/web máx 6 fechas
+  const numPoints = sampledBasePoints.length;
+  const maxLabels = isMobile ? 4 : 6;
+  const labelStride = Math.max(1, Math.ceil(numPoints / maxLabels));
+
   // Datos para react-native-gifted-charts
-  const chartData1 = sampledBasePoints.map((pt) => {
+  const chartData1 = sampledBasePoints.map((pt, idx) => {
     const parts = pt.date.split('-');
-    const label = `${parts[2]}/${parts[1]}`;
+    const isFirst = idx === 0;
+    const isLast = idx === numPoints - 1;
+    const isStride = idx % labelStride === 0;
+    const tooCloseToLast = idx >= numPoints - Math.ceil(labelStride / 2);
+    const shouldShow = isFirst || isLast || (isStride && !tooCloseToLast);
+    const label = shouldShow ? `${parts[2]}/${parts[1]}` : '';
+
     return {
       value: pt.closingBalance,
       label,
@@ -104,10 +117,18 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
   const minVal = allValues.length > 0 ? Math.min(...allValues) : 0;
   const scale = calculateChartScale(minVal, maxVal);
 
+  // Dimensionamiento responsive exacto para que la curva use todo el ancho sin recortarse ni requerir scroll
+  const outerPadding = isMobile ? 24 : 32;
+  const cardPadding = isMobile ? 24 : 32;
   const maxContainerWidth = Math.min(screenWidth, 900);
-  const chartWidth = Math.max(maxContainerWidth - 80, 280);
-  const numSegments = Math.max(1, chartData1.length - 1);
-  const dynamicSpacing = Math.max(28, (chartWidth - 80) / numSegments);
+  const cardContentWidth = maxContainerWidth - outerPadding - cardPadding;
+  const yAxisLabelWidth = 46;
+  const availablePlotWidth = Math.max(cardContentWidth - yAxisLabelWidth, 220);
+  const numSegments = Math.max(1, numPoints - 1);
+  const initialSpacing = 12;
+  const endSpacing = 12;
+  const dynamicSpacing = Math.max(16, (availablePlotWidth - initialSpacing - endSpacing) / numSegments);
+  const chartWidth = availablePlotWidth;
 
   const netBaseChange = forecast.endingBalance - forecast.initialLiquidity;
   const isNetPositive = netBaseChange >= 0;
@@ -120,10 +141,10 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
           value={String(horizonDays)}
           onValueChange={(val) => onChangeHorizon(Number(val) as ForecastHorizonDays)}
           buttons={[
-            { value: '30', label: '30 Días' },
-            { value: '60', label: '60 Días' },
-            { value: '90', label: '90 Días' },
-            { value: '180', label: '180 Días' },
+            { value: '30', label: isMobile ? '30d' : '30 Días' },
+            { value: '60', label: isMobile ? '60d' : '60 Días' },
+            { value: '90', label: isMobile ? '90d' : '90 Días' },
+            { value: '180', label: isMobile ? '180d' : '180 Días' },
           ]}
           density="small"
           style={styles.segmentedButtons}
@@ -136,8 +157,8 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
           value={spendingMode}
           onValueChange={(val) => onChangeSpendingMode(val as ForecastSpendingMode)}
           buttons={[
-            { value: 'commitments_only', label: 'Solo compromisos' },
-            { value: 'total_projected', label: 'Gasto total' },
+            { value: 'commitments_only', label: isMobile ? 'Compromisos' : 'Solo compromisos' },
+            { value: 'total_projected', label: isMobile ? 'Gasto total' : 'Gasto proyectado total' },
           ]}
           density="small"
           style={{ flex: 1 }}
@@ -151,7 +172,7 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
             compact
             style={styles.simulatorButton}
           >
-            {simulatedComparison ? 'Escenario Activo' : 'Simular'}
+            {simulatedComparison ? (isMobile ? 'Activo' : 'Escenario Activo') : 'Simular'}
           </Button>
         )}
       </View>
@@ -279,7 +300,7 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
           style={{
             marginLeft: -10,
             marginTop: 10,
-            marginBottom: scale.noOfSectionsBelowXAxis > 0 ? scale.noOfSectionsBelowXAxis * scale.stepHeight + 24 : 12,
+            marginBottom: Platform.OS === 'web' && scale.noOfSectionsBelowXAxis > 0 ? 12 : 4,
           }}
         >
           <LineChart
@@ -295,8 +316,8 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
             mostNegativeValue={scale.noOfSectionsBelowXAxis > 0 ? -(scale.stepValue * scale.noOfSectionsBelowXAxis) : 0}
             width={chartWidth}
             spacing={dynamicSpacing}
-            initialSpacing={24}
-            endSpacing={24}
+            initialSpacing={initialSpacing}
+            endSpacing={endSpacing}
             thickness={3}
             thickness2={3}
             color1={theme.colors.primary}
@@ -309,7 +330,7 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
             isAnimated={false}
             rulesColor="rgba(0,0,0,0.06)"
             rulesType="solid"
-            yAxisLabelWidth={58}
+            yAxisLabelWidth={yAxisLabelWidth}
             formatYLabel={formatCompactCurrency}
             yAxisTextStyle={{
               fontSize: 10,
@@ -370,8 +391,8 @@ export const CashFlowForecastChart: React.FC<CashFlowForecastChartProps> = ({
 
 const styles = StyleSheet.create({
   wrapper: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     maxWidth: 900,
     width: '100%',
     alignSelf: 'center',
@@ -405,19 +426,19 @@ const styles = StyleSheet.create({
   metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginVertical: 10,
+    gap: 8,
+    marginVertical: 6,
   },
   metricCard: {
     flex: 1,
-    minWidth: 170,
-    borderRadius: 14,
-    padding: 12,
+    minWidth: 140,
+    borderRadius: 12,
+    padding: 10,
   },
   chartCard: {
     borderRadius: 16,
-    padding: 16,
-    marginTop: 8,
+    padding: 12,
+    marginTop: 6,
     overflow: 'hidden',
   },
   chartHeader: {
