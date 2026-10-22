@@ -6,13 +6,21 @@
  * y agregar nuevos cobros que llegan en el día a día.
  */
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Pressable, Platform, Dimensions } from 'react-native';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { Text, Card, Button, Portal, Dialog, TextInput, HelperText, ActivityIndicator, List, Surface, IconButton, Menu, SegmentedButtons, FAB } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useAppTheme } from '@/src/presentation/theme';
-import { AmountDisplay, EmptyState, CategoryPickerMenu, NetworkStatusBar, CreateBillModal } from '@/src/presentation/components';
+import {
+  AmountDisplay,
+  EmptyState,
+  CategoryPickerMenu,
+  NetworkStatusBar,
+  CreateBillModal,
+  CashFlowForecastChart,
+  ScenarioSimulatorCard,
+} from '@/src/presentation/components';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
@@ -20,6 +28,11 @@ import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/Supabas
 import { Transaction, isBillTransaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
+import { RecurringRule } from '@/src/domain/entities/RecurringRule';
+import { ForecastCashFlowUseCase } from '@/src/domain/usecases/ForecastCashFlowUseCase';
+import { SimulateFinancialScenarioUseCase } from '@/src/domain/usecases/SimulateFinancialScenarioUseCase';
+import { ForecastHorizonDays, ForecastSpendingMode } from '@/src/domain/entities/CashFlowForecast';
+import { LoanScenarioInput } from '@/src/domain/entities/LoanScenario';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { getLocalDateString } from '@/src/domain/utils/dateUtils';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
@@ -76,11 +89,37 @@ export default function BillsScreen() {
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [editingBill, setEditingBill] = useState<Transaction | null>(null);
 
+  // Estados para Flujo de Caja & Escenarios
+  const [subViewMode, setSubViewMode] = useState<'calendar' | 'cashflow'>('calendar');
+  const [horizonDays, setHorizonDays] = useState<ForecastHorizonDays>(30);
+  const [spendingMode, setSpendingMode] = useState<ForecastSpendingMode>('commitments_only');
+  const [allPendingBills, setAllPendingBills] = useState<Transaction[]>([]);
+  const [recurringRules, setRecurringRules] = useState<RecurringRule[]>([]);
+  const [dailyOrganicRate, setDailyOrganicRate] = useState<number>(0);
+  const [activeScenario, setActiveScenario] = useState<LoanScenarioInput | null>(null);
+  const [isSimulatorVisible, setIsSimulatorVisible] = useState(false);
+
   // Repositorios y caso de uso
   const transactionRepo = new HybridTransactionRepository();
   const accountRepo = new HybridAccountRepository();
   const categoryRepo = new HybridCategoryRepository();
   const recurrenceRepo = new SupabaseRecurringRuleRepository();
+
+  const forecastUseCase = useMemo(() => new ForecastCashFlowUseCase(), []);
+  const simulatorUseCase = useMemo(() => new SimulateFinancialScenarioUseCase(), []);
+
+  const cashFlowForecast = useMemo(() => {
+    return forecastUseCase.execute(accounts, allPendingBills, recurringRules, {
+      horizonDays,
+      spendingMode,
+      dailyOrganicSpendingRate: dailyOrganicRate,
+    });
+  }, [forecastUseCase, accounts, allPendingBills, recurringRules, horizonDays, spendingMode, dailyOrganicRate]);
+
+  const scenarioComparison = useMemo(() => {
+    if (!activeScenario || !cashFlowForecast) return null;
+    return simulatorUseCase.execute(cashFlowForecast, activeScenario);
+  }, [simulatorUseCase, cashFlowForecast, activeScenario]);
 
   const lastLoadRef = useRef<number>(0);
   const lastLoadedMonthRef = useRef<number | null>(null);
@@ -254,6 +293,24 @@ export default function BillsScreen() {
       );
       
       setBills([...filteredBills, ...statementBills]);
+
+      // Alimentar el motor de proyección de flujo de caja:
+      const allPendingTxs = allHistoricTxs.filter(tx => tx.status === 'pending');
+      setAllPendingBills([...allPendingTxs, ...statementBills]);
+
+      // Cargar reglas recurrentes activas
+      try {
+        const loadedRules = await recurrenceRepo.getAll();
+        setRecurringRules(loadedRules.filter(r => r.isActive));
+      } catch (rErr) {
+        console.warn('[Bills Recurrence Load Error]', rErr);
+      }
+
+      // Estimar velocidad de gasto diario orgánico del mes actual
+      const confirmedExpenses = txs.filter(tx => tx.type === 'expense' && tx.status === 'confirmed');
+      const daysElapsed = Math.max(1, new Date().getDate());
+      const organicRate = confirmedExpenses.reduce((s, tx) => s + tx.amount, 0) / daysElapsed;
+      setDailyOrganicRate(organicRate);
 
       // Por defecto, NO seleccionar ningún día para mostrar el resumen mensual agrupado
       // Mantener selectedDate vacío a menos que el usuario pulse un día específico
@@ -729,14 +786,64 @@ export default function BillsScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <NetworkStatusBar />
 
+      {/* ─── SELECTOR DE SUB-NAVEGACIÓN SUPERIOR ─────────────────────── */}
+      <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6, maxWidth: 900, width: '100%', alignSelf: 'center' }}>
+        <SegmentedButtons
+          value={subViewMode}
+          onValueChange={(val) => setSubViewMode(val as 'calendar' | 'cashflow')}
+          buttons={[
+            {
+              value: 'calendar',
+              label: 'Calendario',
+              icon: 'calendar-month-outline',
+            },
+            {
+              value: 'cashflow',
+              label: 'Flujo de Caja & Escenarios',
+              icon: 'chart-timeline-variant',
+            },
+          ]}
+          density="medium"
+          style={{ borderRadius: 14 }}
+        />
+      </View>
+
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.colors.primary]} />
         }
       >
-        {/* ─── TARJETA INTELIGENTE DE RESUMEN DEL MES ──────────────────────── */}
-        {selectedDate === '' && (
+        {subViewMode === 'cashflow' ? (
+          <View>
+            <CashFlowForecastChart
+              forecast={cashFlowForecast}
+              simulatedComparison={scenarioComparison}
+              horizonDays={horizonDays}
+              onChangeHorizon={setHorizonDays}
+              spendingMode={spendingMode}
+              onChangeSpendingMode={setSpendingMode}
+              onOpenSimulator={() => setIsSimulatorVisible(true)}
+              onClearSimulation={() => setActiveScenario(null)}
+            />
+
+            {isSimulatorVisible && (
+              <View style={{ paddingHorizontal: 16, maxWidth: 900, width: '100%', alignSelf: 'center' }}>
+                <ScenarioSimulatorCard
+                  initialScenario={activeScenario}
+                  onApplyScenario={(scenario) => {
+                    setActiveScenario(scenario);
+                    setIsSimulatorVisible(false);
+                  }}
+                  onClose={() => setIsSimulatorVisible(false)}
+                />
+              </View>
+            )}
+          </View>
+        ) : (
+          <View>
+            {/* ─── TARJETA INTELIGENTE DE RESUMEN DEL MES ──────────────────────── */}
+            {selectedDate === '' && (
           <Surface style={[theme.shadows.sm, { backgroundColor: theme.colors.surface, borderRadius: 20, padding: 18, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.outline + '30' }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontWeight: '600' }]}>
@@ -1040,16 +1147,20 @@ export default function BillsScreen() {
             )}
           </View>
         )}
+          </View>
+        )}
       </ScrollView>
 
       {/* FAB Flotante para crear una nueva factura */}
-      <FAB
-        icon="plus"
-        label="Nueva Factura"
-        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
-        color="#FFFFFF"
-        onPress={openCreateDialog}
-      />
+      {subViewMode === 'calendar' && (
+        <FAB
+          icon="plus"
+          label="Nueva Factura"
+          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          color="#FFFFFF"
+          onPress={openCreateDialog}
+        />
+      )}
 
       {/* ─── MODAL IMPECCABLE: CREAR / EDITAR FACTURA ──────────────── */}
       <CreateBillModal
