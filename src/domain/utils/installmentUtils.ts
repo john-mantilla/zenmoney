@@ -92,22 +92,26 @@ export function generateInstallmentTransactions(
       startDate,
     };
 
+    const cleanAiMetadata = { ...(baseInput.aiMetadata || {}) };
+    delete (cleanAiMetadata as any).periodSplit;
+    delete (cleanAiMetadata as any).period_split;
+
     results.push({
       ...baseInput,
+      periodSplit: undefined,
       id: generateUUID(),
       amount: installmentAmount,
       description: finalDescription,
       transactionDate: installmentDate,
       aiMetadata: {
-        ...(baseInput.aiMetadata || {
-          rawInput: '',
-          parsedAmount: null,
-          parsedCategory: null,
-          parsedAccount: null,
-          parsedMerchant: null,
-          confidence: 1,
-          corrections: {},
-        }),
+        rawInput: cleanAiMetadata.rawInput || '',
+        parsedAmount: cleanAiMetadata.parsedAmount !== undefined ? cleanAiMetadata.parsedAmount : null,
+        parsedCategory: cleanAiMetadata.parsedCategory || null,
+        parsedAccount: cleanAiMetadata.parsedAccount || null,
+        parsedMerchant: cleanAiMetadata.parsedMerchant || null,
+        confidence: cleanAiMetadata.confidence !== undefined ? cleanAiMetadata.confidence : 1,
+        corrections: cleanAiMetadata.corrections || {},
+        ...cleanAiMetadata,
         installments: installmentMeta,
       },
     });

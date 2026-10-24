@@ -256,6 +256,40 @@ describe('Mapper — Pruebas de Integración Bidireccional (DB snake_case ↔ Do
       expect(tx.splits).toEqual(splits);
       expect(tx.periodSplit?.totalMonths).toBe(3);
     });
+
+    it('anula periodSplit si la transacción es una cuota diferida (installments)', () => {
+      const dbRow = {
+        id: 'tx-installment-cuota',
+        family_group_id: 'fam-1',
+        account_id: 'acc-1',
+        category_id: 'cat-1',
+        created_by_user_id: 'usr-1',
+        type: 'expense',
+        amount: '152716',
+        currency: 'COP',
+        ai_metadata: JSON.stringify({
+          period_split: {
+            totalMonths: 3,
+            monthlyAmount: 152716,
+            startMonth: '2026-10',
+            endMonth: '2026-12',
+          },
+          installments: {
+            groupId: 'grp-1',
+            totalAmount: 458148,
+            count: 3,
+            currentNumber: 2,
+            monthlyAmount: 152716,
+            startDate: '2026-10-21',
+          },
+        }),
+      };
+
+      const tx = Mapper.toDomainTransaction(dbRow);
+      expect(tx.periodSplit).toBeUndefined();
+      expect(tx.aiMetadata?.periodSplit).toBeUndefined();
+      expect(tx.aiMetadata?.installments?.currentNumber).toBe(2);
+    });
   });
 
   describe('Account Mapping', () => {

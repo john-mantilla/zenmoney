@@ -880,9 +880,9 @@ export default function NewTransactionScreen() {
 
     const countVal = Math.max(2, installmentsCount || 3);
 
-    // Period Split (Prorrateo / Amortización contable)
+    // Period Split (Prorrateo / Amortización contable de un gasto único)
     let periodSplitObj = undefined;
-    if (type === 'expense' && isPeriodSplit && periodSplitMonths >= 2) {
+    if (type === 'expense' && isPeriodSplit && periodSplitMonths >= 2 && !isInstallments) {
       const safeMonths = Math.min(36, Math.max(2, periodSplitMonths));
       const monthlyAmount = Math.round(finalAmountValue / safeMonths);
       const dateBase = transactionDate ? new Date(transactionDate + 'T00:00:00') : new Date();

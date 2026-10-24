@@ -13,6 +13,7 @@ export interface TransactionFilters {
   status?: Transaction['status'];
   inputMethod?: Transaction['inputMethod'];
   recurringRuleId?: string;
+  includeAmortizations?: boolean;
   limit?: number;
   offset?: number;
 }

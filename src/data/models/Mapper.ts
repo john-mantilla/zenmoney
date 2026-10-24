@@ -183,7 +183,11 @@ export class Mapper {
         }
       }
       if (meta.splits) splits = meta.splits;
-      if (meta.period_split || meta.periodSplit) periodSplit = meta.period_split || meta.periodSplit;
+      if (!installments && (meta.period_split || meta.periodSplit)) {
+        periodSplit = meta.period_split || meta.periodSplit;
+      } else if (installments) {
+        periodSplit = undefined;
+      }
 
       aiMetadata = {
         ...meta,
@@ -197,7 +201,7 @@ export class Mapper {
         dueDate: meta.due_date || meta.dueDate || undefined,
         installments,
         splits,
-        periodSplit,
+        periodSplit: installments ? undefined : periodSplit,
         isCCStatement: meta.is_cc_statement || meta.isCCStatement || false,
         isDianInvoice: meta.is_dian_invoice ?? meta.isDianInvoice ?? false,
         is_dian_invoice: meta.is_dian_invoice ?? meta.isDianInvoice ?? false,

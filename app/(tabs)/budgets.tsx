@@ -175,7 +175,8 @@ export default function BudgetsScreen() {
         startDate,
         endDate,
         type: 'expense',
-        status: 'confirmed'
+        status: 'confirmed',
+        includeAmortizations: true,
       }, preferCache);
 
       // 3.1. Cargar transacciones y presupuestos del mes anterior para calcular el Rollover
@@ -190,7 +191,8 @@ export default function BudgetsScreen() {
         startDate: prevStartDate,
         endDate: prevEndDate,
         type: 'expense',
-        status: 'confirmed'
+        status: 'confirmed',
+        includeAmortizations: true,
       }, preferCache);
 
       const resolvedPrevMonth = ResolveEffectiveBudget.resolveAll(privacyBudgets, prevYear, prevMonth);

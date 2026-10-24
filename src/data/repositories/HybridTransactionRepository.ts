@@ -112,7 +112,7 @@ export class HybridTransactionRepository implements TransactionRepository {
       return false;
     }
     if (filters.startDate || filters.endDate) {
-      if (tx.periodSplit) {
+      if (filters.includeAmortizations && tx.periodSplit) {
         const txStartMonth = tx.periodSplit.startMonth;
         const txEndMonth = tx.periodSplit.endMonth;
         const fStartMonth = filters.startDate ? filters.startDate.substring(0, 7) : txStartMonth;

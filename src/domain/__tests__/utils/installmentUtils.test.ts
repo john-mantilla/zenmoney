@@ -105,4 +105,39 @@ describe('installmentUtils — generateInstallmentTransactions', () => {
     expect(cuotas5[4].description).toContain('Cuota 5/5');
     expect(cuotas5.reduce((acc, c) => acc + c.amount, 0)).toBe(800000);
   });
+
+  it('asegura que las cuotas individuales no hereden periodSplit', () => {
+    const inputWithPeriodSplit: CreateTransactionInput = {
+      ...baseInput,
+      periodSplit: {
+        totalMonths: 3,
+        monthlyAmount: 50000,
+        startMonth: '2026-10',
+        endMonth: '2026-12',
+      },
+      aiMetadata: {
+        rawInput: 'Seguro 150000 a 3 cuotas',
+        parsedAmount: 150000,
+        parsedCategory: null,
+        parsedAccount: null,
+        confidence: 1,
+        corrections: {},
+        periodSplit: {
+          totalMonths: 3,
+          monthlyAmount: 50000,
+          startMonth: '2026-10',
+          endMonth: '2026-12',
+        },
+      } as any,
+    };
+
+    const cuotas = generateInstallmentTransactions(inputWithPeriodSplit, 3);
+    expect(cuotas).toHaveLength(3);
+    cuotas.forEach((cuota) => {
+      expect(cuota.periodSplit).toBeUndefined();
+      expect((cuota.aiMetadata as any)?.periodSplit).toBeUndefined();
+      expect((cuota.aiMetadata as any)?.period_split).toBeUndefined();
+      expect(cuota.aiMetadata?.installments).toBeDefined();
+    });
+  });
 });

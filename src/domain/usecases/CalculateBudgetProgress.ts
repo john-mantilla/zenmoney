@@ -43,6 +43,7 @@ export class CalculateBudgetProgress {
       startDate,
       endDate,
       status: 'confirmed',
+      includeAmortizations: true,
     });
 
     let eligibleExpenses = allExpenses;

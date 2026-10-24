@@ -13,6 +13,7 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAppTheme } from '@/src/presentation/theme';
 import { TransactionCard, EmptyState, AmountDisplay, NetworkStatusBar, TransactionFilterModal, DailySpendingAnalysisModal } from '@/src/presentation/components';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
+import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
@@ -28,6 +29,8 @@ export default function TransactionsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ accountId?: string }>();
   const { selectedYear, selectedMonth } = useDateStore();
+  const authUserId = useAuthStore(state => state.userProfile?.id);
+  const fetchRequestIdRef = React.useRef<number>(0);
 
   // Estados de datos
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -85,15 +88,26 @@ export default function TransactionsScreen() {
     lastLoadRef.current = Date.now();
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
+
+    const currentRequestId = ++fetchRequestIdRef.current;
+    const targetYear = selectedYear;
+    const targetMonth = selectedMonth;
+
     const executeFetch = async (preferCache: boolean) => {
       const loadedAccs = await accountRepo.getAll(preferCache);
-      setAccounts(loadedAccs);
+      if (fetchRequestIdRef.current === currentRequestId) {
+        setAccounts(loadedAccs);
+      }
 
       const loadedCats = await categoryRepo.getAll(true, preferCache);
-      setCategories(loadedCats);
+      if (fetchRequestIdRef.current === currentRequestId) {
+        setCategories(loadedCats);
+      }
 
       const loadedTags = await tagRepoInstance.getAll();
-      setTags(loadedTags);
+      if (fetchRequestIdRef.current === currentRequestId) {
+        setTags(loadedTags);
+      }
 
       // Cargar familiares
       const store = require('@/src/infrastructure/auth/authStore');
@@ -123,16 +137,18 @@ export default function TransactionsScreen() {
             }
             membersMap[userProfile.id] = initials;
           }
-          setFamilyMembers(membersMap);
+          if (fetchRequestIdRef.current === currentRequestId) {
+            setFamilyMembers(membersMap);
+          }
         } catch (e) {
           console.warn('[Transactions] Error loading family members', e);
         }
       }
 
-      const lastDay = new Date(selectedYear, selectedMonth, 0).getDate();
-      const monthStr = String(selectedMonth).padStart(2, '0');
-      const startDate = `${selectedYear}-${monthStr}-01`;
-      const endDate = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+      const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+      const monthStr = String(targetMonth).padStart(2, '0');
+      const startDate = `${targetYear}-${monthStr}-01`;
+      const endDate = `${targetYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
 
       const [loadedTxs, pendingTxs] = await Promise.all([
         transactionRepo.getAll({ 
@@ -144,6 +160,12 @@ export default function TransactionsScreen() {
           status: 'pending'
         }, preferCache)
       ]);
+
+      // Si el usuario navegó a otro mes o se lanzó una petición más nueva, ignorar respuesta desactualizada
+      if (fetchRequestIdRef.current !== currentRequestId) {
+        return null;
+      }
+
       const pendingConfirmationList = pendingTxs.filter(isPendingConfirmationTransaction);
       setTransactions(loadedTxs);
       setPendingCount(pendingConfirmationList.length);
@@ -154,7 +176,7 @@ export default function TransactionsScreen() {
     let hasLocalData = false;
     try {
       const localTxs = await executeFetch(true);
-      if (localTxs) {
+      if (localTxs && fetchRequestIdRef.current === currentRequestId) {
         hasLocalData = true;
         setIsLoading(false);
       }
@@ -162,26 +184,32 @@ export default function TransactionsScreen() {
       console.warn('[Transactions Local Load Error]', localErr);
     }
 
-    if (!hasLocalData) {
+    if (!hasLocalData && fetchRequestIdRef.current === currentRequestId) {
       setIsLoading(true);
     }
 
     // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
     isOnlineFast().then((isOnline) => {
-      if (isOnline) {
+      if (isOnline && fetchRequestIdRef.current === currentRequestId) {
         executeFetch(false).catch((err) => {
           console.error('[Transactions Revalidation Error]:', err);
         }).finally(() => {
-          setIsLoading(false);
-          setRefreshing(false);
+          if (fetchRequestIdRef.current === currentRequestId) {
+            setIsLoading(false);
+            setRefreshing(false);
+          }
         });
       } else {
+        if (fetchRequestIdRef.current === currentRequestId) {
+          setIsLoading(false);
+          setRefreshing(false);
+        }
+      }
+    }).catch(() => {
+      if (fetchRequestIdRef.current === currentRequestId) {
         setIsLoading(false);
         setRefreshing(false);
       }
-    }).catch(() => {
-      setIsLoading(false);
-      setRefreshing(false);
     });
   };
 
@@ -196,14 +224,9 @@ export default function TransactionsScreen() {
     let result = transactions;
 
     // Ocultar transacciones privadas de otros miembros de la familia del listado visual
-    try {
-      const store = require('@/src/infrastructure/auth/authStore');
-      const currentUserId = store.useAuthStore.getState().userProfile?.id;
-      if (currentUserId) {
-        result = result.filter(tx => !tx.isPrivate || tx.createdByUserId === currentUserId);
-      }
-    } catch (e) {
-      console.warn('[Transactions Filter Error]:', e);
+    const effectiveUserId = authUserId || currentUserId;
+    if (effectiveUserId) {
+      result = result.filter(tx => !tx.isPrivate || tx.createdByUserId === effectiveUserId);
     }
 
     // Filtro por cuenta
