@@ -33,25 +33,12 @@ export default function EmailInboxScreen() {
   const transactionRepo = new HybridTransactionRepository();
   const categoryRepo = new HybridCategoryRepository();
 
-  const loadData = async (preferCacheFirst = true) => {
+  const loadData = async () => {
     try {
-      if (preferCacheFirst) {
-        // Carga inmediata desde SQLite local (<10ms)
-        const [cachedPendingTx, cachedCategories] = await Promise.all([
-          transactionRepo.getAll({ status: 'pending' }, true),
-          categoryRepo.getAll(true),
-        ]);
-        const unconfirmedCached = cachedPendingTx.filter(isPendingConfirmationTransaction);
-        setInvoices(unconfirmedCached);
-        setCategories(cachedCategories);
-        setLoading(false);
-      } else {
-        setLoading(true);
-      }
-
-      // Revalidación remota en segundo plano
+      setLoading(true);
+      // Carga inmediata 100% Local-First desde SQLite (<10ms)
       const [allPendingTx, loadedCategories] = await Promise.all([
-        transactionRepo.getAll({ status: 'pending' }, false),
+        transactionRepo.getAll({ status: 'pending' }),
         categoryRepo.getAll(true),
       ]);
       // Excluir Facturas y Cuentas por Pagar (éstas pertenecen al calendario de Facturas/Bills)
@@ -67,7 +54,7 @@ export default function EmailInboxScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData(true);
+      loadData();
     }, [])
   );
 

@@ -2,7 +2,6 @@ import { CategoryRepository } from '@domain/repositories/CategoryRepository';
 import { Category, CreateCategoryInput } from '@domain/entities/Category';
 import { SupabaseCategoryRepository } from './SupabaseCategoryRepository';
 import { SqliteCategoryRepository } from './SqliteCategoryRepository';
-import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
@@ -13,91 +12,39 @@ export class HybridCategoryRepository implements CategoryRepository {
   private remoteRepo = new SupabaseCategoryRepository();
   private localRepo = Platform.OS === 'web' ? null : new SqliteCategoryRepository();
 
-  private async isOnline(): Promise<boolean> {
-    return isOnlineFast();
-  }
-
   async getById(id: string): Promise<Category | null> {
     if (Platform.OS === 'web') return this.remoteRepo.getById(id);
-
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave([remote]);
-          return remote;
-        }
-      } catch (err) {
-        // Fallback
-      }
-    }
     return this.localRepo!.getById(id);
   }
 
-  async getAll(includeSystem = true, preferCache = false): Promise<Category[]> {
+  async getAll(includeSystem = true, _preferCache = true): Promise<Category[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll(includeSystem);
 
-    if (preferCache && this.localRepo) {
-      const local = await this.localRepo.getAll(includeSystem);
-      if (local.length > 0) {
-        return local;
-      }
-    }
-
-    if (await this.isOnline()) {
+    const local = await this.localRepo!.getAll(includeSystem);
+    if (local.length === 0) {
       try {
-        const remote = await withTimeout(this.remoteRepo.getAll(includeSystem), 2500);
-        if (remote) {
+        const remote = await this.remoteRepo.getAll(includeSystem);
+        if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
-
-          // Mezclar con categorías locales no sincronizadas
-          const unsynced = await this.localRepo!.getUnsynced();
-          let filteredUnsynced = unsynced;
-          if (!includeSystem) {
-            filteredUnsynced = filteredUnsynced.filter(c => !c.isSystem);
-          }
-
-          const combinedMap = new Map<string, Category>();
-          remote.forEach(cat => combinedMap.set(cat.id, cat));
-          filteredUnsynced.forEach(cat => combinedMap.set(cat.id, cat));
-
-          return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+          return this.localRepo!.getAll(includeSystem);
         }
-      } catch (err) {
-        // Fallback
+      } catch {
+        // Fallback silencioso
       }
     }
-    return this.localRepo!.getAll(includeSystem);
+    return local;
   }
 
   async getByParentId(parentId: string | null): Promise<Category[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getByParentId(parentId);
-
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.getByParentId(parentId), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave(remote);
-
-          // Mezclar con categorías locales no sincronizadas que tengan el mismo parentId
-          const unsynced = await this.localRepo!.getUnsynced();
-          const filteredUnsynced = unsynced.filter(c => c.parentCategoryId === parentId);
-
-          const combinedMap = new Map<string, Category>();
-          remote.forEach(cat => combinedMap.set(cat.id, cat));
-          filteredUnsynced.forEach(cat => combinedMap.set(cat.id, cat));
-
-          return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-        }
-      } catch (err) {
-        // Fallback
-      }
-    }
     return this.localRepo!.getByParentId(parentId);
   }
 
   async create(input: CreateCategoryInput): Promise<Category> {
     const tempId = input.id || generateUUID();
+
+    if (Platform.OS === 'web') return this.remoteRepo.create({ ...input, id: tempId });
+
     let familyGroupId = 'offline-family';
     try {
       const { useAuthStore } = require('../../infrastructure/auth/authStore');
@@ -114,8 +61,6 @@ export class HybridCategoryRepository implements CategoryRepository {
       familyGroupId,
       createdAt
     };
-
-    if (Platform.OS === 'web') return this.remoteRepo.create({ ...input, id: tempId });
 
     // Guardado Optimista Local-First (< 5ms)
     const local = await this.localRepo!.create(localInput);
@@ -174,18 +119,6 @@ export class HybridCategoryRepository implements CategoryRepository {
 
   async searchByName(query: string): Promise<Category[]> {
     if (Platform.OS === 'web') return this.remoteRepo.searchByName(query);
-
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.searchByName(query), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave(remote);
-          return remote;
-        }
-      } catch (err) {
-        // Fallback
-      }
-    }
     return this.localRepo!.searchByName(query);
   }
 }

@@ -2,7 +2,6 @@ import { BudgetRepository } from '@domain/repositories/BudgetRepository';
 import { Budget, CreateBudgetInput } from '@domain/entities/Budget';
 import { SupabaseBudgetRepository } from './SupabaseBudgetRepository';
 import { SqliteBudgetRepository } from './SqliteBudgetRepository';
-import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
@@ -13,92 +12,39 @@ export class HybridBudgetRepository implements BudgetRepository {
   private remoteRepo = new SupabaseBudgetRepository();
   private localRepo = Platform.OS === 'web' ? null : new SqliteBudgetRepository();
 
-  private async isOnline(): Promise<boolean> {
-    return isOnlineFast();
-  }
-
   async getById(id: string): Promise<Budget | null> {
     if (Platform.OS === 'web') return this.remoteRepo.getById(id);
-
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave([remote]);
-          return remote;
-        }
-      } catch (err) {
-        // Fallback
-      }
-    }
     return this.localRepo!.getById(id);
   }
 
-  async getAll(preferCache = false): Promise<Budget[]> {
+  async getAll(_preferCache = true): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll();
 
-    if (preferCache && this.localRepo) {
-      const local = await this.localRepo.getAll();
-      if (local.length > 0) {
-        return local;
-      }
-    }
-
-    if (await this.isOnline()) {
+    const local = await this.localRepo!.getAll();
+    if (local.length === 0) {
       try {
-        const remote = await withTimeout(this.remoteRepo.getAll(), 2500);
-        if (remote) {
+        const remote = await this.remoteRepo.getAll();
+        if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
-
-          const unsynced = await this.localRepo!.getUnsynced();
-          const combinedMap = new Map<string, Budget>();
-          remote.forEach(b => combinedMap.set(b.id, b));
-          unsynced.forEach(b => combinedMap.set(b.id, b));
-
-          return Array.from(combinedMap.values());
+          return this.localRepo!.getAll();
         }
-      } catch (err) {
-        // Fallback
+      } catch {
+        // Fallback silencioso
       }
     }
-    return this.localRepo!.getAll();
+    return local;
   }
 
-  async getByMonth(year: number, month: number, preferCache = false): Promise<Budget[]> {
+  async getByMonth(year: number, month: number, _preferCache = true): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getByMonth(year, month);
-
-    if (preferCache && this.localRepo) {
-      const local = await this.localRepo.getByMonth(year, month);
-      if (local.length > 0) {
-        return local;
-      }
-    }
-
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.getByMonth(year, month), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave(remote);
-
-          // Mezclar con presupuestos locales no sincronizados
-          const unsynced = await this.localRepo!.getUnsynced();
-          const filteredUnsynced = unsynced.filter(b => b.year === year && b.month === month);
-
-          const combinedMap = new Map<string, Budget>();
-          remote.forEach(b => combinedMap.set(b.id, b));
-          filteredUnsynced.forEach(b => combinedMap.set(b.id, b));
-
-          return Array.from(combinedMap.values());
-        }
-      } catch (err) {
-        // Fallback
-      }
-    }
     return this.localRepo!.getByMonth(year, month);
   }
 
   async create(input: CreateBudgetInput): Promise<Budget> {
     const tempId = input.id || generateUUID();
+
+    if (Platform.OS === 'web') return this.remoteRepo.create({ ...input, id: tempId });
+
     let familyGroupId = 'offline-family';
     try {
       const { useAuthStore } = require('../../infrastructure/auth/authStore');
@@ -115,8 +61,6 @@ export class HybridBudgetRepository implements BudgetRepository {
       familyGroupId,
       createdAt
     };
-
-    if (Platform.OS === 'web') return this.remoteRepo.create({ ...input, id: tempId });
 
     // Guardado Optimista Local-First (< 5ms)
     const local = await this.localRepo!.create(localInput);

@@ -189,27 +189,18 @@ export default function DashboardScreen() {
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
 
-    const executeFetch = async (preferCache: boolean) => {
-      const loadedAccounts = await accountRepo.getAll(preferCache);
+    const executeFetch = async () => {
+      const loadedAccounts = await accountRepo.getAll();
       
-      // Calcular saldos dinámicos reales para cada cuenta en base a transacciones confirmadas (Zero-Latency Local)
-      const accountsWithRealBalances = await Promise.all(
-        loadedAccounts.map(async (acc) => {
-          const realBalance = await balanceUseCase.execute(acc, true);
-          return {
-            ...acc,
-            initialBalance: realBalance,
-            currentBalance: realBalance,
-          };
-        })
-      );
-
-      if (!preferCache) {
-        // Persistir saldos consolidados en SQLite para lecturas offline confiables
-        accountsWithRealBalances.forEach((acc) => {
-          accountRepo.updateBalance(acc.id, acc.currentBalance ?? acc.initialBalance).catch(() => {});
-        });
-      }
+      const accountsWithRealBalances = loadedAccounts.map((acc) => {
+        const bal = acc.currentBalance !== undefined && acc.currentBalance !== null
+          ? Number(acc.currentBalance)
+          : Number(acc.initialBalance || 0);
+        return {
+          ...acc,
+          currentBalance: bal,
+        };
+      });
 
       const activeAccounts = accountsWithRealBalances.filter(acc => acc.isActive);
       setAllAccounts(activeAccounts);
@@ -369,40 +360,24 @@ export default function DashboardScreen() {
 
     // 1. CARGA INMEDIATA LOCAL-FIRST (Zero Latency)
     // Lee de la base de datos local SQLite en < 30ms para pintar el dashboard instantáneamente
-    let hasLocalData = false;
     try {
-      const localActive = await executeFetch(true);
-      if (localActive && localActive.length > 0) {
-        hasLocalData = true;
-        setIsLoading(false);
-      }
+      await executeFetch();
     } catch (localErr) {
       console.warn('[Dashboard Local Load Error]', localErr);
-    }
-
-    // Si no había datos locales (primera instalación en frío), mantener spinner
-    if (!hasLocalData) {
-      setIsLoading(true);
-    }
-
-    // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
-    // Si el dispositivo está online, actualiza con la nube en background sin bloquear la pantalla
-    isOnlineFast().then((isOnline) => {
-      if (isOnline) {
-        executeFetch(false).catch((err) => {
-          console.error('[Dashboard Revalidation Error]:', err);
-        }).finally(() => {
-          setIsLoading(false);
-          setRefreshing(false);
-        });
-      } else {
-        setIsLoading(false);
-        setRefreshing(false);
-      }
-    }).catch(() => {
+    } finally {
       setIsLoading(false);
       setRefreshing(false);
-    });
+    }
+
+    // 2. SINCRONIZACIÓN EN SEGUNDO PLANO (Non-Blocking)
+    // Si el dispositivo está online, sincroniza en background sin perturbar la interfaz ni alterar saldos bruscamente
+    isOnlineFast().then((isOnline) => {
+      if (isOnline) {
+        SyncService.fullSync().catch((err) => {
+          console.warn('[Dashboard Background Sync Warning]:', err);
+        });
+      }
+    }).catch(() => {});
   };
 
   // Recargar datos automáticamente cuando la pestaña gana foco
@@ -416,8 +391,8 @@ export default function DashboardScreen() {
     setRefreshing(true);
     SyncService.fullSync()
       .catch(() => {})
-      .finally(() => {
-        loadData(true);
+      .finally(async () => {
+        await loadData();
       });
   };
 

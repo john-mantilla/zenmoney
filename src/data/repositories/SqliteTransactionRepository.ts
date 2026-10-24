@@ -1,9 +1,12 @@
 import { TransactionRepository, TransactionFilters } from '@domain/repositories/TransactionRepository';
 import { Transaction, CreateTransactionInput } from '@domain/entities/Transaction';
 import { LocalDatabase } from '../local/LocalDatabase';
+import { SqliteAccountRepository } from './SqliteAccountRepository';
 import { getLocalDateString } from '../../infrastructure/utils/dateUtils';
 
 export class SqliteTransactionRepository implements TransactionRepository {
+  private accountRepo = new SqliteAccountRepository();
+
   private getDb() {
     return LocalDatabase.getDb();
   }
@@ -12,7 +15,9 @@ export class SqliteTransactionRepository implements TransactionRepository {
     const db = this.getDb();
     const row = await db.getFirstAsync<any>('SELECT * FROM transactions WHERE id = ?;', [id]);
     if (!row) return null;
-    return this.toDomain(row);
+    const tx = this.toDomain(row);
+    await this.attachTags([tx]);
+    return tx;
   }
 
   async getAll(filters?: TransactionFilters): Promise<Transaction[]> {
@@ -29,6 +34,15 @@ export class SqliteTransactionRepository implements TransactionRepository {
       if (filters.categoryId) {
         conditions.push('category_id = ?');
         params.push(filters.categoryId);
+      }
+      if (filters.tagId) {
+        conditions.push('id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id = ?)');
+        params.push(filters.tagId);
+      }
+      if (filters.tagIds && filters.tagIds.length > 0) {
+        const placeholders = filters.tagIds.map(() => '?').join(',');
+        conditions.push(`id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id IN (${placeholders}))`);
+        params.push(...filters.tagIds);
       }
       if (filters.type) {
         conditions.push('type = ?');
@@ -91,7 +105,7 @@ export class SqliteTransactionRepository implements TransactionRepository {
     }
 
     const rows = await db.getAllAsync<any>(query, params);
-    return rows.map(this.toDomain).filter(tx => {
+    const transactions = rows.map(this.toDomain).filter(tx => {
       if (filters?.includeAmortizations && tx.periodSplit && (filters?.startDate || filters?.endDate)) {
         const txStartMonth = tx.periodSplit.startMonth;
         const txEndMonth = tx.periodSplit.endMonth;
@@ -103,6 +117,12 @@ export class SqliteTransactionRepository implements TransactionRepository {
       }
       return true;
     });
+
+    if (transactions.length > 0) {
+      await this.attachTags(transactions);
+    }
+
+    return transactions;
   }
 
   async create(input: CreateTransactionInput): Promise<Transaction> {
@@ -150,7 +170,23 @@ export class SqliteTransactionRepository implements TransactionRepository {
       ]
     );
 
-    return {
+    // Guardar etiquetas asociadas en la tabla relacional transaction_tags
+    if (input.tags && input.tags.length > 0) {
+      for (const tagId of input.tags) {
+        await db.runAsync(
+          'INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);',
+          [id, tagId]
+        );
+      }
+    }
+
+    // Ledger Atómico: si la transacción está confirmada, recalcular saldo de cuentas afectadas
+    if (status === 'confirmed') {
+      const affected = [input.accountId, input.transferToAccountId].filter(Boolean) as string[];
+      await this.accountRepo.recalculateBalances(affected);
+    }
+
+    const createdTx: Transaction = {
       id,
       familyGroupId,
       accountId: input.accountId,
@@ -173,6 +209,9 @@ export class SqliteTransactionRepository implements TransactionRepository {
       updatedAt,
       syncedAt: null
     };
+
+    await this.attachTags([createdTx]);
+    return createdTx;
   }
 
   async update(id: string, data: Partial<CreateTransactionInput>): Promise<Transaction> {
@@ -245,7 +284,21 @@ export class SqliteTransactionRepository implements TransactionRepository {
       }
     }
 
-    return {
+    // Ledger Atómico: recalcular cuentas afectadas si hubo o hay transacciones confirmadas
+    const affectedAccounts = new Set<string>();
+    if (existing.status === 'confirmed') {
+      if (existing.accountId) affectedAccounts.add(existing.accountId);
+      if (existing.transferToAccountId) affectedAccounts.add(existing.transferToAccountId);
+    }
+    if (status === 'confirmed') {
+      if (accountId) affectedAccounts.add(accountId);
+      if (transferToAccountId) affectedAccounts.add(transferToAccountId);
+    }
+    if (affectedAccounts.size > 0) {
+      await this.accountRepo.recalculateBalances(Array.from(affectedAccounts));
+    }
+
+    const updatedTx: Transaction = {
       ...existing,
       accountId,
       categoryId: categoryId || null,
@@ -265,11 +318,20 @@ export class SqliteTransactionRepository implements TransactionRepository {
       updatedAt,
       syncedAt: null
     };
+
+    await this.attachTags([updatedTx]);
+    return updatedTx;
   }
 
   async delete(id: string): Promise<void> {
     const db = this.getDb();
+    const existing = await this.getById(id);
     await db.runAsync('DELETE FROM transactions WHERE id = ?;', [id]);
+    await db.runAsync('DELETE FROM transaction_tags WHERE transaction_id = ?;', [id]);
+    if (existing && existing.status === 'confirmed') {
+      const affected = [existing.accountId, existing.transferToAccountId].filter(Boolean) as string[];
+      await this.accountRepo.recalculateBalances(affected);
+    }
   }
 
   async getByDateRange(startDate: string, endDate: string): Promise<Transaction[]> {
@@ -343,6 +405,18 @@ export class SqliteTransactionRepository implements TransactionRepository {
       await (db as any).withTransactionAsync(runInserts);
     } else {
       await runInserts();
+    }
+
+    // Ledger Atómico: actualizar balances de todas las cuentas afectadas por bulkSave
+    const affected = new Set<string>();
+    for (const tx of transactions) {
+      if (tx.status === 'confirmed') {
+        if (tx.accountId) affected.add(tx.accountId);
+        if (tx.transferToAccountId) affected.add(tx.transferToAccountId);
+      }
+    }
+    if (affected.size > 0) {
+      await this.accountRepo.recalculateBalances(Array.from(affected));
     }
   }
 
@@ -457,5 +531,55 @@ export class SqliteTransactionRepository implements TransactionRepository {
       updatedAt: row.updated_at,
       syncedAt: null
     };
+  }
+
+  private async attachTags(transactions: Transaction[]): Promise<void> {
+    if (!transactions || transactions.length === 0) return;
+    const db = this.getDb();
+    const txIds = transactions.map(t => t.id);
+
+    try {
+      let rawTagRows: any = [];
+      if (txIds.length <= 500) {
+        const placeholders = txIds.map(() => '?').join(',');
+        rawTagRows = await db.getAllAsync<any>(
+          `SELECT tt.transaction_id, t.id, t.family_group_id, t.name, t.color, t.created_at
+           FROM transaction_tags tt
+           JOIN tags t ON tt.tag_id = t.id
+           WHERE tt.transaction_id IN (${placeholders});`,
+          txIds
+        );
+      } else {
+        rawTagRows = await db.getAllAsync<any>(
+          `SELECT tt.transaction_id, t.id, t.family_group_id, t.name, t.color, t.created_at
+           FROM transaction_tags tt
+           JOIN tags t ON tt.tag_id = t.id;`
+        );
+      }
+
+      const tagRows = Array.isArray(rawTagRows) ? rawTagRows : [];
+      const tagsByTxId = new Map<string, any[]>();
+      for (const row of tagRows) {
+        const tag = {
+          id: row.id,
+          familyGroupId: row.family_group_id,
+          name: row.name,
+          color: row.color,
+          createdAt: row.created_at,
+        };
+        const list = tagsByTxId.get(row.transaction_id) || [];
+        list.push(tag);
+        tagsByTxId.set(row.transaction_id, list);
+      }
+
+      for (const tx of transactions) {
+        tx.tags = tagsByTxId.get(tx.id) || [];
+      }
+    } catch (err) {
+      console.warn('[SqliteTxRepo] Error attaching tags to transactions:', err);
+      for (const tx of transactions) {
+        if (!tx.tags) tx.tags = [];
+      }
+    }
   }
 }

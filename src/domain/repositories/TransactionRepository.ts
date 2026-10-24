@@ -7,6 +7,8 @@ import { Transaction, CreateTransactionInput } from '../entities/Transaction';
 export interface TransactionFilters {
   accountId?: string;
   categoryId?: string;
+  tagId?: string;
+  tagIds?: string[];
   type?: Transaction['type'];
   startDate?: string; // YYYY-MM-DD
   endDate?: string; // YYYY-MM-DD

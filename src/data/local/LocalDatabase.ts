@@ -29,15 +29,30 @@ export class LocalDatabase {
         current_balance REAL DEFAULT NULL,
         currency TEXT NOT NULL DEFAULT 'COP',
         is_active INTEGER NOT NULL DEFAULT 1,
+        is_private INTEGER NOT NULL DEFAULT 0,
+        closing_day INTEGER,
+        payment_day INTEGER,
+        color TEXT,
+        icon TEXT,
         created_at TEXT NOT NULL
       );
     `);
 
-    // Migración defensiva: asegurar columna current_balance en bases de datos SQLite existentes
-    try {
-      await database.execAsync('ALTER TABLE accounts ADD COLUMN current_balance REAL DEFAULT NULL;');
-    } catch {
-      // Ignorar si la columna ya existe
+    // Migraciones defensivas para la tabla accounts
+    const accountMigrations = [
+      'ALTER TABLE accounts ADD COLUMN current_balance REAL DEFAULT NULL;',
+      'ALTER TABLE accounts ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;',
+      'ALTER TABLE accounts ADD COLUMN closing_day INTEGER;',
+      'ALTER TABLE accounts ADD COLUMN payment_day INTEGER;',
+      'ALTER TABLE accounts ADD COLUMN color TEXT;',
+      'ALTER TABLE accounts ADD COLUMN icon TEXT;'
+    ];
+    for (const sql of accountMigrations) {
+      try {
+        await database.execAsync(sql);
+      } catch {
+        // Ignorar si la columna ya existe
+      }
     }
 
     // Tabla de categorías
@@ -49,11 +64,19 @@ export class LocalDatabase {
         icon TEXT NOT NULL DEFAULT 'tag',
         color TEXT NOT NULL DEFAULT '#808080',
         parent_category_id TEXT,
+        budget_role TEXT NOT NULL DEFAULT 'needs',
         is_system INTEGER NOT NULL DEFAULT 0,
         is_private INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
     `);
+
+    // Migraciones defensivas para la tabla categories
+    try {
+      await database.execAsync("ALTER TABLE categories ADD COLUMN budget_role TEXT NOT NULL DEFAULT 'needs';");
+    } catch {
+      // Ignorar si la columna ya existe
+    }
 
     // Tabla de transacciones
     await database.execAsync(`
@@ -148,6 +171,38 @@ export class LocalDatabase {
         PRIMARY KEY (transaction_id, tag_id)
       );
     `);
+
+    // Tabla de reglas recurrentes (Recurring Rules)
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS recurring_rules (
+        id TEXT PRIMARY KEY,
+        family_group_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        category_id TEXT,
+        type TEXT NOT NULL,
+        amount REAL NOT NULL,
+        description TEXT,
+        frequency TEXT NOT NULL,
+        day_of_month INTEGER,
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+    `);
+
+    // Tabla de reglas de autocategorización
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS auto_categorization_rules (
+        id TEXT PRIMARY KEY,
+        family_group_id TEXT NOT NULL,
+        match_pattern TEXT NOT NULL,
+        category_id TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        is_ai_generated INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+    `);
   }
 
   static async clearAll(): Promise<void> {
@@ -158,6 +213,8 @@ export class LocalDatabase {
     await database.execAsync('DELETE FROM budgets;');
     await database.execAsync('DELETE FROM tags;');
     await database.execAsync('DELETE FROM transaction_tags;');
+    await database.execAsync('DELETE FROM recurring_rules;');
+    await database.execAsync('DELETE FROM auto_categorization_rules;');
     await database.execAsync('DELETE FROM sync_actions_queue;');
   }
 }

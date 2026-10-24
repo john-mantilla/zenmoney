@@ -26,10 +26,18 @@ export class SqliteAccountRepository implements AccountRepository {
     const familyGroupId = (input as any).familyGroupId || 'offline-family';
     const ownerUserId = (input as any).ownerUserId || 'offline-user';
     const createdAt = new Date().toISOString();
+    const isPrivate = input.isPrivate ? 1 : 0;
+    const closingDay = input.closingDay !== undefined && input.closingDay !== null ? input.closingDay : null;
+    const paymentDay = input.paymentDay !== undefined && input.paymentDay !== null ? input.paymentDay : null;
+    const color = input.color || null;
+    const icon = input.icon || null;
 
     await db.runAsync(
-      `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, current_balance, currency, is_active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      `INSERT INTO accounts (
+        id, family_group_id, owner_user_id, name, type,
+        initial_balance, current_balance, currency, is_active, is_private,
+        closing_day, payment_day, color, icon, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         id,
         familyGroupId,
@@ -40,6 +48,11 @@ export class SqliteAccountRepository implements AccountRepository {
         input.initialBalance,
         input.currency || 'COP',
         1,
+        isPrivate,
+        closingDay,
+        paymentDay,
+        color,
+        icon,
         createdAt
       ]
     );
@@ -54,6 +67,11 @@ export class SqliteAccountRepository implements AccountRepository {
       currentBalance: input.initialBalance,
       currency: input.currency || 'COP',
       isActive: true,
+      isPrivate: Boolean(input.isPrivate),
+      closingDay: input.closingDay || null,
+      paymentDay: input.paymentDay || null,
+      color: input.color || undefined,
+      icon: input.icon || undefined,
       createdAt
     };
   }
@@ -69,10 +87,18 @@ export class SqliteAccountRepository implements AccountRepository {
     const type = data.type !== undefined ? data.type : existing.type;
     const initialBalance = data.initialBalance !== undefined ? data.initialBalance : existing.initialBalance;
     const currency = data.currency !== undefined ? data.currency : existing.currency;
+    const isPrivate = data.isPrivate !== undefined ? (data.isPrivate ? 1 : 0) : (existing.isPrivate ? 1 : 0);
+    const closingDay = data.closingDay !== undefined ? data.closingDay : (existing.closingDay ?? null);
+    const paymentDay = data.paymentDay !== undefined ? data.paymentDay : (existing.paymentDay ?? null);
+    const color = data.color !== undefined ? data.color : (existing.color ?? null);
+    const icon = data.icon !== undefined ? data.icon : (existing.icon ?? null);
 
     await db.runAsync(
-      `UPDATE accounts SET name = ?, type = ?, initial_balance = ?, currency = ? WHERE id = ?;`,
-      [name, type, initialBalance, currency, id]
+      `UPDATE accounts SET
+        name = ?, type = ?, initial_balance = ?, currency = ?, is_private = ?,
+        closing_day = ?, payment_day = ?, color = ?, icon = ?
+       WHERE id = ?;`,
+      [name, type, initialBalance, currency, isPrivate, closingDay, paymentDay, color, icon, id]
     );
 
     return {
@@ -80,7 +106,12 @@ export class SqliteAccountRepository implements AccountRepository {
       name,
       type,
       initialBalance,
-      currency
+      currency,
+      isPrivate: Boolean(isPrivate),
+      closingDay,
+      paymentDay,
+      color: color || undefined,
+      icon: icon || undefined
     };
   }
 
@@ -94,6 +125,70 @@ export class SqliteAccountRepository implements AccountRepository {
     await db.runAsync('UPDATE accounts SET current_balance = ? WHERE id = ?;', [balance, id]);
   }
 
+  /**
+   * Recalcula y actualiza de forma atómica y determinista el `current_balance`
+   * de una cuenta en SQLite a partir de su saldo inicial y sus transacciones confirmadas.
+   */
+  async recalculateBalance(accountId: string): Promise<number> {
+    const db = this.getDb();
+    const acc = await db.getFirstAsync<any>('SELECT id, type, initial_balance FROM accounts WHERE id = ?;', [accountId]);
+    if (!acc) return 0;
+
+    const isDebt = ['credit_card', 'loan', 'mortgage'].includes(acc.type);
+    let balance = Number(acc.initial_balance || 0);
+
+    const txs = await db.getAllAsync<any>(
+      `SELECT type, amount, account_id, transfer_to_account_id
+       FROM transactions
+       WHERE status = 'confirmed' AND (account_id = ? OR transfer_to_account_id = ?);`,
+      [accountId, accountId]
+    );
+
+    for (const tx of txs) {
+      const amount = Number(tx.amount || 0);
+      if (isDebt) {
+        if (tx.type === 'expense') {
+          balance += amount;
+        } else if (tx.type === 'income') {
+          balance -= amount;
+        } else if (tx.type === 'transfer') {
+          if (tx.transfer_to_account_id === accountId) {
+            balance -= amount;
+          } else if (tx.account_id === accountId) {
+            balance += amount;
+          }
+        }
+      } else {
+        if (tx.type === 'income') {
+          balance += amount;
+        } else if (tx.type === 'expense') {
+          balance -= amount;
+        } else if (tx.type === 'transfer') {
+          if (tx.account_id === accountId) {
+            balance -= amount;
+          } else if (tx.transfer_to_account_id === accountId) {
+            balance += amount;
+          }
+        }
+      }
+    }
+
+    balance = Math.round(balance * 100) / 100;
+    await db.runAsync('UPDATE accounts SET current_balance = ? WHERE id = ?;', [balance, accountId]);
+    return balance;
+  }
+
+  /**
+   * Recalcula el saldo para un listado de cuentas (útil tras crear/editar transferencias o transacciones).
+   */
+  async recalculateBalances(accountIds: string[]): Promise<void> {
+    const uniqueIds = Array.from(new Set(accountIds.filter(Boolean)));
+    for (const id of uniqueIds) {
+      await this.recalculateBalance(id);
+    }
+  }
+
+
   async bulkSave(accounts: Account[]): Promise<void> {
     if (!accounts || accounts.length === 0) return;
     const db = this.getDb();
@@ -103,15 +198,23 @@ export class SqliteAccountRepository implements AccountRepository {
       for (const acc of accounts) {
         try {
           await db.runAsync(
-            `INSERT INTO accounts (id, family_group_id, owner_user_id, name, type, initial_balance, current_balance, currency, is_active, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO accounts (
+               id, family_group_id, owner_user_id, name, type,
+               initial_balance, current_balance, currency, is_active, is_private,
+               closing_day, payment_day, color, icon, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                name = excluded.name,
                type = excluded.type,
                initial_balance = excluded.initial_balance,
                current_balance = COALESCE(excluded.current_balance, accounts.current_balance),
                currency = excluded.currency,
-               is_active = excluded.is_active;`,
+               is_active = excluded.is_active,
+               is_private = excluded.is_private,
+               closing_day = excluded.closing_day,
+               payment_day = excluded.payment_day,
+               color = excluded.color,
+               icon = excluded.icon;`,
             [
               acc.id,
               acc.familyGroupId || 'offline-family',
@@ -122,6 +225,11 @@ export class SqliteAccountRepository implements AccountRepository {
               acc.currentBalance ?? null,
               acc.currency || 'COP',
               acc.isActive ? 1 : 0,
+              acc.isPrivate ? 1 : 0,
+              acc.closingDay !== undefined && acc.closingDay !== null ? acc.closingDay : null,
+              acc.paymentDay !== undefined && acc.paymentDay !== null ? acc.paymentDay : null,
+              acc.color || null,
+              acc.icon || null,
               acc.createdAt || nowIso
             ]
           );
@@ -171,6 +279,11 @@ export class SqliteAccountRepository implements AccountRepository {
       currentBalance: row.current_balance !== null && row.current_balance !== undefined ? Number(row.current_balance) : undefined,
       currency: row.currency,
       isActive: row.is_active === 1,
+      isPrivate: row.is_private === 1 || row.is_private === true,
+      closingDay: row.closing_day !== null && row.closing_day !== undefined ? Number(row.closing_day) : null,
+      paymentDay: row.payment_day !== null && row.payment_day !== undefined ? Number(row.payment_day) : null,
+      color: row.color || undefined,
+      icon: row.icon || undefined,
       createdAt: row.created_at
     };
   }

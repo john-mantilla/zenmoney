@@ -24,7 +24,7 @@ import {
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
-import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
+import { HybridRecurringRuleRepository } from '@/src/data/repositories/HybridRecurringRuleRepository';
 import { Transaction, isBillTransaction } from '@/src/domain/entities/Transaction';
 import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
@@ -103,7 +103,7 @@ export default function BillsScreen() {
   const transactionRepo = new HybridTransactionRepository();
   const accountRepo = new HybridAccountRepository();
   const categoryRepo = new HybridCategoryRepository();
-  const recurrenceRepo = new SupabaseRecurringRuleRepository();
+  const recurrenceRepo = new HybridRecurringRuleRepository();
 
   const forecastUseCase = useMemo(() => new ForecastCashFlowUseCase(), []);
   const simulatorUseCase = useMemo(() => new SimulateFinancialScenarioUseCase(), []);

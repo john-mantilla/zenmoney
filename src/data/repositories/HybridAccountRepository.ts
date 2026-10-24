@@ -2,7 +2,8 @@ import { AccountRepository } from '@domain/repositories/AccountRepository';
 import { Account, CreateAccountInput } from '@domain/entities/Account';
 import { SupabaseAccountRepository } from './SupabaseAccountRepository';
 import { SqliteAccountRepository } from './SqliteAccountRepository';
-import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
+import { SupabaseTransactionRepository } from './SupabaseTransactionRepository';
+import { CalculateAccountBalance } from '../../domain/usecases/CalculateAccountBalance';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
@@ -13,70 +14,74 @@ export class HybridAccountRepository implements AccountRepository {
   private remoteRepo = new SupabaseAccountRepository();
   private localRepo = Platform.OS === 'web' ? null : new SqliteAccountRepository();
 
-  private async isOnline(): Promise<boolean> {
-    return isOnlineFast();
-  }
-
   async getById(id: string): Promise<Account | null> {
-    if (Platform.OS === 'web') return this.remoteRepo.getById(id);
-    
-    if (await this.isOnline()) {
+    if (Platform.OS === 'web') {
+      const acc = await this.remoteRepo.getById(id);
+      if (!acc) return null;
       try {
-        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave([remote]);
-          return remote;
-        }
-      } catch (err) {
-        // Fallback silently
+        const txRepo = new SupabaseTransactionRepository();
+        const balanceUseCase = new CalculateAccountBalance(txRepo);
+        const realBalance = await balanceUseCase.execute(acc, false);
+        return {
+          ...acc,
+          currentBalance: isNaN(realBalance) ? Number(acc.initialBalance || 0) : realBalance,
+        };
+      } catch {
+        return {
+          ...acc,
+          currentBalance: Number(acc.initialBalance || 0),
+        };
       }
     }
     return this.localRepo!.getById(id);
   }
 
-  async getAll(preferCache = false): Promise<Account[]> {
-    if (Platform.OS === 'web') return this.remoteRepo.getAll();
-
-    if (preferCache && this.localRepo) {
-      const local = await this.localRepo.getAll();
-      if (local.length > 0) {
-        return local;
-      }
-    }
-
-    if (await this.isOnline()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.getAll(), 3000);
-        if (remote) {
-          await (this.localRepo as any).syncWithRemote(remote);
-
-          // Obtener las cuentas locales para preservar su currentBalance consolidado
-          const localAccounts = await this.localRepo!.getAll();
-          const localMap = new Map(localAccounts.map(a => [a.id, a]));
-
-          // Mezclar con cuentas locales no sincronizadas y preservar currentBalance
-          const unsynced = await this.localRepo!.getUnsynced();
-          const combinedMap = new Map<string, Account>();
-          remote.forEach(acc => {
-            const localAcc = localMap.get(acc.id);
-            combinedMap.set(acc.id, {
+  async getAll(_preferCache = true): Promise<Account[]> {
+    if (Platform.OS === 'web') {
+      const remoteAccounts = await this.remoteRepo.getAll();
+      const txRepo = new SupabaseTransactionRepository();
+      const balanceUseCase = new CalculateAccountBalance(txRepo);
+      return Promise.all(
+        remoteAccounts.map(async (acc) => {
+          try {
+            const realBalance = await balanceUseCase.execute(acc, false);
+            return {
               ...acc,
-              currentBalance: localAcc?.currentBalance !== undefined ? localAcc.currentBalance : acc.currentBalance,
-            });
-          });
-          unsynced.forEach(acc => combinedMap.set(acc.id, acc));
-
-          return Array.from(combinedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+              currentBalance: isNaN(realBalance) ? Number(acc.initialBalance || 0) : realBalance,
+            };
+          } catch {
+            return {
+              ...acc,
+              currentBalance: Number(acc.initialBalance || 0),
+            };
+          }
+        })
+      );
+    }
+    
+    const local = await this.localRepo!.getAll();
+    // Si la base local está vacía (primer inicio antes de sync), intentar un bootstrap silencioso
+    if (local.length === 0) {
+      try {
+        const remote = await this.remoteRepo.getAll();
+        if (remote && remote.length > 0) {
+          await this.localRepo!.bulkSave(remote);
+          return this.localRepo!.getAll();
         }
-      } catch (err) {
+      } catch {
         // Fallback silencioso
       }
     }
-    return this.localRepo!.getAll();
+    return local;
   }
 
   async create(input: CreateAccountInput): Promise<Account> {
     const tempId = input.id || generateUUID();
+
+    if (Platform.OS === 'web') {
+      return this.remoteRepo.create({ ...input, id: tempId });
+    }
+
     let familyGroupId = 'offline-family';
     let ownerUserId = 'offline-user';
     try {
@@ -99,8 +104,6 @@ export class HybridAccountRepository implements AccountRepository {
       createdAt
     };
 
-    if (Platform.OS === 'web') return this.remoteRepo.create({ ...input, id: tempId });
-
     // Guardado Optimista Local-First (< 5ms)
     const local = await this.localRepo!.create(localInput);
     
@@ -120,11 +123,12 @@ export class HybridAccountRepository implements AccountRepository {
   }
 
   async update(id: string, data: Partial<CreateAccountInput>): Promise<Account> {
-    if (Platform.OS === 'web') return this.remoteRepo.update(id, data);
+    if (Platform.OS === 'web') {
+      return this.remoteRepo.update(id, data);
+    }
 
-    // Actualización Optimista Local-First (< 5ms)
     const local = await this.localRepo!.update(id, data);
-    
+
     const db = LocalDatabase.getDb();
     const actionId = 'act_' + Math.random().toString(36).substring(2, 15);
     await db.runAsync(
@@ -140,9 +144,10 @@ export class HybridAccountRepository implements AccountRepository {
   }
 
   async delete(id: string): Promise<void> {
-    if (Platform.OS === 'web') return this.remoteRepo.delete(id);
+    if (Platform.OS === 'web') {
+      return this.remoteRepo.delete(id);
+    }
 
-    // Borrado Optimista Local-First (< 5ms)
     await this.localRepo!.delete(id);
 
     const db = LocalDatabase.getDb();
@@ -158,8 +163,17 @@ export class HybridAccountRepository implements AccountRepository {
   }
 
   async updateBalance(id: string, balance: number): Promise<void> {
-    if (this.localRepo) {
-      await this.localRepo.updateBalance(id, balance);
+    if (Platform.OS === 'web') {
+      // En Web las cuentas no guardan current_balance en base de datos remota
+      return;
     }
+    return this.localRepo!.updateBalance(id, balance);
+  }
+
+  async recalculateBalance(id: string): Promise<number> {
+    if (Platform.OS === 'web') {
+      return 0;
+    }
+    return this.localRepo!.recalculateBalance(id);
   }
 }

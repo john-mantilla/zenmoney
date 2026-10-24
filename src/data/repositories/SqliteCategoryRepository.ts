@@ -87,10 +87,11 @@ export class SqliteCategoryRepository implements CategoryRepository {
     const color = data.color !== undefined ? data.color : existing.color;
     const parentCategoryId = data.parentCategoryId !== undefined ? data.parentCategoryId : existing.parentCategoryId;
     const isPrivate = data.isPrivate !== undefined ? data.isPrivate : existing.isPrivate;
+    const budgetRole = data.budgetRole !== undefined ? data.budgetRole : existing.budgetRole;
 
     await db.runAsync(
-      `UPDATE categories SET name = ?, icon = ?, color = ?, parent_category_id = ?, is_private = ? WHERE id = ?;`,
-      [name, icon, color, parentCategoryId || null, isPrivate ? 1 : 0, id]
+      `UPDATE categories SET name = ?, icon = ?, color = ?, parent_category_id = ?, is_private = ?, budget_role = ? WHERE id = ?;`,
+      [name, icon, color, parentCategoryId || null, isPrivate ? 1 : 0, budgetRole, id]
     );
 
     return {
@@ -99,6 +100,7 @@ export class SqliteCategoryRepository implements CategoryRepository {
       icon,
       color,
       parentCategoryId: parentCategoryId || null,
+      budgetRole,
       isPrivate
     };
   }
@@ -124,8 +126,8 @@ export class SqliteCategoryRepository implements CategoryRepository {
     const runInserts = async () => {
       for (const cat of categories) {
         await db.runAsync(
-          `INSERT OR REPLACE INTO categories (id, family_group_id, name, icon, color, parent_category_id, is_system, is_private, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          `INSERT OR REPLACE INTO categories (id, family_group_id, name, icon, color, parent_category_id, is_system, is_private, created_at, budget_role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
           [
             cat.id,
             cat.familyGroupId,
@@ -135,7 +137,8 @@ export class SqliteCategoryRepository implements CategoryRepository {
             cat.parentCategoryId,
             cat.isSystem ? 1 : 0,
             cat.isPrivate ? 1 : 0,
-            cat.createdAt
+            cat.createdAt,
+            cat.budgetRole || inferCategoryBudgetRole(cat.name)
           ]
         );
       }

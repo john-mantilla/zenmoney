@@ -14,44 +14,25 @@ export class HybridTagRepository implements TagRepository {
 
   async getById(id: string): Promise<Tag | null> {
     if (Platform.OS === 'web') return this.remoteRepo.getById(id);
-
-    if (await isOnlineFast()) {
-      try {
-        const remote = await withTimeout(this.remoteRepo.getById(id), 2500);
-        if (remote) {
-          await this.localRepo!.bulkSave([remote]);
-          return remote;
-        }
-      } catch (err) {
-        // Fallback silencioso
-      }
-    }
     return this.localRepo!.getById(id);
   }
 
-  async getAll(preferCache = false): Promise<Tag[]> {
+  async getAll(_preferCache = true): Promise<Tag[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll();
 
-    if (preferCache && this.localRepo) {
-      const local = await this.localRepo.getAll();
-      if (local.length > 0) {
-        return local;
-      }
-    }
-
-    if (await isOnlineFast()) {
+    const local = await this.localRepo!.getAll();
+    if (local.length === 0) {
       try {
-        const remote = await withTimeout(this.remoteRepo.getAll(), 2500);
-        if (this.localRepo && remote) {
-          await this.localRepo.syncWithRemote(remote);
+        const remote = await this.remoteRepo.getAll();
+        if (remote && remote.length > 0) {
+          await this.localRepo!.bulkSave(remote);
+          return this.localRepo!.getAll();
         }
-        return remote;
-      } catch (err) {
+      } catch {
         // Fallback silencioso
       }
     }
-
-    return this.localRepo ? this.localRepo.getAll() : [];
+    return local;
   }
 
   async create(input: CreateTagInput): Promise<Tag> {

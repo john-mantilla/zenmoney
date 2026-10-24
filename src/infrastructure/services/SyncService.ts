@@ -4,11 +4,15 @@ import { SupabaseAccountRepository } from '../../data/repositories/SupabaseAccou
 import { SupabaseCategoryRepository } from '../../data/repositories/SupabaseCategoryRepository';
 import { SupabaseBudgetRepository } from '../../data/repositories/SupabaseBudgetRepository';
 import { SupabaseTagRepository } from '../../data/repositories/SupabaseTagRepository';
+import { SupabaseRecurringRuleRepository } from '../../data/repositories/SupabaseRecurringRuleRepository';
+import { SupabaseCategorizationRuleRepository } from '../../data/repositories/SupabaseCategorizationRuleRepository';
 import { SqliteAccountRepository } from '../../data/repositories/SqliteAccountRepository';
 import { SqliteTransactionRepository } from '../../data/repositories/SqliteTransactionRepository';
 import { SqliteCategoryRepository } from '../../data/repositories/SqliteCategoryRepository';
 import { SqliteTagRepository } from '../../data/repositories/SqliteTagRepository';
 import { SqliteBudgetRepository } from '../../data/repositories/SqliteBudgetRepository';
+import { SqliteRecurringRuleRepository } from '../../data/repositories/SqliteRecurringRuleRepository';
+import { SqliteCategorizationRuleRepository } from '../../data/repositories/SqliteCategorizationRuleRepository';
 import { CalculateAccountBalance } from '../../domain/usecases/CalculateAccountBalance';
 import { Account } from '../../domain/entities/Account';
 import { Transaction } from '../../domain/entities/Transaction';
@@ -22,6 +26,8 @@ export class SyncService {
   private static remoteCategoryRepo = new SupabaseCategoryRepository();
   private static remoteBudgetRepo = new SupabaseBudgetRepository();
   private static remoteTagRepo = new SupabaseTagRepository();
+  private static remoteRecurringRuleRepo = new SupabaseRecurringRuleRepository();
+  private static remoteCategorizationRepo = new SupabaseCategorizationRuleRepository();
 
   static async syncPendingActions(): Promise<void> {
     if (Platform.OS === 'web') return;
@@ -103,6 +109,24 @@ export class SyncService {
             } else if (type === 'DELETE') {
               await this.remoteTagRepo.delete(recordId);
             }
+          } else if (table === 'recurring_rules') {
+            if (type === 'INSERT') {
+              const { familyGroupId, createdAt, ...cleanPayload } = payload;
+              await this.remoteRecurringRuleRepo.create(cleanPayload);
+            } else if (type === 'UPDATE') {
+              const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
+              await this.remoteRecurringRuleRepo.update(recordId, cleanPayload);
+            } else if (type === 'DELETE') {
+              await this.remoteRecurringRuleRepo.delete(recordId);
+            }
+          } else if (table === 'auto_categorization_rules') {
+            if (type === 'INSERT') {
+              const { familyGroupId, createdAt, ...cleanPayload } = payload;
+              await this.remoteCategorizationRepo.create(cleanPayload);
+            } else if (type === 'UPDATE') {
+              const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
+              await this.remoteCategorizationRepo.update(recordId, cleanPayload);
+            }
           }
 
           // Eliminar la acción procesada con éxito de la cola local
@@ -115,7 +139,7 @@ export class SyncService {
                 [recordId]
               );
             } catch (updateLocalErr) {
-              // Si la tabla local no tiene la columna "synced" (como categories o budgets que no la necesitan), ignorar silenciosamente.
+              // Si la tabla local no tiene la columna "synced", ignorar silenciosamente.
             }
           }
           console.log(`[SyncService] Successfully synced action ${action.id} (${type} on ${table})`);
@@ -138,25 +162,26 @@ export class SyncService {
               // ignore
             }
           } else {
-            // Error de red temporal, pausar y reintentar en el próximo ciclo
+            console.warn(`[SyncService] Transient network error encountered. Action ${action.id} remains in queue.`);
             break;
           }
         }
       }
     } catch (err) {
-      console.error('[SyncService] Global sync error:', err);
+      console.error('[SyncService] Global error during syncPendingActions:', err);
     } finally {
       this.isSyncing = false;
     }
   }
 
   /**
-   * Descarga una copia espejo limpia desde la nube hacia la base de datos local SQLite:
-   * 1. Cuentas con sus balances consolidados calculados (currentBalance) sin alterar initialBalance.
-   * 2. Categorías.
-   * 3. Etiquetas.
-   * 4. Transacciones confirmadas del año actual y recientes.
-   * 5. Presupuestos.
+   * Sincroniza desde la nube hacia la base local (Descarga de réplica limpia):
+   * 1. Cuentas
+   * 2. Categorías
+   * 3. Reglas Recurrentes (recurring_rules)
+   * 4. Transacciones completas (sin truncamiento por año)
+   * 5. Movimientos pendientes (DIAN, bancos, etc.)
+   * 6. Presupuestos y Etiquetas
    */
   static async syncCloudToLocal(): Promise<void> {
     if (Platform.OS === 'web') return;
@@ -168,9 +193,11 @@ export class SyncService {
       const localCatRepo = new SqliteCategoryRepository();
       const localTagRepo = new SqliteTagRepository();
       const localBudgetRepo = new SqliteBudgetRepository();
+      const localRecurringRepo = new SqliteRecurringRuleRepository();
+      const localCategorizationRepo = new SqliteCategorizationRuleRepository();
       const balanceUseCase = new CalculateAccountBalance(this.remoteTransactionRepo);
 
-      // 1. Descargar y sincronizar cuentas con sus saldos reales consolidados en current_balance
+      // 1. Descargar y sincronizar cuentas
       const remoteAccounts = await withTimeout(this.remoteAccountRepo.getAll(), 3500, []);
       if (remoteAccounts && remoteAccounts.length > 0) {
         const accountsWithRealBalances = await Promise.all(
@@ -212,20 +239,23 @@ export class SyncService {
         console.warn('[SyncService] Error syncing tags to local:', tagErr);
       }
 
-      // 4. Descargar y sincronizar transacciones recientes (año en curso)
+      // 4. Descargar y sincronizar reglas recurrentes
       try {
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const startDate = `${currentYear}-01-01`;
-        const endDate = `${currentYear}-12-31`;
+        const remoteRules = await withTimeout(this.remoteRecurringRuleRepo.getAllActive(), 3500, []);
+        if (remoteRules && remoteRules.length > 0) {
+          await localRecurringRepo.bulkSave(remoteRules);
+        }
+      } catch (ruleErr) {
+        console.warn('[SyncService] Error syncing recurring rules to local:', ruleErr);
+      }
 
+      // 5. Descargar y sincronizar transacciones completas (historial íntegro para precisión contable)
+      try {
         const remoteTransactions = await withTimeout(
           this.remoteTransactionRepo.getAll({
-            startDate,
-            endDate,
             status: 'confirmed',
           }),
-          4500,
+          5500,
           []
         );
 
@@ -236,7 +266,7 @@ export class SyncService {
         console.warn('[SyncService] Error syncing transactions to local:', txErr);
       }
 
-      // 4b. Descargar y reconciliar movimientos pendientes (Facturas DIAN, correos bancarios, notas de voz)
+      // 5b. Descargar y reconciliar movimientos pendientes (Facturas DIAN, correos bancarios, etc.)
       try {
         const remotePending = await withTimeout(
           this.remoteTransactionRepo.getAll({
@@ -256,7 +286,7 @@ export class SyncService {
         console.warn('[SyncService] Error syncing pending transactions to local:', pendingErr);
       }
 
-      // 5. Descargar y sincronizar presupuestos
+      // 6. Descargar y sincronizar presupuestos
       try {
         const now = new Date();
         const remoteBudgets = await withTimeout(
@@ -269,6 +299,20 @@ export class SyncService {
         }
       } catch (budgetErr) {
         console.warn('[SyncService] Error syncing budgets to local:', budgetErr);
+      }
+
+      // 7. Descargar y sincronizar reglas de auto-categorización
+      try {
+        const remoteRules = await withTimeout(
+          this.remoteCategorizationRepo.getAll(),
+          3500,
+          []
+        );
+        if (remoteRules && remoteRules.length > 0) {
+          await localCategorizationRepo.bulkSave(remoteRules);
+        }
+      } catch (ruleErr) {
+        console.warn('[SyncService] Error syncing categorization rules to local:', ruleErr);
       }
 
       console.log('[SyncService] Cloud to local sync completed successfully.');
@@ -296,9 +340,7 @@ export class SyncService {
   }
 
   /**
-   * Sincroniza de manera atómica y en lote los datos requeridos por el Dashboard:
-   * 1. Cuentas y sus balances reales consolidados en current_balance.
-   * 2. Todas las transacciones confirmadas (ingresos y gastos) del mes seleccionado.
+   * Sincroniza de manera atómica y en lote los datos requeridos por el Dashboard en background
    */
   static async syncDashboardData(year: number, month: number): Promise<{
     accounts: Account[];
@@ -339,7 +381,7 @@ export class SyncService {
       // 3. Guardar cuentas con sus saldos actualizados en SQLite (current_balance)
       await localAccountRepo.bulkSave(accountsWithRealBalances);
 
-      // 4. Descargar todas las transacciones confirmadas del mes seleccionado (ingresos y gastos)
+      // 4. Descargar transacciones confirmadas del mes seleccionado
       const lastDay = new Date(year, month, 0).getDate();
       const monthStr = String(month).padStart(2, '0');
       const startDate = `${year}-${monthStr}-01`;
