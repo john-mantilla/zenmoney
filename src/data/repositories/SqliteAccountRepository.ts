@@ -16,7 +16,7 @@ export class SqliteAccountRepository implements AccountRepository {
 
   async getAll(): Promise<Account[]> {
     const db = this.getDb();
-    const rows = await db.getAllAsync<any>('SELECT * FROM accounts WHERE is_active = 1 ORDER BY name ASC;');
+    const rows = await db.getAllAsync<any>('SELECT * FROM accounts ORDER BY name ASC;');
     return rows.map(this.toDomain);
   }
 
@@ -88,6 +88,7 @@ export class SqliteAccountRepository implements AccountRepository {
     const initialBalance = data.initialBalance !== undefined ? data.initialBalance : existing.initialBalance;
     const currency = data.currency !== undefined ? data.currency : existing.currency;
     const isPrivate = data.isPrivate !== undefined ? (data.isPrivate ? 1 : 0) : (existing.isPrivate ? 1 : 0);
+    const isActive = (data as any).isActive !== undefined ? ((data as any).isActive ? 1 : 0) : (existing.isActive ? 1 : 0);
     const closingDay = data.closingDay !== undefined ? data.closingDay : (existing.closingDay ?? null);
     const paymentDay = data.paymentDay !== undefined ? data.paymentDay : (existing.paymentDay ?? null);
     const color = data.color !== undefined ? data.color : (existing.color ?? null);
@@ -95,10 +96,10 @@ export class SqliteAccountRepository implements AccountRepository {
 
     await db.runAsync(
       `UPDATE accounts SET
-        name = ?, type = ?, initial_balance = ?, currency = ?, is_private = ?,
+        name = ?, type = ?, initial_balance = ?, currency = ?, is_private = ?, is_active = ?,
         closing_day = ?, payment_day = ?, color = ?, icon = ?
        WHERE id = ?;`,
-      [name, type, initialBalance, currency, isPrivate, closingDay, paymentDay, color, icon, id]
+      [name, type, initialBalance, currency, isPrivate, isActive, closingDay, paymentDay, color, icon, id]
     );
 
     return {
@@ -107,6 +108,7 @@ export class SqliteAccountRepository implements AccountRepository {
       type,
       initialBalance,
       currency,
+      isActive: Boolean(isActive),
       isPrivate: Boolean(isPrivate),
       closingDay,
       paymentDay,

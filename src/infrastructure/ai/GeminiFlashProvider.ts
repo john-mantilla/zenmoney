@@ -374,7 +374,45 @@ export class GeminiFlashProvider implements AIProvider {
     context: FinancialContext,
     history: ConversationTurn[] = []
   ): Promise<NLQQueryResult> {
+    // ─── 1. INTENTO PRIORITARIO: LLAMADA A EDGE FUNCTION (SERVER-SIDE) ───
+    try {
+      console.log('[Gemini Provider] Intentando consulta de asistente vía Supabase Edge Function (chat-assistant)...');
+      const { data, error } = await supabase.functions.invoke('chat-assistant', {
+        body: {
+          question,
+          context,
+          history,
+        },
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Error en respuesta de Edge Function chat-assistant.');
+      }
+
+      if (data && data.answer) {
+        console.log('[Gemini Provider] Consulta de asistente exitosa vía Edge Function.');
+        return {
+          answer: data.answer,
+          suggestedActions: data.suggestedActions || [],
+          pendingAction: data.pendingAction || null,
+        };
+      }
+    } catch (err) {
+      console.warn(
+        '[Gemini Provider] Fallo al invocar la Edge Function chat-assistant. ' +
+        'Evaluando fallback client-side...',
+        err
+      );
+    }
+
+    // ─── 2. FALLBACK: LLAMADA DIRECTA DESDE EL CLIENTE (CLIENT-SIDE) ───
     const apiKey = this.getApiKey();
+    if (!apiKey) {
+      throw new Error(
+        'El Asistente Financiero requiere conexión con el servidor de IA (Supabase Edge Function). ' +
+        'Por favor verifica tu conexión a internet.'
+      );
+    }
 
     // Va en `systemInstruction`, no en `contents`: así el contexto financiero (que puede
     // cambiar entre preguntas) se manda fresco en cada llamada sin tener que repetirlo

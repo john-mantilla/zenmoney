@@ -255,7 +255,7 @@ export class SyncService {
           this.remoteTransactionRepo.getAll({
             status: 'confirmed',
           }),
-          5500,
+          15000,
           []
         );
 
@@ -272,7 +272,7 @@ export class SyncService {
           this.remoteTransactionRepo.getAll({
             status: 'pending',
           }),
-          4500,
+          10000,
           []
         );
 

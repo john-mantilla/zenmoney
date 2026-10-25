@@ -189,18 +189,27 @@ export default function DashboardScreen() {
     lastLoadedMonthRef.current = selectedMonth;
     lastLoadedYearRef.current = selectedYear;
 
-    const executeFetch = async () => {
+    const executeFetch = async (preferCache: boolean = true) => {
       const loadedAccounts = await accountRepo.getAll();
       
-      const accountsWithRealBalances = loadedAccounts.map((acc) => {
-        const bal = acc.currentBalance !== undefined && acc.currentBalance !== null
-          ? Number(acc.currentBalance)
-          : Number(acc.initialBalance || 0);
-        return {
-          ...acc,
-          currentBalance: bal,
-        };
-      });
+      const accountsWithRealBalances = await Promise.all(
+        loadedAccounts.map(async (acc) => {
+          try {
+            const realBalance = await balanceUseCase.execute(acc, preferCache);
+            return {
+              ...acc,
+              currentBalance: isNaN(realBalance) ? Number(acc.initialBalance || 0) : realBalance,
+            };
+          } catch {
+            return {
+              ...acc,
+              currentBalance: acc.currentBalance !== undefined && acc.currentBalance !== null
+                ? Number(acc.currentBalance)
+                : Number(acc.initialBalance || 0),
+            };
+          }
+        })
+      );
 
       const activeAccounts = accountsWithRealBalances.filter(acc => acc.isActive);
       setAllAccounts(activeAccounts);
@@ -361,7 +370,7 @@ export default function DashboardScreen() {
     // 1. CARGA INMEDIATA LOCAL-FIRST (Zero Latency)
     // Lee de la base de datos local SQLite en < 30ms para pintar el dashboard instantáneamente
     try {
-      await executeFetch();
+      await executeFetch(true);
     } catch (localErr) {
       console.warn('[Dashboard Local Load Error]', localErr);
     } finally {
@@ -373,9 +382,13 @@ export default function DashboardScreen() {
     // Si el dispositivo está online, sincroniza en background sin perturbar la interfaz ni alterar saldos bruscamente
     isOnlineFast().then((isOnline) => {
       if (isOnline) {
-        SyncService.fullSync().catch((err) => {
-          console.warn('[Dashboard Background Sync Warning]:', err);
-        });
+        SyncService.fullSync()
+          .then(() => {
+            loadData(true).catch(() => {});
+          })
+          .catch((err) => {
+            console.warn('[Dashboard Background Sync Warning]:', err);
+          });
       }
     }).catch(() => {});
   };
@@ -392,7 +405,7 @@ export default function DashboardScreen() {
     SyncService.fullSync()
       .catch(() => {})
       .finally(async () => {
-        await loadData();
+        await loadData(true);
       });
   };
 

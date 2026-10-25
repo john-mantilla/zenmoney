@@ -110,7 +110,9 @@ serve(async (req) => {
          - "la semana pasada" -> 7 días antes de hoy si no se menciona un día específico de esa semana.
          - Nunca devuelvas una fecha futura.
 
-      Devuelve ÚNICAMENTE un objeto JSON con el siguiente esquema exacto, sin bloques de código markdown ni texto adicional:
+      9. installmentsCount: Si el usuario menciona diferir a cuotas o pagar a plazos (ej: "a 3 cuotas", "diferido a 6 meses", "a 12 pagos", "en 4 cuotas"), extrae el número entero de cuotas (ej: 3, 6, 12). Si no se menciona o es 1 cuota, pon null.
+
+       Devuelve ÚNICAMENTE un objeto JSON con el siguiente esquema exacto, sin bloques de código markdown ni texto adicional:
       {
         "amount": number | null,
         "type": "expense" | "income" | "transfer" | null,
@@ -121,7 +123,8 @@ serve(async (req) => {
         "merchantName": string | null,
         "description": string | null,
         "confidence": number,
-        "transactionDate": "YYYY-MM-DD"
+        "transactionDate": "YYYY-MM-DD",
+        "installmentsCount": number | null
       }
     `;
 

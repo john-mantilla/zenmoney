@@ -139,7 +139,7 @@ Al completarse, EAS retorna:
 
 ### Plantillas de Variables de Entorno
 
-- **`.env.example`**: Plantilla base con la lista de claves necesarias (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_GEMINI_API_KEY`, `SENTRY_DSN`, `LOG_LEVEL`).
+- **`.env.example`**: Plantilla base con la lista de variables públicas necesarias (`EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `SENTRY_DSN`, `LOG_LEVEL`). Las claves sensibles de IA se gestionan en los Secrets de Supabase Edge Functions (`supabase secrets set GEMINI_API_KEY=...`).
 - **`.env.staging`**: Variables orientadas al entorno de pruebas.
 - **`.env.production`**: Variables para la versión final distribuida en tiendas.
 
