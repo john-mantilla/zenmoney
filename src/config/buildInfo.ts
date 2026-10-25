@@ -4,10 +4,10 @@
  */
 
 export const BUILD_CONFIG = {
-  version: '1.4.1',
+  version: '1.4.2',
   android: {
     // Enlace a la compilación más reciente en Expo EAS
-    latestBuildUrl: 'https://expo.dev/accounts/johnmantilla/projects/zenmoney/builds/a171499c-8f14-4bfb-b984-86c6963d06a3',
+    latestBuildUrl: 'https://expo.dev/accounts/johnmantilla/projects/zenmoney/builds/fa382dd3-c645-4662-85ab-8235634d0af2',
     // Enlace al historial completo de versiones públicas en EAS
     allBuildsUrl: 'https://expo.dev/accounts/johnmantilla/projects/zenmoney/builds',
     // Generador de QR dinámico a partir de la URL del build actual
