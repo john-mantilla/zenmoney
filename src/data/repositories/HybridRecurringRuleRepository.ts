@@ -12,6 +12,7 @@ import { RecurringRule, CreateRecurringRuleInput } from '@domain/entities/Recurr
 import { SupabaseRecurringRuleRepository } from './SupabaseRecurringRuleRepository';
 import { SqliteRecurringRuleRepository } from './SqliteRecurringRuleRepository';
 import { SyncService } from '../../infrastructure/services/SyncService';
+import { isOnlineFast } from '../../infrastructure/utils/network';
 
 export class HybridRecurringRuleRepository implements RecurringRuleRepository {
   private remoteRepo = new SupabaseRecurringRuleRepository();
@@ -24,18 +25,42 @@ export class HybridRecurringRuleRepository implements RecurringRuleRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAllActive(): Promise<RecurringRule[]> {
+  async getAllActive(preferCache = true): Promise<RecurringRule[]> {
     if (Platform.OS === 'web') {
       return this.remoteRepo.getAllActive();
     }
-    return this.localRepo!.getAllActive();
+    const local = await this.localRepo!.getAllActive();
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
+      try {
+        const remote = await this.remoteRepo.getAllActive();
+        if (remote && remote.length > 0) {
+          await this.localRepo!.bulkSave(remote);
+          return this.localRepo!.getAllActive();
+        }
+      } catch (err) {
+        console.warn('[HybridRecurringRuleRepository] getAllActive remote fallback error:', err);
+      }
+    }
+    return local;
   }
 
-  async getAll(): Promise<RecurringRule[]> {
+  async getAll(preferCache = true): Promise<RecurringRule[]> {
     if (Platform.OS === 'web') {
-      return this.remoteRepo.getAllActive();
+      return this.remoteRepo.getAll();
     }
-    return this.localRepo!.getAll();
+    const local = await this.localRepo!.getAll();
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
+      try {
+        const remote = await this.remoteRepo.getAll();
+        if (remote && remote.length > 0) {
+          await this.localRepo!.bulkSave(remote);
+          return this.localRepo!.getAll();
+        }
+      } catch (err) {
+        console.warn('[HybridRecurringRuleRepository] getAll remote fallback error:', err);
+      }
+    }
+    return local;
   }
 
   async create(input: CreateRecurringRuleInput): Promise<RecurringRule> {

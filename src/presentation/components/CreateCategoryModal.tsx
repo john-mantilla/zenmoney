@@ -56,7 +56,7 @@ export const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
       setBudgetRole(editingCategory.budgetRole || 'wants');
     } else {
       setCategoryName('');
-      setBudgetRole('wants');
+      setBudgetRole(parentCategory?.budgetRole || 'needs');
     }
     setErrorMsg(null);
   }, [editingCategory, visible]);

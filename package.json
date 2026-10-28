@@ -11,6 +11,7 @@
     "@react-native-community/netinfo": "12.0.1",
     "@supabase/supabase-js": "^2.110.2",
     "@tanstack/react-query": "^5.101.4",
+    "aes-js": "^3.1.2",
     "expo": "~57.0.4",
     "expo-constants": "~57.0.3",
     "expo-font": "~57.0.0",
@@ -22,6 +23,7 @@
     "expo-notifications": "^57.0.3",
     "expo-quick-actions": "^6.0.2",
     "expo-router": "~57.0.4",
+    "expo-secure-store": "~57.0.1",
     "expo-speech-recognition": "^56.0.1",
     "expo-splash-screen": "~57.0.2",
     "expo-sqlite": "~57.0.1",
@@ -44,6 +46,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@types/aes-js": "^3.1.4",
     "@types/react": "~19.2.2",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9.39.5",
@@ -60,6 +63,8 @@
     "web": "expo start --web",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "verify:all": "tsc --noEmit && vitest run",
     "prepare": "husky"
   },
   "private": true

@@ -73,11 +73,11 @@ describe('ForecastCashFlowUseCase', () => {
   });
 
   it('proyecta facturas pendientes y reglas recurrentes en el horizonte', () => {
-    const pendingTxs: Transaction[] = [
+    const pendingTxs: any[] = [
       {
         id: 'tx-pending-1',
         familyGroupId: 'fam-1',
-        creatorUserId: 'user-1',
+        createdByUserId: 'user-1',
         accountId: 'acc-bank',
         type: 'expense',
         amount: 800000,
@@ -124,10 +124,10 @@ describe('ForecastCashFlowUseCase', () => {
   });
 
   it('detecta quiebre de liquidez temprano cuando el saldo proyectado cae por debajo de cero', () => {
-    const bigBill: Transaction = {
+    const bigBill: any = {
       id: 'tx-big',
       familyGroupId: 'fam-1',
-      creatorUserId: 'user-1',
+      createdByUserId: 'user-1',
       accountId: 'acc-bank',
       type: 'expense',
       amount: 3500000, // Mayor a la liquidez de 2.800.000

@@ -129,7 +129,7 @@ export class SqliteAccountRepository implements AccountRepository {
 
   /**
    * Recalcula y actualiza de forma atómica y determinista el `current_balance`
-   * de una cuenta en SQLite a partir de su saldo inicial y sus transacciones confirmadas.
+   * de una cuenta en SQLite mediante una agregación nativa SQL (ejecución C en motor).
    */
   async recalculateBalance(accountId: string): Promise<number> {
     const db = this.getDb();
@@ -137,47 +137,66 @@ export class SqliteAccountRepository implements AccountRepository {
     if (!acc) return 0;
 
     const isDebt = ['credit_card', 'loan', 'mortgage'].includes(acc.type);
-    let balance = Number(acc.initial_balance || 0);
+    const initialBalance = Number(acc.initial_balance || 0);
 
-    const txs = await db.getAllAsync<any>(
-      `SELECT type, amount, account_id, transfer_to_account_id
-       FROM transactions
-       WHERE status = 'confirmed' AND (account_id = ? OR transfer_to_account_id = ?);`,
-      [accountId, accountId]
-    );
+    // Agregación nativa SQL: ejecuta la suma directamente en el motor C de SQLite usando índices
+    const sql = `
+      SELECT COALESCE(SUM(
+        CASE 
+          WHEN ? = 1 THEN
+            CASE 
+              WHEN type = 'expense' THEN amount
+              WHEN type = 'income' THEN -amount
+              WHEN type = 'transfer' AND transfer_to_account_id = ? THEN -amount
+              WHEN type = 'transfer' AND account_id = ? THEN amount
+              ELSE 0
+            END
+          ELSE
+            CASE 
+              WHEN type = 'income' THEN amount
+              WHEN type = 'expense' THEN -amount
+              WHEN type = 'transfer' AND account_id = ? THEN -amount
+              WHEN type = 'transfer' AND transfer_to_account_id = ? THEN amount
+              ELSE 0
+            END
+        END
+      ), 0) as delta
+      FROM transactions
+      WHERE status = 'confirmed' AND (account_id = ? OR transfer_to_account_id = ?);
+    `;
 
-    for (const tx of txs) {
-      const amount = Number(tx.amount || 0);
-      if (isDebt) {
-        if (tx.type === 'expense') {
-          balance += amount;
-        } else if (tx.type === 'income') {
-          balance -= amount;
-        } else if (tx.type === 'transfer') {
-          if (tx.transfer_to_account_id === accountId) {
-            balance -= amount;
-          } else if (tx.account_id === accountId) {
-            balance += amount;
-          }
-        }
-      } else {
-        if (tx.type === 'income') {
-          balance += amount;
-        } else if (tx.type === 'expense') {
-          balance -= amount;
-        } else if (tx.type === 'transfer') {
-          if (tx.account_id === accountId) {
-            balance -= amount;
-          } else if (tx.transfer_to_account_id === accountId) {
-            balance += amount;
-          }
-        }
-      }
-    }
+    const row = await db.getFirstAsync<{ delta: number }>(sql, [
+      isDebt ? 1 : 0,
+      accountId,
+      accountId,
+      accountId,
+      accountId,
+      accountId,
+      accountId,
+    ]);
 
-    balance = Math.round(balance * 100) / 100;
+    const delta = Number(row?.delta ?? 0);
+    const balance = Math.round((initialBalance + delta) * 100) / 100;
     await db.runAsync('UPDATE accounts SET current_balance = ? WHERE id = ?;', [balance, accountId]);
     return balance;
+  }
+
+  /**
+   * Ajuste aritmético O(1) directo del saldo consolidado de una cuenta.
+   * Evita consultar la base de datos de transacciones al crear o eliminar movimientos.
+   */
+  async adjustBalance(accountId: string, delta: number): Promise<number> {
+    const db = this.getDb();
+    const acc = await db.getFirstAsync<any>('SELECT id, current_balance, initial_balance FROM accounts WHERE id = ?;', [accountId]);
+    if (!acc) return 0;
+
+    if (acc.current_balance === null || acc.current_balance === undefined) {
+      return this.recalculateBalance(accountId);
+    }
+
+    const newBalance = Math.round((Number(acc.current_balance) + delta) * 100) / 100;
+    await db.runAsync('UPDATE accounts SET current_balance = ? WHERE id = ?;', [newBalance, accountId]);
+    return newBalance;
   }
 
   /**

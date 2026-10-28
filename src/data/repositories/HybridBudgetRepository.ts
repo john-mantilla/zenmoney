@@ -5,6 +5,7 @@ import { SqliteBudgetRepository } from './SqliteBudgetRepository';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
+import { isOnlineFast } from '../../infrastructure/utils/network';
 
 import { Platform } from 'react-native';
 
@@ -17,27 +18,40 @@ export class HybridBudgetRepository implements BudgetRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(_preferCache = true): Promise<Budget[]> {
+  async getAll(preferCache = true): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll();
 
     const local = await this.localRepo!.getAll();
-    if (local.length === 0) {
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
       try {
         const remote = await this.remoteRepo.getAll();
         if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
           return this.localRepo!.getAll();
         }
-      } catch {
-        // Fallback silencioso
+      } catch (err) {
+        console.warn('[HybridBudgetRepository] getAll remote fallback error:', err);
       }
     }
     return local;
   }
 
-  async getByMonth(year: number, month: number, _preferCache = true): Promise<Budget[]> {
+  async getByMonth(year: number, month: number, preferCache = true): Promise<Budget[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getByMonth(year, month);
-    return this.localRepo!.getByMonth(year, month);
+
+    const local = await this.localRepo!.getByMonth(year, month);
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
+      try {
+        const remote = await this.remoteRepo.getByMonth(year, month);
+        if (remote && remote.length > 0) {
+          await this.localRepo!.bulkSave(remote);
+          return this.localRepo!.getByMonth(year, month);
+        }
+      } catch (err) {
+        console.warn('[HybridBudgetRepository] getByMonth remote fallback error:', err);
+      }
+    }
+    return local;
   }
 
   async create(input: CreateBudgetInput): Promise<Budget> {

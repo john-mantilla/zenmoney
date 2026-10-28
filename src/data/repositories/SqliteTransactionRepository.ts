@@ -85,6 +85,10 @@ export class SqliteTransactionRepository implements TransactionRepository {
           params.push(filters.endDate);
         }
       }
+      if (filters.updatedAfter) {
+        conditions.push('updated_at > ?');
+        params.push(filters.updatedAfter);
+      }
     }
 
     if (conditions.length > 0) {

@@ -15,7 +15,7 @@ describe('ZenHabits — DetectHabitPatterns', () => {
       name: 'Restaurantes y Comida',
       icon: 'silverware',
       color: '#FF5722',
-      budgetRole: 'flexible',
+      budgetRole: 'wants',
       parentCategoryId: null,
       isSystem: false,
       isPrivate: false,
@@ -27,7 +27,7 @@ describe('ZenHabits — DetectHabitPatterns', () => {
       name: 'Arriendo',
       icon: 'home',
       color: '#3F51B5',
-      budgetRole: 'fixed',
+      budgetRole: 'needs',
       parentCategoryId: null,
       isSystem: false,
       isPrivate: false,
@@ -40,7 +40,7 @@ describe('ZenHabits — DetectHabitPatterns', () => {
     // 2026-09-02 (Miércoles)
     // 2026-09-09 (Miércoles)
     // 2026-09-16 (Miércoles)
-    const expenses: Transaction[] = [
+    const expenses: any[] = [
       {
         id: 'tx1',
         familyGroupId: 'fg1',
@@ -106,7 +106,7 @@ describe('ZenHabits — DetectHabitPatterns', () => {
 
   it('no confunde gastos de arriendo o servicios fijos con hábitos', () => {
     // Pagos repetidos de arriendo
-    const expenses: Transaction[] = [
+    const expenses: any[] = [
       {
         id: 'tx_rent1',
         familyGroupId: 'fg1',
@@ -206,7 +206,7 @@ describe('ZenHabits — EvaluateHabitNudge', () => {
 
   it('Aplica Regla de Silencio Inteligente: No notifica si el usuario ya anotó la pizza hoy', () => {
     const wednesdayNight = new Date('2026-09-16T21:15:00');
-    const todayExpenses: Transaction[] = [
+    const todayExpenses: any[] = [
       {
         id: 'tx_today',
         familyGroupId: 'fg1',

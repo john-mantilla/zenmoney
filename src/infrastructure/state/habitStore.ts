@@ -137,7 +137,7 @@ export const useHabitStore = create<HabitState>()(
             type: 'expense',
             amount: finalAmount,
             accountId: targetAccountId,
-            categoryId: habit.defaultCategoryId,
+            categoryId: habit.defaultCategoryId || null,
             merchantName: habit.merchantName || undefined,
             description: habit.title,
             transactionDate: todayStr,

@@ -140,6 +140,24 @@ export class LocalDatabase {
       // Ignorar si la columna ya existe
     }
 
+    // Limpieza de duplicados y creación de índice de unicidad para presupuestos en SQLite
+    try {
+      await database.execAsync(`
+        DELETE FROM budgets 
+        WHERE id NOT IN (
+          SELECT MIN(id) 
+          FROM budgets 
+          GROUP BY category_id, year, month, scope, COALESCE(owner_user_id, ''), is_override
+        );
+      `);
+      await database.execAsync(`
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_idx_sqlite_budgets_limit 
+        ON budgets (category_id, year, month, scope, COALESCE(owner_user_id, ''), is_override);
+      `);
+    } catch {
+      // Ignorar si el índice ya existe o la tabla aún está vacía
+    }
+
     // Tabla de cola de sincronización (Sync Queue)
     await database.execAsync(`
       CREATE TABLE IF NOT EXISTS sync_actions_queue (
@@ -149,6 +167,15 @@ export class LocalDatabase {
         record_id TEXT NOT NULL,
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL
+      );
+    `);
+
+    // Tabla de metadatos de sincronización (Delta Sync Cursor)
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS sync_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
 
@@ -203,6 +230,24 @@ export class LocalDatabase {
         created_at TEXT NOT NULL
       );
     `);
+
+    // Índices de alto rendimiento para escalabilidad a 5+ años (B-Trees)
+    const indexes = [
+      'CREATE INDEX IF NOT EXISTS idx_transactions_account_status ON transactions(account_id, status);',
+      'CREATE INDEX IF NOT EXISTS idx_transactions_transfer_status ON transactions(transfer_to_account_id, status);',
+      'CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(transaction_date);',
+      'CREATE INDEX IF NOT EXISTS idx_transactions_updated_synced ON transactions(updated_at, synced);',
+      'CREATE INDEX IF NOT EXISTS idx_transactions_family ON transactions(family_group_id);',
+      'CREATE INDEX IF NOT EXISTS idx_accounts_family ON accounts(family_group_id, is_active);',
+      'CREATE INDEX IF NOT EXISTS idx_sync_queue_created ON sync_actions_queue(created_at);',
+    ];
+    for (const sql of indexes) {
+      try {
+        await database.execAsync(sql);
+      } catch {
+        // Ignorar si el índice ya existe
+      }
+    }
   }
 
   static async clearAll(): Promise<void> {
@@ -216,5 +261,6 @@ export class LocalDatabase {
     await database.execAsync('DELETE FROM recurring_rules;');
     await database.execAsync('DELETE FROM auto_categorization_rules;');
     await database.execAsync('DELETE FROM sync_actions_queue;');
+    await database.execAsync('DELETE FROM sync_metadata;');
   }
 }

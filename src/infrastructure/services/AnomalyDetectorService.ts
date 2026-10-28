@@ -190,7 +190,7 @@ export class AnomalyDetectorService {
               estimatedAmount: sample.amount,
               merchantName: name,
               defaultAccountId: sample.accountId,
-              defaultCategoryId: sample.categoryId,
+              defaultCategoryId: sample.categoryId || undefined,
               confidenceScore: 0.9,
               icon: name.toLowerCase().includes('pizza') || name.toLowerCase().includes('domino') ? 'pizza' : 'repeat',
             },

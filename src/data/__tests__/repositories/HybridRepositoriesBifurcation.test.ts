@@ -8,6 +8,13 @@ vi.mock('react-native', () => ({
   Platform: mockPlatform,
 }));
 
+vi.mock('@react-native-community/netinfo', () => ({
+  default: {
+    fetch: vi.fn().mockResolvedValue({ isConnected: true, isInternetReachable: true }),
+    addEventListener: vi.fn(() => vi.fn()),
+  },
+}));
+
 // Mock dependencies
 vi.mock('../../local/LocalDatabase', () => ({
   LocalDatabase: {
@@ -71,8 +78,52 @@ vi.mock('../../repositories/SqliteAccountRepository', () => {
   };
 });
 
+vi.mock('../../repositories/SupabaseBudgetRepository', () => {
+  return {
+    SupabaseBudgetRepository: class {
+      getAll = vi.fn().mockResolvedValue([{ id: 'budget-remote' }]);
+      getByMonth = vi.fn().mockResolvedValue([{ id: 'budget-remote-month' }]);
+      getById = vi.fn().mockResolvedValue({ id: 'budget-remote' });
+    },
+  };
+});
+
+vi.mock('../../repositories/SqliteBudgetRepository', () => {
+  return {
+    SqliteBudgetRepository: class {
+      getAll = vi.fn().mockResolvedValue([{ id: 'budget-local' }]);
+      getByMonth = vi.fn().mockResolvedValue([{ id: 'budget-local-month' }]);
+      getById = vi.fn().mockResolvedValue({ id: 'budget-local' });
+      bulkSave = vi.fn().mockResolvedValue(undefined);
+    },
+  };
+});
+
+vi.mock('../../repositories/SupabaseRecurringRuleRepository', () => {
+  return {
+    SupabaseRecurringRuleRepository: class {
+      getAll = vi.fn().mockResolvedValue([{ id: 'rule-remote' }]);
+      getAllActive = vi.fn().mockResolvedValue([{ id: 'rule-remote-active' }]);
+      getById = vi.fn().mockResolvedValue({ id: 'rule-remote' });
+    },
+  };
+});
+
+vi.mock('../../repositories/SqliteRecurringRuleRepository', () => {
+  return {
+    SqliteRecurringRuleRepository: class {
+      getAll = vi.fn().mockResolvedValue([{ id: 'rule-local' }]);
+      getAllActive = vi.fn().mockResolvedValue([{ id: 'rule-local-active' }]);
+      getById = vi.fn().mockResolvedValue({ id: 'rule-local' });
+      bulkSave = vi.fn().mockResolvedValue(undefined);
+    },
+  };
+});
+
 import { HybridTransactionRepository } from '../../repositories/HybridTransactionRepository';
 import { HybridAccountRepository } from '../../repositories/HybridAccountRepository';
+import { HybridBudgetRepository } from '../../repositories/HybridBudgetRepository';
+import { HybridRecurringRuleRepository } from '../../repositories/HybridRecurringRuleRepository';
 
 describe('Bifurcación de Repositorios Híbridos (Web vs Móvil)', () => {
   describe('Modo Móvil (Platform.OS = android / ios)', () => {
@@ -94,6 +145,22 @@ describe('Bifurcación de Repositorios Híbridos (Web vs Móvil)', () => {
       const accounts = await repo.getAll();
       expect(accounts).toEqual([{ id: 'acc-local' }]);
     });
+
+    it('HybridBudgetRepository lee de SQLite en móvil', async () => {
+      const repo = new HybridBudgetRepository();
+      const budgets = await repo.getAll();
+      expect(budgets).toEqual([{ id: 'budget-local' }]);
+      const byMonth = await repo.getByMonth(2026, 10);
+      expect(byMonth).toEqual([{ id: 'budget-local-month' }]);
+    });
+
+    it('HybridRecurringRuleRepository lee de SQLite en móvil', async () => {
+      const repo = new HybridRecurringRuleRepository();
+      const rules = await repo.getAll();
+      expect(rules).toEqual([{ id: 'rule-local' }]);
+      const active = await repo.getAllActive();
+      expect(active).toEqual([{ id: 'rule-local-active' }]);
+    });
   });
 
   describe('Modo Web (Platform.OS = web)', () => {
@@ -114,6 +181,22 @@ describe('Bifurcación de Repositorios Híbridos (Web vs Móvil)', () => {
       const repo = new HybridAccountRepository();
       const accounts = await repo.getAll();
       expect(accounts).toEqual([{ id: 'acc-remote', initialBalance: 100, currentBalance: 100 }]);
+    });
+
+    it('HybridBudgetRepository delega directamente a Supabase en Web', async () => {
+      const repo = new HybridBudgetRepository();
+      const budgets = await repo.getAll();
+      expect(budgets).toEqual([{ id: 'budget-remote' }]);
+      const byMonth = await repo.getByMonth(2026, 10);
+      expect(byMonth).toEqual([{ id: 'budget-remote-month' }]);
+    });
+
+    it('HybridRecurringRuleRepository delega directamente a Supabase en Web', async () => {
+      const repo = new HybridRecurringRuleRepository();
+      const rules = await repo.getAll();
+      expect(rules).toEqual([{ id: 'rule-remote' }]);
+      const active = await repo.getAllActive();
+      expect(active).toEqual([{ id: 'rule-remote-active' }]);
     });
   });
 });

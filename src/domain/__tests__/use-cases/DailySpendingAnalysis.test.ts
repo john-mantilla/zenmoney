@@ -12,7 +12,7 @@ describe('DailySpendingAnalysis Use Case', () => {
       icon: 'silverware-fork-knife',
       color: '#FF5722',
       parentCategoryId: null,
-      budgetRole: 'flexible',
+      budgetRole: 'wants',
       isSystem: false,
       isPrivate: false,
       createdAt: '2026-01-01',
@@ -24,7 +24,7 @@ describe('DailySpendingAnalysis Use Case', () => {
       icon: 'food',
       color: '#FF9800',
       parentCategoryId: 'cat-food',
-      budgetRole: 'flexible',
+      budgetRole: 'wants',
       isSystem: false,
       isPrivate: false,
       createdAt: '2026-01-01',
@@ -36,14 +36,14 @@ describe('DailySpendingAnalysis Use Case', () => {
       icon: 'car',
       color: '#2196F3',
       parentCategoryId: null,
-      budgetRole: 'fixed',
+      budgetRole: 'needs',
       isSystem: false,
       isPrivate: false,
       createdAt: '2026-01-01',
     },
   ];
 
-  const mockTransactions: Transaction[] = [
+  const mockTransactions: any[] = [
     // 2026-08-01 (Sábado - Fin de semana)
     {
       id: 'tx-1',

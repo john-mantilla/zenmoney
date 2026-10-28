@@ -9,7 +9,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorageAdapter } from '../auth/LargeSecureStore';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
@@ -23,10 +23,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // Use AsyncStorage for session persistence on mobile
-    // On web, it defaults to localStorage
+    // Almacenamiento blindado con cifrado hardware (SecureStore + AES-256) en móvil
+    // En Web hace fallback automático a localStorage
     ...(Platform.OS !== 'web' && {
-      storage: AsyncStorage,
+      storage: secureStorageAdapter,
     }),
     autoRefreshToken: true,
     persistSession: true,

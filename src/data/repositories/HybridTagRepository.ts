@@ -17,19 +17,19 @@ export class HybridTagRepository implements TagRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(_preferCache = true): Promise<Tag[]> {
+  async getAll(preferCache = true): Promise<Tag[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll();
 
     const local = await this.localRepo!.getAll();
-    if (local.length === 0) {
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
       try {
         const remote = await this.remoteRepo.getAll();
         if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
           return this.localRepo!.getAll();
         }
-      } catch {
-        // Fallback silencioso
+      } catch (err) {
+        console.warn('[HybridTagRepository] getAll remote fallback error:', err);
       }
     }
     return local;

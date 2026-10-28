@@ -70,7 +70,7 @@ export class TrendAnalysisUseCase {
 
       // Filtrar presupuestos activos hasta ese mes
       const pastBudgets = allBudgets.filter(
-        (b) =>
+        (b: Budget) =>
           b.year * 12 + b.month <= targetValue &&
           (b.scope === 'family' || !b.ownerUserId || (currentUserId && b.ownerUserId === currentUserId))
       );

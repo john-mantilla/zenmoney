@@ -22,6 +22,7 @@ import { Account } from '@/src/domain/entities/Account';
 import { Category } from '@/src/domain/entities/Category';
 import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseUserProfileRepository';
 import { isOnlineFast } from '@/src/infrastructure/utils/network';
+import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 export default function TransactionsScreen() {
@@ -295,7 +296,11 @@ export default function TransactionsScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData(true);
+    SyncService.fullSync()
+      .catch(() => {})
+      .finally(async () => {
+        await loadData(true);
+      });
   };
 
   const toggleDateCollapse = (dateId: string) => {

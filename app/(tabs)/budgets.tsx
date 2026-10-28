@@ -29,6 +29,7 @@ import { useFocusEffect } from 'expo-router';
 import { AppAlert } from '@/src/presentation/services/AppAlert';
 import { hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import { BudgetSyncHelper } from '@/src/infrastructure/services/BudgetSyncHelper';
+import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { isOnlineFast } from '@/src/infrastructure/utils/network';
 
 export interface CreateBudgetData {
@@ -269,8 +270,22 @@ export default function BudgetsScreen() {
 
         const parentBudgetItem = group.parentBudgets[0];
 
-        // 5.1. Calcular subcategorías con soporte de Rollover
-        const children: BudgetTreeChild[] = group.subBudgets.map(s => {
+        // 5.1. Deduplicar y calcular subcategorías con soporte de Rollover
+        const seenSubKeys = new Set<string>();
+        const uniqueSubBudgets: typeof group.subBudgets = [];
+
+        for (const s of group.subBudgets) {
+          const subCat = loadedCats.find(c => c.id === s.categoryId);
+          const normalizedName = (subCat ? subCat.name : s.categoryId).trim().toLowerCase();
+          const key = `${normalizedName}_${s.budget.scope || 'family'}_${s.budget.ownerUserId || 'family'}`;
+          
+          if (!seenSubKeys.has(key)) {
+            seenSubKeys.add(key);
+            uniqueSubBudgets.push(s);
+          }
+        }
+
+        const children: BudgetTreeChild[] = uniqueSubBudgets.map(s => {
           const subCat = loadedCats.find(c => c.id === s.categoryId);
           const subSpent = s.spent;
 
@@ -326,10 +341,25 @@ export default function BudgetsScreen() {
         let baseLimit = 0;
         let rolloverAmount = 0;
         let spent = 0;
-        let hasDirectBudget = group.parentBudgets.length > 0;
-        let budgetId = parentBudgetItem?.budget.id || `virtual-${parentId}`;
+        const hasDirectBudget = group.parentBudgets.length > 0;
+        const budgetId = parentBudgetItem?.budget.id || `virtual-${parentId}`;
 
-        if (parentBudgetItem) {
+        if (children.length > 0) {
+          // Consolidación automática: El límite de la categoría superior es la suma de los presupuestos de sus subcategorías
+          baseLimit = children.reduce((sum, c) => sum + (c.baseLimit ?? c.amountLimit), 0);
+          rolloverAmount = children.reduce((sum, c) => sum + (c.rolloverAmount ?? 0), 0);
+          amountLimit = children.reduce((sum, c) => sum + c.amountLimit, 0);
+
+          // Si el padre tiene gastos directos (transacciones asignadas a la categoría padre sin subcategoría)
+          // y además el usuario le asignó un presupuesto directo exclusivo al padre, se incluye
+          const parentDirectSpent = parentBudgetItem ? parentBudgetItem.spent : 0;
+          if (parentBudgetItem && parentDirectSpent > 0) {
+            baseLimit += parentBudgetItem.budget.amountLimit;
+            amountLimit += parentBudgetItem.budget.amountLimit;
+          }
+          spent = getCategoryAndSubcategoriesSpent(parentId, parentBudgetItem?.budget || group.subBudgets[0]?.budget);
+        } else if (parentBudgetItem) {
+          // Categoría padre sin subcategorías con presupuesto
           const pBudget = parentBudgetItem.budget;
           baseLimit = pBudget.amountLimit;
           amountLimit = pBudget.amountLimit;
@@ -348,11 +378,6 @@ export default function BudgetsScreen() {
             amountLimit = rolloverRes.effectiveLimit;
           }
           spent = getCategoryAndSubcategoriesSpent(parentId, pBudget);
-        } else if (children.length > 0) {
-          baseLimit = children.reduce((sum, c) => sum + (c.baseLimit ?? c.amountLimit), 0);
-          rolloverAmount = children.reduce((sum, c) => sum + (c.rolloverAmount ?? 0), 0);
-          amountLimit = children.reduce((sum, c) => sum + c.amountLimit, 0);
-          spent = getCategoryAndSubcategoriesSpent(parentId, group.subBudgets[0]?.budget);
         }
 
         const remaining = amountLimit - spent;
@@ -475,7 +500,12 @@ export default function BudgetsScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData();
+    SyncService.fullSync()
+      .catch(() => {})
+      .finally(async () => {
+        await loadData();
+        setRefreshing(false);
+      });
   };
 
   // ─── CRUD Presupuestos ────────────────────────────────────────────────
@@ -578,7 +608,7 @@ export default function BudgetsScreen() {
               ownerUserId,
               hasRollover: hasRolloverToUse,
               isOverride: false,
-              overrideReason: null,
+              overrideReason: undefined,
             });
           } else {
             await budgetRepo.create({
@@ -605,7 +635,7 @@ export default function BudgetsScreen() {
               ownerUserId,
               hasRollover: hasRolloverToUse,
               isOverride: false,
-              overrideReason: null,
+              overrideReason: undefined,
             });
           } else {
             await budgetRepo.create({
@@ -633,21 +663,17 @@ export default function BudgetsScreen() {
   const handleDeleteBudget = async (budget: Budget) => {
     setIsLoading(true);
     try {
-      if (budget.isOverride) {
-        // Es un ajuste extraordinario puntual: simplemente se elimina y vuelve a la regla maestra
-        await budgetRepo.delete(budget.id);
-        AppAlert.alert('Ajuste Eliminado', 'Se eliminó el límite extraordinario y se restauró la regla maestra habitual.');
-      } else if (budget.year === selectedYear && budget.month === selectedMonth) {
-        await budgetRepo.delete(budget.id);
-      } else {
-        setErrorMsg('Este límite proviene de un mes anterior. Para eliminarlo en este mes, crea un límite nuevo de $0, o bórralo en el mes donde fue creado originalmente.');
-        setIsLoading(false);
-        return;
-      }
+      await budgetRepo.delete(budget.id);
       setIsDialogVisible(false);
-      loadData(true);
+      setEditingBudget(null);
+      await loadData(true);
+      hapticSuccess();
+      AppAlert.alert('Presupuesto Eliminado', 'El límite presupuestario ha sido eliminado exitosamente.');
     } catch (err) {
+      console.error('[BudgetsScreen] Error al eliminar presupuesto:', err);
       setErrorMsg(err instanceof Error ? err.message : 'Error al eliminar el presupuesto.');
+      throw err;
+    } finally {
       setIsLoading(false);
     }
   };
@@ -695,7 +721,7 @@ export default function BudgetsScreen() {
       if (visibleChildren.length > 0 && selectedScopeFilter !== 'all') {
         totalLimit += visibleChildren.reduce((sum, c) => sum + c.amountLimit, 0);
         totalSpentVal += visibleChildren.reduce((sum, c) => sum + c.spent, 0);
-        if (isParentMatching && bp.budget) {
+        if (isParentMatching && bp.budget && bp.parentDirectSpent > 0) {
           totalLimit += bp.budget.amountLimit;
           totalSpentVal += bp.parentDirectSpent;
         }
@@ -1007,7 +1033,7 @@ export default function BudgetsScreen() {
                   displayLimit = visibleChildren.reduce((sum, c) => sum + c.amountLimit, 0);
                   const parentDirectSpent = isParentMatching && bp.budget ? bp.parentDirectSpent : 0;
                   displaySpent = visibleChildren.reduce((sum, c) => sum + c.spent, 0) + parentDirectSpent;
-                  if (isParentMatching && bp.budget) {
+                  if (isParentMatching && bp.budget && bp.parentDirectSpent > 0) {
                     displayLimit += bp.budget.amountLimit;
                   }
                 }
@@ -1225,6 +1251,18 @@ export default function BudgetsScreen() {
                                 <Text style={[theme.typography.caption, { fontWeight: '600', color: theme.colors.onSurface }]}>
                                   {child.name} ({child.percentage}%)
                                 </Text>
+                                {child.budget.scope === 'individual' && (
+                                  <View style={{
+                                    backgroundColor: theme.colors.primaryContainer,
+                                    paddingHorizontal: 5,
+                                    paddingVertical: 1,
+                                    borderRadius: 4,
+                                  }}>
+                                    <Text style={{ fontSize: 9, fontWeight: '700', color: theme.colors.primary }}>
+                                      Personal
+                                    </Text>
+                                  </View>
+                                )}
                                 {child.rolloverAmount !== undefined && child.rolloverAmount !== 0 && (
                                   <View style={{
                                     backgroundColor: child.rolloverAmount > 0 ? '#05966915' : '#DC262615',

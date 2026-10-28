@@ -14,16 +14,15 @@ export class CalculateAccountBalance {
   /**
    * Ejecuta el cálculo de saldo de la cuenta dada.
    *
-   * Reglas de negocio:
-   * - Solo incluye transacciones con estado 'confirmed'.
-   * - Para cuentas normales: saldoInicial + ingresos - gastos - transferenciasEnviadas + transferenciasRecibidas.
-   * - Para tarjetas de crédito: saldoInicial (típicamente 0 o límite negativo) - gastos + ingresos (pagos a la tarjeta).
-   * - Las transferencias entre cuentas propias se restan de la origen y se suman en la destino.
+   * Reglas de rendimiento y escalabilidad:
+   * - En modo preferCache = true: Si la cuenta ya cuenta con un `currentBalance` consolidado (desde SQLite o Postgres),
+   *   se retorna de inmediato en tiempo constante O(1), aplicando únicamente transacciones locales
+   *   que aún no hayan sido sincronizadas con la nube (synced = 0).
+   * - En modo preferCache = false: Se realiza el cálculo dinámico completo a partir de sus transacciones confirmadas.
    */
   async execute(account: Account, preferCache = false): Promise<number> {
-    // Si estamos en modo offline/caché y la cuenta ya tiene un saldo consolidado conocido (currentBalance):
-    if (preferCache && account.currentBalance !== undefined && account.currentBalance !== null) {
-      // Solo aplicamos transacciones locales que aún NO hayan sido sincronizadas con la nube (synced = 0)
+    // Si estamos en modo caché y la cuenta ya tiene un saldo consolidado numérico conocido (currentBalance)
+    if (preferCache && account.currentBalance !== undefined && account.currentBalance !== null && !isNaN(Number(account.currentBalance))) {
       let unsynced: any[] = [];
       try {
         if (typeof (this.transactionRepository as any).getUnsynced === 'function') {
@@ -37,7 +36,9 @@ export class CalculateAccountBalance {
         const accountUnsynced = unsynced.filter((t: any) =>
           (t.accountId === account.id || t.transferToAccountId === account.id) && t.status === 'confirmed'
         );
-        return this.applyTransactions(account, Number(account.currentBalance), accountUnsynced);
+        if (accountUnsynced.length > 0) {
+          return this.applyTransactions(account, Number(account.currentBalance), accountUnsynced);
+        }
       }
 
       return Number(account.currentBalance);
@@ -49,18 +50,18 @@ export class CalculateAccountBalance {
         status: 'confirmed',
       }, preferCache);
 
-      // Si la consulta no trajo transacciones pero tenemos un saldo consolidado previo (currentBalance) y initialBalance es 0,
-      // preservamos el saldo consolidado real para evitar fluctuaciones accidentales a 0.
+      // Si la consulta no trajo transacciones pero initialBalance es 0 y tenemos currentBalance, preservarlo
       if (transactions.length === 0 && account.currentBalance !== undefined && account.currentBalance !== null && Number(account.initialBalance) === 0) {
         return Number(account.currentBalance);
       }
 
-      return this.applyTransactions(account, Number(account.initialBalance), transactions);
-    } catch {
+      return this.applyTransactions(account, Number(account.initialBalance || 0), transactions);
+    } catch (err) {
+      console.warn('[CalculateAccountBalance] Fallback during dynamic calculation:', err);
       if (account.currentBalance !== undefined && account.currentBalance !== null) {
         return Number(account.currentBalance);
       }
-      return Number(account.initialBalance);
+      return Number(account.initialBalance || 0);
     }
   }
 

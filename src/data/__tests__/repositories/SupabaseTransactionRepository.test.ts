@@ -103,6 +103,26 @@ describe('SupabaseTransactionRepository — Pruebas de Integración con Mock de 
     expect(result[0].amount).toBe(50);
   });
 
+  it('aplica filtro updatedAfter para delta sync incremental', async () => {
+    const mockQueryBuilder: any = {
+      select: vi.fn().mockReturnThis(),
+      gt: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      then: (resolve: any) => resolve({ data: [], error: null }),
+    };
+
+    (supabase.from as any).mockReturnValue(mockQueryBuilder);
+
+    await repository.getAll({
+      updatedAfter: '2026-10-24T20:00:00.000Z',
+      limit: 500,
+    });
+
+    expect(mockQueryBuilder.gt).toHaveBeenCalledWith('updated_at', '2026-10-24T20:00:00.000Z');
+    expect(mockQueryBuilder.limit).toHaveBeenCalledWith(500);
+  });
+
   it('crea una transacción adjuntando el perfil familiar del usuario autenticado', async () => {
     (supabase.auth.getUser as any).mockResolvedValue({
       data: { user: { id: 'auth-user-99' } },

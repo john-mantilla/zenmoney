@@ -114,7 +114,7 @@ export interface Transaction {
 export interface CreateTransactionInput {
   id?: string;
   accountId: string;
-  categoryId: string | null;
+  categoryId?: string | null;
   type: TransactionType;
   amount: number;
   currency?: string;
@@ -123,6 +123,7 @@ export interface CreateTransactionInput {
   transactionDate?: string;
   transferToAccountId?: string | null;
   inputMethod?: InputMethod;
+  status?: TransactionStatus;
   aiMetadata?: AIMetadata | null;
   isPrivate?: boolean;
   tags?: string[]; // IDs de los tags a asociar
@@ -139,6 +140,7 @@ export interface TransactionFilters {
   search?: string;
   status?: TransactionStatus;
   tagIds?: string[];
+  updatedAfter?: string;
   limit?: number;
   offset?: number;
 }

@@ -187,8 +187,8 @@ export default function AssistantScreen() {
       // Calcular Disponible
       const cash = activeAccounts.filter(acc => ['cash', 'bank', 'investment'].includes(acc.type));
       const debt = activeAccounts.filter(acc => acc.type === 'credit_card');
-      const cashSum = cash.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
-      const debtSum = debt.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
+      const cashSum = cash.reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance ?? 0), 0);
+      const debtSum = debt.reduce((sum, acc) => sum + Math.abs(Number(acc.currentBalance ?? acc.initialBalance ?? 0)), 0);
       const totalBalance = cashSum - debtSum;
 
       // Cargar categorías y presupuestos

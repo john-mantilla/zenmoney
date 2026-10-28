@@ -929,7 +929,7 @@ export default function NewTransactionScreen() {
       merchantName: type === 'expense' ? merchantName : null,
       transactionDate,
       transferToAccountId: type === 'transfer' ? transferToAccountId : null,
-      status: 'confirmed',
+      status: 'confirmed' as const,
       // Nunca confiar ciegamente en el estado local: solo se envía true si de verdad
       // aplica hoy (cuenta propia, no transferencia). La base de datos también lo valida.
       isPrivate: canBePrivate ? isPrivate : false,

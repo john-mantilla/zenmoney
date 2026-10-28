@@ -28,12 +28,26 @@ export class SqliteBudgetRepository implements BudgetRepository {
 
   async create(input: CreateBudgetInput): Promise<Budget> {
     const db = this.getDb();
-    const id = (input as any).id || Math.random().toString(36).substring(2, 15);
     const familyGroupId = (input as any).familyGroupId || 'offline-family';
     const ownerUserId = input.scope === 'individual' ? ((input as any).ownerUserId || 'offline-user') : null;
+    const isOverrideInt = input.isOverride ? 1 : 0;
+
+    // Verificar si ya existe un registro para evitar duplicados en SQLite
+    const existing = await db.getFirstAsync<any>(
+      `SELECT id FROM budgets 
+       WHERE category_id = ? AND year = ? AND month = ? AND scope = ? 
+       AND COALESCE(owner_user_id, '') = COALESCE(?, '')
+       AND is_override = ?;`,
+      [input.categoryId, input.year, input.month, input.scope || 'family', ownerUserId, isOverrideInt]
+    );
+
+    if (existing) {
+      return this.update(existing.id, input);
+    }
+
+    const id = (input as any).id || Math.random().toString(36).substring(2, 15);
     const createdAt = new Date().toISOString();
     const hasRolloverInt = input.hasRollover ? 1 : 0;
-    const isOverrideInt = input.isOverride ? 1 : 0;
     const overrideReason = input.overrideReason || null;
 
     await db.runAsync(

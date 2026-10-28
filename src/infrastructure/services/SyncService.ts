@@ -239,9 +239,9 @@ export class SyncService {
         console.warn('[SyncService] Error syncing tags to local:', tagErr);
       }
 
-      // 4. Descargar y sincronizar reglas recurrentes
+      // 4. Descargar y sincronizar reglas recurrentes (activas e inactivas para reflejar cancelaciones)
       try {
-        const remoteRules = await withTimeout(this.remoteRecurringRuleRepo.getAllActive(), 3500, []);
+        const remoteRules = await withTimeout(this.remoteRecurringRuleRepo.getAll(), 3500, []);
         if (remoteRules && remoteRules.length > 0) {
           await localRecurringRepo.bulkSave(remoteRules);
         }
@@ -249,18 +249,72 @@ export class SyncService {
         console.warn('[SyncService] Error syncing recurring rules to local:', ruleErr);
       }
 
-      // 5. Descargar y sincronizar transacciones completas (historial íntegro para precisión contable)
+      // 5. Descargar y sincronizar transacciones mediante Delta Sync (cursor updated_at)
       try {
+        const db = LocalDatabase.getDb();
+        
+        // Verificar si la base de datos local de transacciones está vacía (bootstrap inicial o tras reinicio)
+        let isLocalEmpty = false;
+        try {
+          const countRow = await db.getFirstAsync<{ count: number }>(
+            'SELECT COUNT(*) as count FROM transactions;'
+          );
+          isLocalEmpty = !countRow || countRow.count === 0;
+        } catch {
+          isLocalEmpty = true;
+        }
+
+        let lastSyncedAt: string | undefined;
+        if (!isLocalEmpty) {
+          try {
+            const metaRow = await db.getFirstAsync<{ value: string }>(
+              "SELECT value FROM sync_metadata WHERE key = 'last_synced_at';"
+            );
+            lastSyncedAt = metaRow?.value;
+          } catch {
+            lastSyncedAt = undefined;
+          }
+        } else {
+          // Si local está vacío, invalidar cualquier cursor previo para forzar descarga histórica completa
+          try {
+            await db.runAsync("DELETE FROM sync_metadata WHERE key = 'last_synced_at';");
+          } catch {}
+          lastSyncedAt = undefined;
+        }
+
+        const filters: any = {
+          status: 'confirmed',
+        };
+        if (lastSyncedAt) {
+          filters.updatedAfter = lastSyncedAt;
+          filters.limit = 500;
+        }
+
         const remoteTransactions = await withTimeout(
-          this.remoteTransactionRepo.getAll({
-            status: 'confirmed',
-          }),
+          this.remoteTransactionRepo.getAll(filters),
           15000,
           []
         );
 
         if (remoteTransactions && remoteTransactions.length > 0) {
           await localTxRepo.bulkSave(remoteTransactions);
+
+          // Registrar cursor únicamente con el timestamp más reciente de las transacciones realmente guardadas
+          const maxUpdatedAt = remoteTransactions.reduce((max: string | undefined, tx) => {
+            const u = tx.updatedAt || tx.createdAt;
+            return (!max || (u && u > max)) ? u : max;
+          }, lastSyncedAt);
+
+          if (maxUpdatedAt) {
+            try {
+              await db.runAsync(
+                "INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES ('last_synced_at', ?, ?);",
+                [maxUpdatedAt, new Date().toISOString()]
+              );
+            } catch {
+              // Ignorar si la tabla aún no se inicializó
+            }
+          }
         }
       } catch (txErr) {
         console.warn('[SyncService] Error syncing transactions to local:', txErr);
@@ -286,16 +340,31 @@ export class SyncService {
         console.warn('[SyncService] Error syncing pending transactions to local:', pendingErr);
       }
 
-      // 6. Descargar y sincronizar presupuestos
+      // 6. Descargar y sincronizar presupuestos (Ventana de 3 meses: anterior, actual y siguiente)
       try {
         const now = new Date();
-        const remoteBudgets = await withTimeout(
-          this.remoteBudgetRepo.getByMonth(now.getFullYear(), now.getMonth() + 1),
-          3500,
-          []
-        );
-        if (remoteBudgets && remoteBudgets.length > 0) {
-          await localBudgetRepo.bulkSave(remoteBudgets);
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+
+        const monthsToSync = [
+          currentMonth === 1 ? { y: currentYear - 1, m: 12 } : { y: currentYear, m: currentMonth - 1 },
+          { y: currentYear, m: currentMonth },
+          currentMonth === 12 ? { y: currentYear + 1, m: 1 } : { y: currentYear, m: currentMonth + 1 },
+        ];
+
+        for (const target of monthsToSync) {
+          try {
+            const remoteBudgets = await withTimeout(
+              this.remoteBudgetRepo.getByMonth(target.y, target.m),
+              3500,
+              []
+            );
+            if (remoteBudgets && remoteBudgets.length > 0) {
+              await localBudgetRepo.bulkSave(remoteBudgets);
+            }
+          } catch (mErr) {
+            console.warn(`[SyncService] Error syncing budgets for ${target.y}-${target.m}:`, mErr);
+          }
         }
       } catch (budgetErr) {
         console.warn('[SyncService] Error syncing budgets to local:', budgetErr);

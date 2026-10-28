@@ -86,7 +86,7 @@ export default function EmailInboxScreen() {
             setDiscardingId(tx.id);
             try {
               await transactionRepo.delete(tx.id);
-              loadData(false);
+              loadData();
             } catch (err) {
               console.error('Error al descartar movimiento:', err);
             } finally {

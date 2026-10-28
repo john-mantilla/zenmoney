@@ -5,6 +5,7 @@ import { SqliteCategoryRepository } from './SqliteCategoryRepository';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
+import { isOnlineFast } from '../../infrastructure/utils/network';
 
 import { Platform } from 'react-native';
 
@@ -17,19 +18,19 @@ export class HybridCategoryRepository implements CategoryRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(includeSystem = true, _preferCache = true): Promise<Category[]> {
+  async getAll(includeSystem = true, preferCache = true): Promise<Category[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll(includeSystem);
 
     const local = await this.localRepo!.getAll(includeSystem);
-    if (local.length === 0) {
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
       try {
         const remote = await this.remoteRepo.getAll(includeSystem);
         if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
           return this.localRepo!.getAll(includeSystem);
         }
-      } catch {
-        // Fallback silencioso
+      } catch (err) {
+        console.warn('[HybridCategoryRepository] getAll remote fallback error:', err);
       }
     }
     return local;

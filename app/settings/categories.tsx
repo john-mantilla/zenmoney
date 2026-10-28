@@ -27,8 +27,6 @@ export default function SettingsCategoriesScreen() {
 
   // Estados de diálogo
   const [isDialogVisible, setIsDialogVisible] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newBudgetRole, setNewBudgetRole] = useState<'needs' | 'wants' | 'savings' | 'charity' | 'income' | 'ignore'>('needs');
   const [parentCategoryIdForNew, setParentCategoryIdForNew] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
@@ -62,37 +60,36 @@ export default function SettingsCategoriesScreen() {
   );
 
   const handleOpenEditDialog = (category: Category) => {
+    if (category.isSystem) return;
     setEditingCategory(category);
-    setNewCategoryName(category.name);
-    const inferred = inferCategoryBudgetRole(category.name, undefined, category.budgetRole);
-    setNewBudgetRole(inferred);
-    setParentCategoryIdForNew(category.parentCategoryId || '');
+    setParentCategoryIdForNew(category.parentCategoryId || null);
     setIsDialogVisible(true);
   };
 
-  const handleSaveCategory = async () => {
-    if (!newCategoryName.trim()) return;
+  const handleSaveCategory = async (data: { name: string; budgetRole: any }) => {
+    const trimmedName = data.name.trim();
+    if (!trimmedName) return;
     setSavingCategory(true);
     try {
       if (editingCategory) {
         await categoryRepo.update(editingCategory.id, {
-          name: newCategoryName.trim(),
-          budgetRole: newBudgetRole,
+          name: trimmedName,
+          budgetRole: data.budgetRole,
         });
       } else {
         await categoryRepo.create({
-          name: newCategoryName.trim(),
+          name: trimmedName,
           icon: parentCategoryIdForNew ? 'tag' : 'folder-outline',
           color: theme.colors.primary,
           parentCategoryId: parentCategoryIdForNew || undefined,
-          budgetRole: newBudgetRole,
+          budgetRole: data.budgetRole,
           isPrivate: false,
         });
       }
       setIsDialogVisible(false);
-      setNewCategoryName('');
       setEditingCategory(null);
-      loadData();
+      setParentCategoryIdForNew(null);
+      await loadData();
     } catch (err) {
       console.error('Error al guardar categoría:', err);
     } finally {
@@ -150,10 +147,8 @@ export default function SettingsCategoriesScreen() {
           mode="contained"
           icon="plus"
           onPress={() => {
-            setParentCategoryIdForNew('');
+            setParentCategoryIdForNew(null);
             setEditingCategory(null);
-            setNewCategoryName('');
-            setNewBudgetRole('needs');
             setIsDialogVisible(true);
           }}
           style={styles.addBtn}
@@ -204,19 +199,23 @@ export default function SettingsCategoriesScreen() {
                         <View style={styles.accordionRightRow}>
                           <TouchableOpacity
                             style={[styles.badgeChip, { backgroundColor: pBadge.bg }]}
-                            onPress={() => handleOpenEditDialog(parentCat)}
+                            onPress={() => !parentCat.isSystem && handleOpenEditDialog(parentCat)}
+                            disabled={parentCat.isSystem}
+                            activeOpacity={parentCat.isSystem ? 1 : 0.7}
                           >
                             <Text style={{ color: pBadge.color, fontSize: 11, fontWeight: '700' }}>
                               {pBadge.label}
                             </Text>
                           </TouchableOpacity>
 
-                          <TouchableOpacity
-                            style={{ padding: 6, marginRight: 2 }}
-                            onPress={() => handleOpenEditDialog(parentCat)}
-                          >
-                            <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.primary} />
-                          </TouchableOpacity>
+                          {!parentCat.isSystem && (
+                            <TouchableOpacity
+                              style={{ padding: 6, marginRight: 2 }}
+                              onPress={() => handleOpenEditDialog(parentCat)}
+                            >
+                              <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.primary} />
+                            </TouchableOpacity>
+                          )}
 
                           {!parentCat.isSystem && (
                             <TouchableOpacity
@@ -245,8 +244,6 @@ export default function SettingsCategoriesScreen() {
                             onPress={() => {
                               setParentCategoryIdForNew(parentCat.id);
                               setEditingCategory(null);
-                              setNewCategoryName('');
-                              setNewBudgetRole(parentCat.budgetRole || 'needs');
                               setIsDialogVisible(true);
                             }}
                           >
@@ -266,19 +263,23 @@ export default function SettingsCategoriesScreen() {
                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                   <TouchableOpacity
                                     style={[styles.badgeChip, { backgroundColor: sBadge.bg, height: 24, paddingHorizontal: 8 }]}
-                                    onPress={() => handleOpenEditDialog(subCat)}
+                                    onPress={() => !subCat.isSystem && handleOpenEditDialog(subCat)}
+                                    disabled={subCat.isSystem}
+                                    activeOpacity={subCat.isSystem ? 1 : 0.7}
                                   >
                                     <Text style={{ color: sBadge.color, fontSize: 10, fontWeight: '700' }}>
                                       {sBadge.label}
                                     </Text>
                                   </TouchableOpacity>
 
-                                  <TouchableOpacity
-                                    style={{ padding: 6, marginRight: 2 }}
-                                    onPress={() => handleOpenEditDialog(subCat)}
-                                  >
-                                    <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.primary} />
-                                  </TouchableOpacity>
+                                  {!subCat.isSystem && (
+                                    <TouchableOpacity
+                                      style={{ padding: 6, marginRight: 2 }}
+                                      onPress={() => handleOpenEditDialog(subCat)}
+                                    >
+                                      <MaterialCommunityIcons name="pencil-outline" size={18} color={theme.colors.primary} />
+                                    </TouchableOpacity>
+                                  )}
 
                                   {!subCat.isSystem && (
                                     <TouchableOpacity
@@ -312,10 +313,7 @@ export default function SettingsCategoriesScreen() {
           setParentCategoryIdForNew(null);
         }}
         onSave={async (data) => {
-          setNewCategoryName(data.name);
-          setNewBudgetRole(data.budgetRole);
-
-          await handleSaveCategory();
+          await handleSaveCategory(data);
         }}
         editingCategory={editingCategory}
         parentCategory={categories.find((c) => c.id === parentCategoryIdForNew)}

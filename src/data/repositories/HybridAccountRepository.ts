@@ -7,6 +7,7 @@ import { CalculateAccountBalance } from '../../domain/usecases/CalculateAccountB
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
+import { isOnlineFast } from '../../infrastructure/utils/network';
 
 import { Platform } from 'react-native';
 
@@ -36,7 +37,7 @@ export class HybridAccountRepository implements AccountRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(_preferCache = true): Promise<Account[]> {
+  async getAll(preferCache = true): Promise<Account[]> {
     if (Platform.OS === 'web') {
       const remoteAccounts = await this.remoteRepo.getAll();
       const txRepo = new SupabaseTransactionRepository();
@@ -60,16 +61,15 @@ export class HybridAccountRepository implements AccountRepository {
     }
     
     const local = await this.localRepo!.getAll();
-    // Si la base local está vacía (primer inicio antes de sync), intentar un bootstrap silencioso
-    if (local.length === 0) {
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
       try {
         const remote = await this.remoteRepo.getAll();
         if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
           return this.localRepo!.getAll();
         }
-      } catch {
-        // Fallback silencioso
+      } catch (err) {
+        console.warn('[HybridAccountRepository] getAll remote fallback error:', err);
       }
     }
     return local;

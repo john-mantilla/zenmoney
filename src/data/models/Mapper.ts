@@ -74,6 +74,9 @@ export class Mapper {
       name: row.name,
       type: (row.type === 'mortgage' ? 'loan' : row.type) as AccountType,
       initialBalance: Number(row.initial_balance),
+      currentBalance: row.current_balance !== undefined && row.current_balance !== null
+        ? Number(row.current_balance)
+        : undefined,
       currency: row.currency,
       isActive: row.is_active,
       createdAt: row.created_at,
@@ -93,6 +96,7 @@ export class Mapper {
       ...(entity.name && { name: entity.name }),
       ...(entity.type && { type: entity.type }),
       ...(entity.initialBalance !== undefined && { initial_balance: entity.initialBalance }),
+      ...(entity.currentBalance !== undefined && { current_balance: entity.currentBalance }),
       ...(entity.currency && { currency: entity.currency }),
       ...(entity.isActive !== undefined && { is_active: entity.isActive }),
       ...(entity.closingDay !== undefined && { closing_day: entity.closingDay }),

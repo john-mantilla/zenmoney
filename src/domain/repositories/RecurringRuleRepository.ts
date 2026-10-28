@@ -7,6 +7,7 @@ import { RecurringRule, CreateRecurringRuleInput } from '../entities/RecurringRu
 export interface RecurringRuleRepository {
   getById(id: string): Promise<RecurringRule | null>;
   getAllActive(): Promise<RecurringRule[]>;
+  getAll(): Promise<RecurringRule[]>;
   create(input: CreateRecurringRuleInput): Promise<RecurringRule>;
   update(id: string, data: Partial<CreateRecurringRuleInput>): Promise<RecurringRule>;
   delete(id: string): Promise<void>;

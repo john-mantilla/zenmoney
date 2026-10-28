@@ -114,6 +114,7 @@ describe('installmentUtils — generateInstallmentTransactions', () => {
         monthlyAmount: 50000,
         startMonth: '2026-10',
         endMonth: '2026-12',
+        accountFlowDate: '2026-10-01',
       },
       aiMetadata: {
         rawInput: 'Seguro 150000 a 3 cuotas',

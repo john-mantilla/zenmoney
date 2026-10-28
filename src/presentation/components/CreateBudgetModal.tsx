@@ -557,7 +557,20 @@ export const CreateBudgetModal: React.FC<CreateBudgetModalProps> = ({
                   {editingBudget && onDelete && (
                     <Button
                       mode="outlined"
-                      onPress={onDelete}
+                      onPress={async () => {
+                        try {
+                          setIsSaving(true);
+                          setErrorMsg(null);
+                          await onDelete();
+                          onClose();
+                        } catch (err: any) {
+                          setErrorMsg(err?.message || 'Error al eliminar el presupuesto.');
+                        } finally {
+                          setIsSaving(false);
+                        }
+                      }}
+                      loading={isSaving}
+                      disabled={isSaving}
                       textColor={theme.colors.error}
                       style={{ borderColor: theme.colors.error + '40', borderRadius: 12 }}
                     >

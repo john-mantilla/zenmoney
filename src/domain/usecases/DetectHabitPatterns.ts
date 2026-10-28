@@ -62,7 +62,7 @@ export class DetectHabitPatterns {
       // Descartar si pertenece a categoría de costos fijos contractuales
       if (tx.categoryId) {
         const cat = catMap.get(tx.categoryId);
-        if (cat?.budgetRole === 'fixed') {
+        if (cat && (cat.budgetRole === 'needs' || (cat.budgetRole as string) === 'fixed')) {
           const catNameLower = cat.name.toLowerCase();
           if (
             catNameLower.includes('arriendo') ||

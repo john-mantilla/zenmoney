@@ -318,9 +318,6 @@ export default function DashboardScreen() {
           const challengeData = Evaluate7DayChallenge.execute(ownTx, todayStr, userProfile.id);
           setChallenge(challengeData);
         }
-
-        RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
-        BillAlertService.scheduleBillAlerts().catch(() => {});
       }
 
       // 4. Calcular resumen financiero mensual directamente desde las transacciones del mes
@@ -393,6 +390,13 @@ export default function DashboardScreen() {
     }).catch(() => {});
   };
 
+  // Programar alertas y descartar recordatorios pasados una sola vez al montar la pantalla
+  useEffect(() => {
+    RegistrationReminderService.onAppOpened().catch(() => {});
+    RegistrationReminderService.scheduleInactivityReminder(2).catch(() => {});
+    BillAlertService.scheduleBillAlerts().catch(() => {});
+  }, []);
+
   // Recargar datos automáticamente cuando la pestaña gana foco
   useFocusEffect(
     useCallback(() => {
@@ -446,10 +450,10 @@ export default function DashboardScreen() {
   }
 
   // Cálculos acumulados de categorías de cuentas para mostrar en el header de los acordeones
-  const totalLiquidSum = liquidAccounts.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
-  const totalInvestmentsSum = investmentAccounts.reduce((sum, acc) => sum + Number(acc.initialBalance), 0);
-  const totalCardsSum = creditCards.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
-  const totalLoansSum = loanAccounts.reduce((sum, acc) => sum + Math.abs(Number(acc.initialBalance)), 0);
+  const totalLiquidSum = liquidAccounts.reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance ?? 0), 0);
+  const totalInvestmentsSum = investmentAccounts.reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance ?? 0), 0);
+  const totalCardsSum = creditCards.reduce((sum, acc) => sum + Math.abs(Number(acc.currentBalance ?? acc.initialBalance ?? 0)), 0);
+  const totalLoansSum = loanAccounts.reduce((sum, acc) => sum + Math.abs(Number(acc.currentBalance ?? acc.initialBalance ?? 0)), 0);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -750,7 +754,7 @@ export default function DashboardScreen() {
           >
             <Card.Content style={styles.emailInboxContent}>
               <MaterialCommunityIcons 
-                name={hasVoicePending ? 'microphone-clock-outline' : 'email-fast-outline'} 
+                name={(hasVoicePending ? 'microphone-clock-outline' : 'email-fast-outline') as any} 
                 size={28} 
                 color={theme.customColors.warning} 
               />
@@ -807,7 +811,7 @@ export default function DashboardScreen() {
                   )}
                   right={() => (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <AmountDisplay amount={account.initialBalance} size="sm" type="neutral" style={styles.itemAmount} />
+                      <AmountDisplay amount={account.currentBalance ?? account.initialBalance} size="sm" type="neutral" style={styles.itemAmount} />
                       <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
                     </View>
                   )}
@@ -852,7 +856,7 @@ export default function DashboardScreen() {
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
+                        <AmountDisplay amount={account.currentBalance ?? account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
                         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
                       </View>
                     )}
@@ -897,7 +901,7 @@ export default function DashboardScreen() {
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <AmountDisplay amount={account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
+                        <AmountDisplay amount={account.currentBalance ?? account.initialBalance} size="sm" type="expense" style={styles.itemAmount} />
                         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
                       </View>
                     )}
@@ -941,7 +945,7 @@ export default function DashboardScreen() {
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <AmountDisplay amount={account.initialBalance} size="sm" type="income" style={styles.itemAmount} />
+                        <AmountDisplay amount={account.currentBalance ?? account.initialBalance} size="sm" type="income" style={styles.itemAmount} />
                         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
                       </View>
                     )}
@@ -1031,7 +1035,7 @@ export default function DashboardScreen() {
                     Saldo actual registrado:
                   </Text>
                   <AmountDisplay
-                    amount={selectedAccountForAction.initialBalance}
+                    amount={selectedAccountForAction.currentBalance ?? selectedAccountForAction.initialBalance}
                     size="md"
                     type={
                       ['credit_card', 'loan', 'mortgage'].includes(selectedAccountForAction.type)

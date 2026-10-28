@@ -39,6 +39,19 @@ export class SupabaseRecurringRuleRepository implements RecurringRuleRepository 
     return data.map(Mapper.toDomainRecurringRule);
   }
 
+  async getAll(): Promise<RecurringRule[]> {
+    const { data, error } = await supabase
+      .from('recurring_rules')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data.map(Mapper.toDomainRecurringRule);
+  }
+
   async create(input: CreateRecurringRuleInput): Promise<RecurringRule> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {

@@ -48,7 +48,7 @@ describe('CalculateBudgetRollover', () => {
     isPrivate: false,
     createdAt: `${dateStr}T12:00:00Z`,
     updatedAt: `${dateStr}T12:00:00Z`,
-  });
+  } as any);
 
   it('no altera el límite si hasRollover está desactivado', () => {
     const budgetWithoutRollover: Budget = {
@@ -111,7 +111,7 @@ describe('CalculateBudgetRollover', () => {
         name: 'Ocio',
         icon: 'popcorn',
         color: '#FF9800',
-        budgetRole: 'flexible',
+        budgetRole: 'wants',
         parentCategoryId: null,
         isSystem: false,
         isPrivate: false,
@@ -123,7 +123,7 @@ describe('CalculateBudgetRollover', () => {
         name: 'Cine',
         icon: 'movie',
         color: '#FF9800',
-        budgetRole: 'flexible',
+        budgetRole: 'wants',
         parentCategoryId: 'cat-leisure',
         isSystem: false,
         isPrivate: false,
@@ -135,7 +135,7 @@ describe('CalculateBudgetRollover', () => {
         name: 'Videojuegos',
         icon: 'gamepad',
         color: '#FF9800',
-        budgetRole: 'flexible',
+        budgetRole: 'wants',
         parentCategoryId: 'cat-leisure',
         isSystem: false,
         isPrivate: false,

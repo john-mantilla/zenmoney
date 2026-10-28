@@ -36,6 +36,7 @@ import { LoanScenarioInput } from '@/src/domain/entities/LoanScenario';
 import { generateInstallmentTransactions } from '@/src/domain/utils/installmentUtils';
 import { getLocalDateString } from '@/src/domain/utils/dateUtils';
 import { BillAlertService } from '@/src/infrastructure/services/BillAlertService';
+import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useDateStore } from '@/src/infrastructure/state/useDateStore';
 import { useAccountPreferenceStore } from '@/src/infrastructure/state/accountPreferenceStore';
@@ -360,7 +361,12 @@ export default function BillsScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData(true);
+    SyncService.fullSync()
+      .catch(() => {})
+      .finally(async () => {
+        await loadData(true);
+        setRefreshing(false);
+      });
   };
 
   const handlePayBill = (bill: Transaction) => {
@@ -1208,13 +1214,13 @@ export default function BillsScreen() {
 
             if (editingBill) {
               const [first, ...rest] = installmentTransactions;
-              await transactionRepo.update(editingBill.id, first);
+              await transactionRepo.update(editingBill.id, first as any);
               for (const tx of rest) {
-                await transactionRepo.create(tx);
+                await transactionRepo.create(tx as any);
               }
             } else {
               for (const tx of installmentTransactions) {
-                await transactionRepo.create(tx);
+                await transactionRepo.create(tx as any);
               }
             }
           } else {

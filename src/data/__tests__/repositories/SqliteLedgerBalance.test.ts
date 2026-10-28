@@ -32,25 +32,22 @@ describe('Ledger Atómico de Saldo (current_balance) en SQLite', () => {
   });
 
   describe('SqliteAccountRepository.recalculateBalance', () => {
-    it('calcula y actualiza el saldo de una cuenta estándar (banco/efectivo) con ingresos, gastos y transferencias', async () => {
-      // Cuenta bancaria con saldo inicial de $1000
+    it('calcula y actualiza el saldo de una cuenta estándar (banco/efectivo) mediante agregación nativa SQL', async () => {
+      // 1. Lectura de cuenta bancaria con saldo inicial de $1000
       mockDb.getFirstAsync.mockResolvedValueOnce({
         id: 'acc-bank',
-        type: 'checking',
+        type: 'bank',
         initial_balance: 1000,
       });
 
-      // Transacciones confirmadas asociadas a la cuenta
-      mockDb.getAllAsync.mockResolvedValueOnce([
-        { type: 'income', amount: 500, account_id: 'acc-bank', transfer_to_account_id: null },
-        { type: 'expense', amount: 200, account_id: 'acc-bank', transfer_to_account_id: null },
-        { type: 'transfer', amount: 150, account_id: 'acc-bank', transfer_to_account_id: 'acc-savings' }, // transferencia saliente
-        { type: 'transfer', amount: 50, account_id: 'acc-cash', transfer_to_account_id: 'acc-bank' }, // transferencia entrante
-      ]);
+      // 2. Resultado de la agregación nativa SQL en SQLite (+500 -200 -150 +50 = +200 delta)
+      mockDb.getFirstAsync.mockResolvedValueOnce({
+        delta: 200,
+      });
 
       const newBalance = await accountRepo.recalculateBalance('acc-bank');
 
-      // 1000 + 500 - 200 - 150 + 50 = 1200
+      // 1000 + 200 = 1200
       expect(newBalance).toBe(1200);
       expect(mockDb.runAsync).toHaveBeenCalledWith(
         'UPDATE accounts SET current_balance = ? WHERE id = ?;',
@@ -58,28 +55,44 @@ describe('Ledger Atómico de Saldo (current_balance) en SQLite', () => {
       );
     });
 
-    it('calcula y actualiza el saldo para una tarjeta de crédito (deuda acumulada)', async () => {
-      // Tarjeta de crédito con deuda inicial de $0
+    it('calcula y actualiza el saldo para una tarjeta de crédito (deuda acumulada) mediante agregación nativa SQL', async () => {
+      // 1. Tarjeta de crédito con deuda inicial de $0
       mockDb.getFirstAsync.mockResolvedValueOnce({
         id: 'acc-card',
         type: 'credit_card',
         initial_balance: 0,
       });
 
-      // Transacciones de la tarjeta de crédito
-      mockDb.getAllAsync.mockResolvedValueOnce([
-        { type: 'expense', amount: 300, account_id: 'acc-card', transfer_to_account_id: null }, // gasto aumenta deuda
-        { type: 'income', amount: 50, account_id: 'acc-card', transfer_to_account_id: null }, // abono directo disminuye deuda
-        { type: 'transfer', amount: 100, account_id: 'acc-bank', transfer_to_account_id: 'acc-card' }, // pago desde banco disminuye deuda
-      ]);
+      // 2. Agregación nativa: gasto 300, abono 50, pago transfer 100 -> delta de deuda = +150
+      mockDb.getFirstAsync.mockResolvedValueOnce({
+        delta: 150,
+      });
 
       const newBalance = await accountRepo.recalculateBalance('acc-card');
 
-      // 0 + 300 - 50 - 100 = 150
+      // 0 + 150 = 150
       expect(newBalance).toBe(150);
       expect(mockDb.runAsync).toHaveBeenCalledWith(
         'UPDATE accounts SET current_balance = ? WHERE id = ?;',
         [150, 'acc-card']
+      );
+    });
+  });
+
+  describe('SqliteAccountRepository.adjustBalance O(1)', () => {
+    it('ajusta el saldo consolidado aritméticamente en O(1) sin consultar historial', async () => {
+      mockDb.getFirstAsync.mockResolvedValueOnce({
+        id: 'acc-1',
+        current_balance: 500_000,
+        initial_balance: 100_000,
+      });
+
+      const adjusted = await accountRepo.adjustBalance('acc-1', -50_000);
+
+      expect(adjusted).toBe(450_000);
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        'UPDATE accounts SET current_balance = ? WHERE id = ?;',
+        [450_000, 'acc-1']
       );
     });
   });

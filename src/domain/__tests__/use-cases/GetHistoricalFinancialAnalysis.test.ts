@@ -14,6 +14,7 @@ describe('GetHistoricalFinancialAnalysis', () => {
       icon: 'home',
       color: '#4F46E5',
       parentCategoryId: null,
+      budgetRole: 'needs',
       isSystem: false,
       isPrivate: false,
       createdAt: nowStr,
@@ -25,6 +26,7 @@ describe('GetHistoricalFinancialAnalysis', () => {
       icon: 'cart',
       color: '#10B981',
       parentCategoryId: null,
+      budgetRole: 'needs',
       isSystem: false,
       isPrivate: false,
       createdAt: nowStr,
@@ -35,7 +37,7 @@ describe('GetHistoricalFinancialAnalysis', () => {
     // Referencia: 2026-10-15
     const refDate = new Date('2026-10-15T12:00:00Z');
 
-    const mockTransactions: Transaction[] = [
+    const mockTransactions: any[] = [
       // Octubre 2026 (mes 1 de los 3 recientes)
       {
         id: 'tx-1',

@@ -16,6 +16,7 @@ export interface TransactionFilters {
   inputMethod?: Transaction['inputMethod'];
   recurringRuleId?: string;
   includeAmortizations?: boolean;
+  updatedAfter?: string; // Cursor ISO para Delta Sync
   limit?: number;
   offset?: number;
 }

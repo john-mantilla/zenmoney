@@ -11,7 +11,7 @@ export const BUILD_CONFIG = {
     // Enlace al historial completo de versiones públicas en EAS
     allBuildsUrl: 'https://expo.dev/accounts/johnmantilla/projects/zenmoney/builds',
     // Generador de QR dinámico a partir de la URL del build actual
-    getQrCodeUrl: (url: string = BUILD_CONFIG.android.latestBuildUrl) =>
+    getQrCodeUrl: (url: string = 'https://expo.dev/accounts/johnmantilla/projects/zenmoney/builds/fa382dd3-c645-4662-85ab-8235634d0af2') =>
       `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(url)}`,
   },
 };

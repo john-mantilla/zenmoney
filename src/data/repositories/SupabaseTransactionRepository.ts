@@ -54,6 +54,9 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       if (filters.endDate) {
         query = query.lte('transaction_date', filters.endDate);
       }
+      if (filters.updatedAfter) {
+        query = query.gt('updated_at', filters.updatedAfter);
+      }
       if (filters.tagIds && filters.tagIds.length > 0) {
         // PostgREST filtering on joined tables can be complex, but for many-to-many 
         // it's easier to filter if the tag is contained in the joined tags array,
@@ -77,7 +80,12 @@ export class SupabaseTransactionRepository implements TransactionRepository {
 
     const { data, error } = await query;
 
-    if (error || !data) {
+    if (error) {
+      console.error('[SupabaseTransactionRepository] Error fetching transactions:', error);
+      return [];
+    }
+
+    if (!data) {
       return [];
     }
 
@@ -107,7 +115,7 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       currency: input.currency || 'COP',
       transactionDate: input.transactionDate || getLocalDateString(),
       status: (input as any).status || 'confirmed',
-    });
+    } as any);
 
     const { data, error } = await supabase
       .from('transactions')
@@ -128,7 +136,7 @@ export class SupabaseTransactionRepository implements TransactionRepository {
   }
 
   async update(id: string, data: Partial<CreateTransactionInput>): Promise<Transaction> {
-    const dbData = Mapper.toDbTransaction(data);
+    const dbData = Mapper.toDbTransaction(data as any);
 
     if (Object.keys(dbData).length > 0) {
       const { data: updated, error } = await supabase

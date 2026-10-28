@@ -5,6 +5,7 @@ import { SqliteTransactionRepository } from './SqliteTransactionRepository';
 import { LocalDatabase } from '../local/LocalDatabase';
 import { generateUUID } from '../../infrastructure/utils/uuid';
 import { SyncService } from '../../infrastructure/services/SyncService';
+import { isOnlineFast, withTimeout } from '../../infrastructure/utils/network';
 
 import { Platform } from 'react-native';
 
@@ -17,9 +18,26 @@ export class HybridTransactionRepository implements TransactionRepository {
     return this.localRepo!.getById(id);
   }
 
-  async getAll(filters?: TransactionFilters, _preferCache = true): Promise<Transaction[]> {
+  async getAll(filters?: TransactionFilters, preferCache = true): Promise<Transaction[]> {
     if (Platform.OS === 'web') return this.remoteRepo.getAll(filters);
-    return this.localRepo!.getAll(filters);
+
+    const local = await this.localRepo!.getAll(filters);
+
+    // Si la consulta local está vacía o se fuerza revalidación (preferCache = false),
+    // y hay conectividad, descargar de la nube y persistir en SQLite
+    if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
+      try {
+        const remote = await withTimeout(this.remoteRepo.getAll(filters), 3500, []);
+        if (remote && remote.length > 0) {
+          await this.localRepo!.bulkSave(remote);
+          return this.localRepo!.getAll(filters);
+        }
+      } catch (err) {
+        // Fallback al resultado local
+      }
+    }
+
+    return local;
   }
 
   async create(input: CreateTransactionInput): Promise<Transaction> {
