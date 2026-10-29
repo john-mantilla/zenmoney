@@ -107,7 +107,10 @@ export default function TransactionsScreen() {
 
       const loadedTags = await tagRepoInstance.getAll();
       if (fetchRequestIdRef.current === currentRequestId) {
-        setTags(loadedTags);
+        const uniqueTags = (loadedTags || []).filter(
+          (t: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.name.trim().toLowerCase() === t.name.trim().toLowerCase()) === i
+        );
+        setTags(uniqueTags);
       }
 
       // Cargar familiares

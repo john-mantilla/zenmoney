@@ -17,14 +17,30 @@ export class SqliteTagRepository implements TagRepository {
 
   async getAll(): Promise<Tag[]> {
     const db = this.getDb();
+    await this.deduplicateTags().catch(() => {});
     const rows = await db.getAllAsync<any>('SELECT * FROM tags ORDER BY name ASC;');
     return rows.map(row => this.toDomain(row));
   }
 
   async create(input: CreateTagInput): Promise<Tag> {
     const db = this.getDb();
-    const id = (input as any).id || generateUUID();
+    const cleanName = (input.name || '').trim();
     const familyGroupId = (input as any).familyGroupId || 'offline-family';
+
+    // 1. Prevención estricta de duplicados por nombre insensible a mayúsculas/minúsculas
+    const existing = await db.getFirstAsync<any>(
+      `SELECT * FROM tags 
+       WHERE (family_group_id = ? OR family_group_id = 'offline-family') 
+         AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+       LIMIT 1;`,
+      [familyGroupId, cleanName]
+    );
+
+    if (existing) {
+      return this.toDomain(existing);
+    }
+
+    const id = (input as any).id || generateUUID();
     const createdAt = new Date().toISOString();
 
     await db.runAsync(
@@ -33,7 +49,7 @@ export class SqliteTagRepository implements TagRepository {
       [
         id,
         familyGroupId,
-        input.name,
+        cleanName,
         input.color || '#808080',
         createdAt,
       ]
@@ -42,9 +58,31 @@ export class SqliteTagRepository implements TagRepository {
     return {
       id,
       familyGroupId,
-      name: input.name,
+      name: cleanName,
       color: input.color || '#808080',
       createdAt,
+    };
+  }
+
+  async update(id: string, input: Partial<CreateTagInput>): Promise<Tag> {
+    const db = this.getDb();
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Etiqueta no encontrada: ${id}`);
+    }
+
+    const newName = input.name !== undefined ? input.name.trim() : existing.name;
+    const newColor = input.color !== undefined ? input.color : existing.color;
+
+    await db.runAsync(
+      `UPDATE tags SET name = ?, color = ? WHERE id = ?;`,
+      [newName, newColor, id]
+    );
+
+    return {
+      ...existing,
+      name: newName,
+      color: newColor,
     };
   }
 
@@ -52,6 +90,72 @@ export class SqliteTagRepository implements TagRepository {
     const db = this.getDb();
     await db.runAsync('DELETE FROM tags WHERE id = ?;', [id]);
     await db.runAsync('DELETE FROM transaction_tags WHERE tag_id = ?;', [id]);
+  }
+
+  /**
+   * Consolida y elimina etiquetas duplicadas existentes en la base de datos local.
+   * Reasigna automáticamente las transacciones asociadas al ID canónico (el más antiguo).
+   */
+  async deduplicateTags(): Promise<void> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<any>('SELECT * FROM tags ORDER BY created_at ASC;');
+    if (!rows || rows.length <= 1) return;
+
+    const tagsByName = new Map<string, any[]>();
+    for (const r of rows) {
+      const key = (r.name || '').trim().toLowerCase();
+      if (!key) continue;
+      const list = tagsByName.get(key) || [];
+      list.push(r);
+      tagsByName.set(key, list);
+    }
+
+    for (const [, group] of tagsByName.entries()) {
+      if (group.length > 1) {
+        const canonical = group[0];
+        const duplicates = group.slice(1);
+
+        for (const dup of duplicates) {
+          // Reasignar referencias en transaction_tags al ID canónico
+          await db.runAsync(
+            `INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+             SELECT transaction_id, ? FROM transaction_tags WHERE tag_id = ?;`,
+            [canonical.id, dup.id]
+          );
+          await db.runAsync('DELETE FROM transaction_tags WHERE tag_id = ?;', [dup.id]);
+
+          // Eliminar el tag duplicado
+          await db.runAsync('DELETE FROM tags WHERE id = ?;', [dup.id]);
+
+          // Encolar borrado para sincronización
+          try {
+            const actionId = 'act_' + Math.random().toString(36).substring(2, 15);
+            await db.runAsync(
+              `INSERT INTO sync_actions_queue (id, action_type, table_name, record_id, payload, created_at)
+               VALUES (?, ?, ?, ?, ?, ?);`,
+              [actionId, 'DELETE', 'tags', dup.id, JSON.stringify({ id: dup.id }), new Date().toISOString()]
+            );
+          } catch {}
+        }
+      }
+    }
+  }
+
+  /**
+   * Obtiene la cantidad de movimientos asociados a cada etiqueta.
+   */
+  async getTagUsageCounts(): Promise<Record<string, number>> {
+    const db = this.getDb();
+    const rows = await db.getAllAsync<{ tag_id: string; count: number }>(
+      `SELECT tag_id, COUNT(*) as count FROM transaction_tags GROUP BY tag_id;`
+    );
+    const counts: Record<string, number> = {};
+    if (Array.isArray(rows)) {
+      for (const r of rows) {
+        counts[r.tag_id] = Number(r.count || 0);
+      }
+    }
+    return counts;
   }
 
   async bulkSave(tags: Tag[]): Promise<void> {
@@ -79,6 +183,8 @@ export class SqliteTagRepository implements TagRepository {
     } else {
       await runInserts();
     }
+
+    await this.deduplicateTags().catch(() => {});
   }
 
   async syncWithRemote(remoteTags: Tag[]): Promise<void> {

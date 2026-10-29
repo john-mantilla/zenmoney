@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, TouchableOpacity, Keyboard, Alert } from 'react-native';
 import { Text, TextInput, Button, SegmentedButtons, Card, HelperText, Surface, IconButton, ActivityIndicator, Switch, Divider, Portal, Dialog } from 'react-native-paper';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -19,9 +19,9 @@ import { hapticLight, hapticSuccess } from '@/src/infrastructure/utils/haptics';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
 import { HybridTransactionRepository } from '@/src/data/repositories/HybridTransactionRepository';
-import { SupabaseCategorizationRuleRepository } from '@/src/data/repositories/SupabaseCategorizationRuleRepository';
+import { HybridCategorizationRuleRepository } from '@/src/data/repositories/HybridCategorizationRuleRepository';
 import { HybridBudgetRepository } from '@/src/data/repositories/HybridBudgetRepository';
-import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
+import { HybridRecurringRuleRepository } from '@/src/data/repositories/HybridRecurringRuleRepository';
 import { ValidateTransaction } from '@/src/domain/usecases/ValidateTransaction';
 import { GetQuickAddSuggestions, QuickAddSuggestions } from '@/src/domain/usecases/GetQuickAddSuggestions';
 import { MatchCategorizationRule } from '@/src/domain/usecases/MatchCategorizationRule';
@@ -161,9 +161,9 @@ export default function NewTransactionScreen() {
   const accountRepo = new HybridAccountRepository();
   const categoryRepo = new HybridCategoryRepository();
   const transactionRepo = new HybridTransactionRepository();
-  const categorizationRuleRepo = new SupabaseCategorizationRuleRepository();
+  const categorizationRuleRepo = new HybridCategorizationRuleRepository();
   const budgetRepo = new HybridBudgetRepository();
-  const recurringRuleRepo = new SupabaseRecurringRuleRepository();
+  const recurringRuleRepo = new HybridRecurringRuleRepository();
   const tagRepo = new HybridTagRepository();
   const aiProvider = new GeminiFlashProvider();
   const validator = new ValidateTransaction();
@@ -813,15 +813,31 @@ export default function NewTransactionScreen() {
   };
 
   const handleCreateTag = async () => {
-    if (!newTagName.trim()) return;
+    const cleanName = newTagName.trim();
+    if (!cleanName) return;
     setIsCreatingTag(true);
     try {
+      // 1. Verificar si ya existe en memoria una etiqueta con este nombre (insensible a mayúsculas)
+      const existing = tags.find(t => t.name.trim().toLowerCase() === cleanName.toLowerCase());
+      if (existing) {
+        setSelectedTagIds(prev => prev.includes(existing.id) ? prev : [...prev, existing.id]);
+        setNewTagName('');
+        setIsTagModalVisible(false);
+        return;
+      }
+
       const newTag = await tagRepo.create({
-        name: newTagName.trim(),
+        name: cleanName,
         color: theme.colors.primary,
       });
-      setTags(prev => [...prev, newTag]);
-      setSelectedTagIds(prev => [...prev, newTag.id]);
+
+      setTags(prev => {
+        if (prev.some(t => t.id === newTag.id || t.name.trim().toLowerCase() === newTag.name.trim().toLowerCase())) {
+          return prev;
+        }
+        return [...prev, newTag];
+      });
+      setSelectedTagIds(prev => prev.includes(newTag.id) ? prev : [...prev, newTag.id]);
       setNewTagName('');
       setIsTagModalVisible(false);
     } catch (e) {
@@ -992,17 +1008,13 @@ export default function NewTransactionScreen() {
       hapticSuccess();
 
       // Si el usuario cambió la categoría que la IA/una regla habían sugerido,
-      // se recuerda la corrección para no repetir el mismo error con este comercio.
+      // se recuerda la corrección en segundo plano (Zero Blocking UI).
       if (type === 'expense' && merchantName.trim() && finalCategoryId && finalCategoryId !== suggestedCategoryId) {
-        try {
-          await learnCategorizationUseCase.execute({
-            merchantName,
-            correctedCategoryId: finalCategoryId,
-            existingRules: categorizationRules,
-          });
-        } catch {
-          // No bloquea el guardado si esto falla; es puramente un aprendizaje adicional.
-        }
+        learnCategorizationUseCase.execute({
+          merchantName,
+          correctedCategoryId: finalCategoryId,
+          existingRules: categorizationRules,
+        }).catch((err) => console.warn('[new.tsx] Error en aprendizaje de categorización:', err));
       }
 
       // Ejecutar insights y recordatorios en segundo plano sin demorar el retorno de la UI
@@ -2035,37 +2047,61 @@ export default function NewTransactionScreen() {
                 Etiquetas
               </Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 4 }}>
-                {tags.map(tag => {
-                  const isSelected = selectedTagIds.includes(tag.id);
-                  return (
-                    <Pressable
-                      key={tag.id}
-                      onPress={() => {
-                        if (isSelected) {
-                          setSelectedTagIds(prev => prev.filter(id => id !== tag.id));
-                        } else {
-                          setSelectedTagIds(prev => [...prev, tag.id]);
-                        }
-                      }}
-                      style={{
-                        paddingHorizontal: 12,
-                        paddingVertical: 6,
-                        borderRadius: 12,
-                        backgroundColor: isSelected ? tag.color + '30' : theme.colors.surface,
-                        borderWidth: 1,
-                        borderColor: isSelected ? tag.color : theme.colors.outline + '40',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 4
-                      }}
-                    >
-                      <MaterialCommunityIcons name="tag" size={14} color={isSelected ? tag.color : theme.customColors.textSecondary} />
-                      <Text style={[theme.typography.caption, { fontWeight: isSelected ? '700' : '500', color: isSelected ? tag.color : theme.colors.onSurface }]}>
-                        {tag.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+                {tags
+                  .filter((t, i, arr) => arr.findIndex(x => x.name.trim().toLowerCase() === t.name.trim().toLowerCase()) === i)
+                  .map(tag => {
+                    const isSelected = selectedTagIds.includes(tag.id);
+                    return (
+                      <Pressable
+                        key={tag.id}
+                        onPress={() => {
+                          if (isSelected) {
+                            setSelectedTagIds(prev => prev.filter(id => id !== tag.id));
+                          } else {
+                            setSelectedTagIds(prev => [...prev, tag.id]);
+                          }
+                        }}
+                        onLongPress={() => {
+                          Alert.alert(
+                            `Eliminar etiqueta "${tag.name}"`,
+                            `¿Deseas eliminar definitivamente la etiqueta "${tag.name}" de ZenMoney? Se desvinculará de todos los movimientos.`,
+                            [
+                              { text: 'Cancelar', style: 'cancel' },
+                              {
+                                text: 'Eliminar',
+                                style: 'destructive',
+                                onPress: async () => {
+                                  try {
+                                    await tagRepo.delete(tag.id);
+                                    setTags(prev => prev.filter(t => t.id !== tag.id && t.name.trim().toLowerCase() !== tag.name.trim().toLowerCase()));
+                                    setSelectedTagIds(prev => prev.filter(id => id !== tag.id));
+                                  } catch (delErr) {
+                                    console.warn('[new.tsx] Error deleting tag:', delErr);
+                                  }
+                                },
+                              },
+                            ]
+                          );
+                        }}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                          borderRadius: 12,
+                          backgroundColor: isSelected ? tag.color + '30' : theme.colors.surface,
+                          borderWidth: 1,
+                          borderColor: isSelected ? tag.color : theme.colors.outline + '40',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <MaterialCommunityIcons name="tag" size={14} color={isSelected ? tag.color : theme.customColors.textSecondary} />
+                        <Text style={[theme.typography.caption, { fontWeight: isSelected ? '700' : '500', color: isSelected ? tag.color : theme.colors.onSurface }]}>
+                          {tag.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 {/* Botón para crear nueva etiqueta temporalmente como un prompt, pero 
                     para mantenerlo simple, sugerimos crearla en configuraciones o añadimos un diálogo */}
                 <Pressable

@@ -53,23 +53,50 @@ export class HybridTagRepository implements TagRepository {
     if (this.localRepo) {
       // Guardado Optimista Local-First (< 5ms)
       const local = await this.localRepo.create(localInput);
+
+      // Solo encolar sincronización si se creó un registro nuevo (no si devolvió uno existente)
+      if (local.id === tempId) {
+        try {
+          const db = LocalDatabase.getDb();
+          const actionId = 'act_' + Math.random().toString(36).substring(2, 15);
+          await db.runAsync(
+            `INSERT INTO sync_actions_queue (id, action_type, table_name, record_id, payload, created_at)
+             VALUES (?, ?, ?, ?, ?, ?);`,
+            [actionId, 'INSERT', 'tags', tempId, JSON.stringify(localInput), new Date().toISOString()]
+          );
+          // Replicación asíncrona transparente en segundo plano
+          SyncService.syncPendingActions().catch(() => {});
+        } catch (queueErr) {
+          console.warn('[HybridTagRepository] Error encolando acción de sincronización:', queueErr);
+        }
+      }
+      return local;
+    }
+
+    return this.remoteRepo.create(input);
+  }
+
+  async update(id: string, input: Partial<CreateTagInput>): Promise<Tag> {
+    if (Platform.OS === 'web') return this.remoteRepo.update(id, input);
+
+    if (this.localRepo) {
+      const updated = await this.localRepo.update(id, input);
       try {
         const db = LocalDatabase.getDb();
         const actionId = 'act_' + Math.random().toString(36).substring(2, 15);
         await db.runAsync(
           `INSERT INTO sync_actions_queue (id, action_type, table_name, record_id, payload, created_at)
            VALUES (?, ?, ?, ?, ?, ?);`,
-          [actionId, 'INSERT', 'tags', tempId, JSON.stringify(localInput), new Date().toISOString()]
+          [actionId, 'UPDATE', 'tags', id, JSON.stringify(input), new Date().toISOString()]
         );
-        // Replicación asíncrona transparente en segundo plano
         SyncService.syncPendingActions().catch(() => {});
       } catch (queueErr) {
-        console.warn('[HybridTagRepository] Error encolando acción de sincronización:', queueErr);
+        console.warn('[HybridTagRepository] Error encolando acción de actualización:', queueErr);
       }
-      return local;
+      return updated;
     }
 
-    return this.remoteRepo.create(input);
+    return this.remoteRepo.update(id, input);
   }
 
   async delete(id: string): Promise<void> {
@@ -92,5 +119,18 @@ export class HybridTagRepository implements TagRepository {
         console.warn('[HybridTagRepository] Error encolando acción de eliminación:', queueErr);
       }
     }
+  }
+
+  async deduplicateTags(): Promise<void> {
+    if (this.localRepo) {
+      await this.localRepo.deduplicateTags();
+    }
+  }
+
+  async getTagUsageCounts(): Promise<Record<string, number>> {
+    if (this.localRepo) {
+      return this.localRepo.getTagUsageCounts();
+    }
+    return {};
   }
 }

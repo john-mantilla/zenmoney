@@ -41,17 +41,48 @@ export class SupabaseTagRepository implements TagRepository {
 
     if (!profile) throw new Error('Perfil no encontrado.');
 
+    const cleanName = (input.name || '').trim();
+
+    // 1. Prevención de etiquetas duplicadas en Supabase por nombre
+    const { data: existing } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('family_group_id', profile.family_group_id)
+      .ilike('name', cleanName)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      return Mapper.toDomainTag(existing);
+    }
+
     const { data, error } = await supabase
       .from('tags')
       .insert({
         family_group_id: profile.family_group_id,
-        name: input.name,
+        name: cleanName,
         color: input.color || '#808080'
       })
       .select('*')
       .single();
 
     if (error || !data) throw new Error(`Error al crear tag: ${error?.message}`);
+    return Mapper.toDomainTag(data);
+  }
+
+  async update(id: string, input: Partial<CreateTagInput>): Promise<Tag> {
+    const updateData: any = {};
+    if (input.name) updateData.name = input.name.trim();
+    if (input.color) updateData.color = input.color;
+
+    const { data, error } = await supabase
+      .from('tags')
+      .update(updateData)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error || !data) throw new Error(`Error al actualizar tag: ${error?.message}`);
     return Mapper.toDomainTag(data);
   }
 

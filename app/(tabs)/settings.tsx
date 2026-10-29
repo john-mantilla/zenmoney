@@ -13,7 +13,8 @@ import { useAppTheme } from '@/src/presentation/theme';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { HybridAccountRepository } from '@/src/data/repositories/HybridAccountRepository';
 import { HybridCategoryRepository } from '@/src/data/repositories/HybridCategoryRepository';
-import { SupabaseRecurringRuleRepository } from '@/src/data/repositories/SupabaseRecurringRuleRepository';
+import { HybridRecurringRuleRepository } from '@/src/data/repositories/HybridRecurringRuleRepository';
+import { HybridTagRepository } from '@/src/data/repositories/HybridTagRepository';
 import { HabitSettingsSection } from '@/src/presentation/components';
 import { Category } from '@/src/domain/entities/Category';
 import { BUILD_CONFIG } from '@/src/config/buildInfo';
@@ -29,23 +30,27 @@ export default function SettingsScreen() {
   const [categoriesCount, setCategoriesCount] = useState<number | null>(null);
   const [categoriesList, setCategoriesList] = useState<Category[]>([]);
   const [recurrencesCount, setRecurrencesCount] = useState<number | null>(null);
+  const [tagsCount, setTagsCount] = useState<number | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>('Hace un momento');
 
   const accountRepo = new HybridAccountRepository();
   const categoryRepo = new HybridCategoryRepository();
-  const recurrenceRepo = new SupabaseRecurringRuleRepository();
+  const recurrenceRepo = new HybridRecurringRuleRepository();
+  const tagRepo = new HybridTagRepository();
 
   const loadCounts = useCallback(async () => {
     try {
-      const [accs, cats, recs] = await Promise.all([
+      const [accs, cats, recs, tgs] = await Promise.all([
         accountRepo.getAll(),
         categoryRepo.getAll(true),
         recurrenceRepo.getAllActive(),
+        tagRepo.getAll(true).catch(() => []),
       ]);
       setAccountsCount(accs.filter((a: any) => a.isActive).length);
       setCategoriesCount(cats.length);
       setCategoriesList(cats as Category[]);
       setRecurrencesCount(recs.length);
+      setTagsCount(tgs.length);
       
       const now = new Date();
       setLastSyncTime(`${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
@@ -131,6 +136,22 @@ export default function SettingsScreen() {
             )}
             right={props => <List.Icon {...props} icon="chevron-right" color={theme.customColors.textSecondary} />}
             onPress={() => router.push('/settings/categories')}
+            style={styles.menuItem}
+          />
+          <Divider style={{ backgroundColor: theme.colors.outline + '15' }} />
+
+          <List.Item
+            title="Gestionar Etiquetas"
+            titleStyle={{ fontWeight: '600', color: theme.colors.onSurface }}
+            description={tagsCount !== null ? `${tagsCount} etiquetas` : 'Cargando...'}
+            descriptionStyle={{ color: theme.customColors.textSecondary, fontSize: 12 }}
+            left={props => (
+              <View style={[styles.iconCircle, { backgroundColor: '#8B5CF615' }]}>
+                <MaterialCommunityIcons name="tag-outline" size={20} color="#8B5CF6" />
+              </View>
+            )}
+            right={props => <List.Icon {...props} icon="chevron-right" color={theme.customColors.textSecondary} />}
+            onPress={() => router.push('/settings/tags' as any)}
             style={styles.menuItem}
           />
           <Divider style={{ backgroundColor: theme.colors.outline + '15' }} />
