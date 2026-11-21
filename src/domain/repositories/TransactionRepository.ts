@@ -12,6 +12,7 @@ export interface TransactionFilters {
   type?: Transaction['type'];
   startDate?: string; // YYYY-MM-DD
   endDate?: string; // YYYY-MM-DD
+  search?: string;
   status?: Transaction['status'];
   inputMethod?: Transaction['inputMethod'];
   recurringRuleId?: string;

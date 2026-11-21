@@ -103,6 +103,35 @@ describe('Zod Domain Schemas — Runtime Validation & Sanitization', () => {
 
       expect(invalidClosing.success).toBe(false);
     });
+
+    it('permite cuentas en moneda extranjera (USD) si el tipo es investment', () => {
+      const validInvestmentUSD = CreateAccountSchema.safeParse({
+        name: 'Interactive Brokers USD',
+        type: 'investment',
+        initialBalance: 1500,
+        currency: 'USD',
+      });
+
+      expect(validInvestmentUSD.success).toBe(true);
+      if (validInvestmentUSD.success) {
+        expect(validInvestmentUSD.data.currency).toBe('USD');
+        expect(validInvestmentUSD.data.type).toBe('investment');
+      }
+    });
+
+    it('rechaza cuentas en moneda extranjera (USD/EUR) si el tipo no es investment', () => {
+      const invalidBankUSD = CreateAccountSchema.safeParse({
+        name: 'Bank of America Checking',
+        type: 'bank',
+        initialBalance: 500,
+        currency: 'USD',
+      });
+
+      expect(invalidBankUSD.success).toBe(false);
+      if (!invalidBankUSD.success) {
+        expect(invalidBankUSD.error.issues[0].message).toContain('solo pueden catalogarse como inversiones');
+      }
+    });
   });
 
   describe('CreateBudgetSchema', () => {

@@ -24,6 +24,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "permissions": [
+        "android.permission.RECORD_AUDIO",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -104,6 +105,9 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "owner": "jmantilla.zen"
+    "owner": "jmantilla.zen",
+    "updates": {
+      "url": "https://u.expo.dev/2f41c208-1d46-4d19-bf74-ab21ee91818b"
+    }
   }
 }

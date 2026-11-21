@@ -261,6 +261,7 @@ export default function SettingsAccountsScreen() {
         savedAccount = await accountRepo.update(selectedAccount.id, {
           name: targetName,
           type: targetType,
+          currency: data?.currency || selectedAccount.currency || 'COP',
           closingDay: targetClosingDay,
           paymentDay: targetPaymentDay,
           isPrivate: targetIsPrivate,
@@ -270,7 +271,7 @@ export default function SettingsAccountsScreen() {
           name: targetName,
           type: targetType,
           initialBalance: targetInitialBalance,
-          currency: 'COP',
+          currency: data?.currency || 'COP',
           closingDay: targetClosingDay,
           paymentDay: targetPaymentDay,
           isPrivate: targetIsPrivate,
@@ -474,6 +475,11 @@ export default function SettingsAccountsScreen() {
                                   ]}>
                                     {account.name}
                                   </Text>
+                                  {account.currency && account.currency !== 'COP' && (
+                                    <View style={{ backgroundColor: '#E0F2FE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#0369A1' }}>{account.currency}</Text>
+                                    </View>
+                                  )}
                                   {isDefault && (
                                     <View style={{ backgroundColor: '#FEF3C7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
                                       <Text style={{ fontSize: 10, fontWeight: '700', color: '#B45309' }}>Principal</Text>
@@ -481,7 +487,7 @@ export default function SettingsAccountsScreen() {
                                   )}
                                 </View>
                                 <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary }]}>
-                                  {getAccountTypeLabel(account.type)} {account.isPrivate ? '• 🙈 Privada' : ''}
+                                  {getAccountTypeLabel(account.type)} {account.currency && account.currency !== 'COP' ? `(${account.currency}) ` : ''}{account.isPrivate ? '• 🙈 Privada' : ''}
                                 </Text>
                               </View>
                             </Pressable>

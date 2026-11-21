@@ -451,7 +451,10 @@ export default function DashboardScreen() {
 
   // Cálculos acumulados de categorías de cuentas para mostrar en el header de los acordeones
   const totalLiquidSum = liquidAccounts.reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance ?? 0), 0);
-  const totalInvestmentsSum = investmentAccounts.reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance ?? 0), 0);
+  const totalInvestmentsCopSum = investmentAccounts
+    .filter(acc => (acc.currency || 'COP') === 'COP')
+    .reduce((sum, acc) => sum + Number(acc.currentBalance ?? acc.initialBalance ?? 0), 0);
+  const foreignInvestmentsCount = investmentAccounts.filter(acc => acc.currency && acc.currency !== 'COP').length;
   const totalCardsSum = creditCards.reduce((sum, acc) => sum + Math.abs(Number(acc.currentBalance ?? acc.initialBalance ?? 0)), 0);
   const totalLoansSum = loanAccounts.reduce((sum, acc) => sum + Math.abs(Number(acc.currentBalance ?? acc.initialBalance ?? 0)), 0);
 
@@ -916,23 +919,37 @@ export default function DashboardScreen() {
           {investmentAccounts.length > 0 && (
             <List.Accordion
               title="Inversiones y Patrimonio"
-              description={`${investmentAccounts.length} ${investmentAccounts.length === 1 ? 'cuenta de capital' : 'cuentas de capital'}`}
+              description={
+                foreignInvestmentsCount > 0
+                  ? `${investmentAccounts.length} cuentas (${foreignInvestmentsCount} en moneda extranjera)`
+                  : `${investmentAccounts.length} ${investmentAccounts.length === 1 ? 'cuenta de capital' : 'cuentas de capital'}`
+              }
               expanded={investmentsExpanded}
               onPress={() => setInvestmentsExpanded(!investmentsExpanded)}
               left={props => <List.Icon {...props} icon="chart-line" color="#059669" />}
               right={() => (
-                <AmountDisplay amount={totalInvestmentsSum} size="sm" type="income" style={styles.headerAmount} />
+                <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                  <AmountDisplay amount={totalInvestmentsCopSum} currency="COP" size="sm" type="income" style={styles.headerAmount} />
+                  {foreignInvestmentsCount > 0 && (
+                    <Text style={{ fontSize: 10, color: theme.customColors.textSecondary, fontWeight: '600' }}>
+                      + activos en divisas
+                    </Text>
+                  )}
+                </View>
               )}
               style={[styles.accordionHeader, { backgroundColor: theme.colors.surface, marginTop: 8 }]}
             >
               {investmentAccounts.map(account => {
                 const brand = getAccountBrandInfo(account);
+                const isForeign = account.currency && account.currency !== 'COP';
                 return (
                   <List.Item
                     key={account.id}
                     title={account.name}
                     description={
-                      'Inversión / CDT / Fiduciaria' + (account.isPrivate ? ' • 🙈 Privada' : '')
+                      (isForeign ? `🌐 ${account.currency} • ` : '') +
+                      'Inversión / Activo' +
+                      (account.isPrivate ? ' • 🙈 Privada' : '')
                     }
                     onPress={() => setSelectedAccountForAction(account)}
                     left={() => (
@@ -945,7 +962,13 @@ export default function DashboardScreen() {
                     )}
                     right={() => (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <AmountDisplay amount={account.currentBalance ?? account.initialBalance} size="sm" type="income" style={styles.itemAmount} />
+                        <AmountDisplay
+                          amount={account.currentBalance ?? account.initialBalance}
+                          currency={account.currency || 'COP'}
+                          size="sm"
+                          type="income"
+                          style={styles.itemAmount}
+                        />
                         <MaterialCommunityIcons name="chevron-right" size={20} color={theme.customColors.textSecondary} />
                       </View>
                     )}
@@ -1036,6 +1059,7 @@ export default function DashboardScreen() {
                   </Text>
                   <AmountDisplay
                     amount={selectedAccountForAction.currentBalance ?? selectedAccountForAction.initialBalance}
+                    currency={selectedAccountForAction.currency || 'COP'}
                     size="md"
                     type={
                       ['credit_card', 'loan', 'mortgage'].includes(selectedAccountForAction.type)
@@ -1057,13 +1081,13 @@ export default function DashboardScreen() {
                       <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface }]}>
                         🟢 Total Ingresos:
                       </Text>
-                      <AmountDisplay amount={accountStats.totalIncome} size="sm" type="income" />
+                      <AmountDisplay amount={accountStats.totalIncome} currency={selectedAccountForAction.currency || 'COP'} size="sm" type="income" />
                     </View>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface }]}>
                         🔴 Total Gastos:
                       </Text>
-                      <AmountDisplay amount={accountStats.totalExpenses} size="sm" type="expense" />
+                      <AmountDisplay amount={accountStats.totalExpenses} currency={selectedAccountForAction.currency || 'COP'} size="sm" type="expense" />
                     </View>
                   </Surface>
                 )}

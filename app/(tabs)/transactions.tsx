@@ -24,6 +24,7 @@ import { SupabaseUserProfileRepository } from '@/src/data/repositories/SupabaseU
 import { isOnlineFast } from '@/src/infrastructure/utils/network';
 import { SyncService } from '@/src/infrastructure/services/SyncService';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { SmartSearchTransactions, SmartSearchResult } from '@/src/domain/usecases/SmartSearchTransactions';
 
 export default function TransactionsScreen() {
   const theme = useAppTheme();
@@ -35,6 +36,7 @@ export default function TransactionsScreen() {
 
   // Estados de datos
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [allHistoricalTransactions, setAllHistoricalTransactions] = useState<Transaction[]>([]);
   const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -43,8 +45,11 @@ export default function TransactionsScreen() {
 
   // Estados de control
   const [isLoading, setIsLoading] = useState(true);
+  const [isSearchingHistory, setIsSearchingHistory] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchScope, setSearchScope] = useState<'all' | 'month'>('all');
+  const [searchStats, setSearchStats] = useState<SmartSearchResult | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
@@ -79,6 +84,31 @@ export default function TransactionsScreen() {
   const lastLoadRef = useRef<number>(0);
   const lastLoadedMonthRef = useRef<number | null>(null);
   const lastLoadedYearRef = useRef<number | null>(null);
+
+  // Referencias para el Buscador Inteligente Histórico
+  const allHistoricalTransactionsRef = useRef<Transaction[]>([]);
+  const allHistoricalLoadedRef = useRef<boolean>(false);
+  const hasUserManuallyToggledScopeRef = useRef<boolean>(false);
+  const searchEngine = useRef(new SmartSearchTransactions()).current;
+
+  const ensureHistoricalLoaded = useCallback(async (force = false) => {
+    if (allHistoricalLoadedRef.current && !force && allHistoricalTransactionsRef.current.length > 0) {
+      return allHistoricalTransactionsRef.current;
+    }
+    setIsSearchingHistory(true);
+    try {
+      const all = await transactionRepo.getAll({ status: 'confirmed' }, true);
+      allHistoricalTransactionsRef.current = all;
+      setAllHistoricalTransactions(all);
+      allHistoricalLoadedRef.current = true;
+      return all;
+    } catch (e) {
+      console.warn('[Transactions] Error loading historical transactions', e);
+      return [];
+    } finally {
+      setIsSearchingHistory(false);
+    }
+  }, []);
 
   const loadData = async (force = false) => {
     const isNewTimeframe = selectedMonth !== lastLoadedMonthRef.current || selectedYear !== lastLoadedYearRef.current;
@@ -173,6 +203,14 @@ export default function TransactionsScreen() {
       const pendingConfirmationList = pendingTxs.filter(isPendingConfirmationTransaction);
       setTransactions(loadedTxs);
       setPendingCount(pendingConfirmationList.length);
+
+      // Pre-cargar en segundo plano el histórico completo si aún no está disponible
+      if (!allHistoricalLoadedRef.current) {
+        setTimeout(() => {
+          ensureHistoricalLoaded().catch(() => {});
+        }, 200);
+      }
+
       return loadedTxs;
     };
 
@@ -223,53 +261,65 @@ export default function TransactionsScreen() {
     }, [selectedYear, selectedMonth])
   );
 
-  // Filtrado reactivo en memoria
+  // Filtrado reactivo con Motor de Búsqueda Inteligente Histórico
   useEffect(() => {
-    let result = transactions;
+    const isSearching = searchQuery.trim().length > 0;
+    const effectiveScope = searchScope;
 
-    // Ocultar transacciones privadas de otros miembros de la familia del listado visual
-    const effectiveUserId = authUserId || currentUserId;
-    if (effectiveUserId) {
-      result = result.filter(tx => !tx.isPrivate || tx.createdByUserId === effectiveUserId);
+    // Si el alcance es 'all' y aún no se ha cargado el histórico, disparar su carga inmediata
+    if (effectiveScope === 'all') {
+      if (!allHistoricalLoadedRef.current && allHistoricalTransactions.length === 0) {
+        ensureHistoricalLoaded();
+      }
     }
 
-    // Filtro por cuenta
-    if (selectedAccountId) {
-      result = result.filter(
-        tx => tx.accountId === selectedAccountId || tx.transferToAccountId === selectedAccountId
-      );
-    }
+    // El pool de transacciones a filtrar depende del alcance:
+    // Si scope es 'all', usamos allHistoricalTransactions si está disponible, o transactions mientras termina de cargar
+    const txPool = effectiveScope === 'all'
+      ? (allHistoricalTransactions.length > 0 ? allHistoricalTransactions : transactions)
+      : transactions;
 
-    // Filtro por integrante familiar
-    if (selectedMemberId) {
-      result = result.filter(tx => tx.createdByUserId === selectedMemberId);
-    }
+    const result = searchEngine.execute(txPool, categories, accounts, {
+      query: searchQuery,
+      scope: effectiveScope,
+      targetYear: selectedYear,
+      targetMonth: selectedMonth,
+      selectedAccountId,
+      selectedMemberId,
+      selectedType,
+      selectedTagId,
+      currentUserId: authUserId || currentUserId,
+    });
 
-    // Filtro por tipo de movimiento (Ingresos / Gastos / Transferencias)
-    if (selectedType !== 'all') {
-      result = result.filter(tx => tx.type === selectedType);
-    }
-
-    // Filtro por etiqueta seleccionada
-    if (selectedTagId) {
-      result = result.filter(tx => tx.tags && tx.tags.some(tag => tag.id === selectedTagId));
-    }
-
-    // Filtro por buscador (descripción, comercio o etiqueta)
-    if (searchQuery.trim().length > 0) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        tx => 
-          (tx.description && tx.description.toLowerCase().includes(q)) ||
-          (tx.merchantName && tx.merchantName.toLowerCase().includes(q)) ||
-          (tx.tags && tx.tags.some(tag => tag.name.toLowerCase().includes(q)))
-      );
-    }
-
-    setFilteredTransactions(result);
-  }, [searchQuery, selectedAccountId, selectedMemberId, selectedType, selectedTagId, transactions]);
+    setFilteredTransactions(result.transactions);
+    setSearchStats(result);
+  }, [
+    searchQuery,
+    searchScope,
+    selectedAccountId,
+    selectedMemberId,
+    selectedType,
+    selectedTagId,
+    transactions,
+    allHistoricalTransactions,
+    categories,
+    accounts,
+    selectedYear,
+    selectedMonth,
+    authUserId,
+    currentUserId,
+    ensureHistoricalLoaded,
+  ]);
 
   const getFilteredSums = () => {
+    if (searchStats && (searchQuery.trim().length > 0 || searchScope === 'all')) {
+      return {
+        income: searchStats.incomeSum,
+        expense: searchStats.expenseSum,
+        net: searchStats.netSum,
+      };
+    }
+
     let incomeSum = 0;
     let expenseSum = 0;
 
@@ -297,12 +347,25 @@ export default function TransactionsScreen() {
     };
   };
 
+  const handleJumpToMonth = (dateStr: string) => {
+    const parts = dateStr.split('-');
+    if (parts.length >= 2) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      useDateStore.getState().setMonth(y, m);
+      setSearchScope('month');
+      hasUserManuallyToggledScopeRef.current = true;
+    }
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
+    allHistoricalLoadedRef.current = false;
     SyncService.fullSync()
       .catch(() => {})
       .finally(async () => {
         await loadData(true);
+        await ensureHistoricalLoaded(true);
       });
   };
 
@@ -549,9 +612,19 @@ export default function TransactionsScreen() {
         <Surface style={[styles.filterHeader, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outline + '20' }]} elevation={1}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Searchbar
-              placeholder="Buscar en movimientos..."
-              onChangeText={setSearchQuery}
+              placeholder="Buscar concepto, comercio, $50k..."
+              onChangeText={(text) => {
+                setSearchQuery(text);
+                if (text.trim().length > 0 && !hasUserManuallyToggledScopeRef.current) {
+                  setSearchScope('all');
+                }
+              }}
               value={searchQuery}
+              onClearIconPress={() => {
+                setSearchQuery('');
+                hasUserManuallyToggledScopeRef.current = false;
+                setSearchScope('all');
+              }}
               style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42, borderRadius: 12 }]}
               inputStyle={[theme.typography.body, { fontSize: 13, minHeight: 0 }]}
             />
@@ -587,6 +660,111 @@ export default function TransactionsScreen() {
               accessibilityLabel="Modo selección múltiple"
             />
           </View>
+
+          {/* Selector de Alcance del Buscador Inteligente (Todo el historial vs Este mes) */}
+          {(searchQuery.trim().length > 0 || searchScope === 'all') && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Chip
+                  compact
+                  icon="earth"
+                  selected={searchScope === 'all'}
+                  onPress={() => {
+                    hasUserManuallyToggledScopeRef.current = true;
+                    setSearchScope('all');
+                    ensureHistoricalLoaded();
+                  }}
+                  style={{
+                    height: 28,
+                    borderRadius: 8,
+                    backgroundColor: searchScope === 'all' ? theme.colors.primaryContainer : theme.colors.surfaceVariant + '70',
+                    borderColor: searchScope === 'all' ? theme.colors.primary + '60' : 'transparent',
+                    borderWidth: searchScope === 'all' ? 1 : 0,
+                  }}
+                  textStyle={{
+                    fontSize: 11,
+                    fontWeight: searchScope === 'all' ? '700' : '500',
+                    color: searchScope === 'all' ? theme.colors.primary : theme.customColors.textSecondary,
+                  }}
+                >
+                  Todo el historial
+                </Chip>
+                <Chip
+                  compact
+                  icon="calendar-month-outline"
+                  selected={searchScope === 'month'}
+                  onPress={() => {
+                    hasUserManuallyToggledScopeRef.current = true;
+                    setSearchScope('month');
+                  }}
+                  style={{
+                    height: 28,
+                    borderRadius: 8,
+                    backgroundColor: searchScope === 'month' ? theme.colors.primaryContainer : theme.colors.surfaceVariant + '70',
+                    borderColor: searchScope === 'month' ? theme.colors.primary + '60' : 'transparent',
+                    borderWidth: searchScope === 'month' ? 1 : 0,
+                  }}
+                  textStyle={{
+                    fontSize: 11,
+                    fontWeight: searchScope === 'month' ? '700' : '500',
+                    color: searchScope === 'month' ? theme.colors.primary : theme.customColors.textSecondary,
+                  }}
+                >
+                  Este mes ({new Date(selectedYear, selectedMonth - 1, 1).toLocaleDateString('es-CO', { month: 'short' })})
+                </Chip>
+              </View>
+
+              {searchQuery.trim().length > 0 && (
+                <Pressable
+                  onPress={() => {
+                    setSearchQuery('');
+                    hasUserManuallyToggledScopeRef.current = false;
+                    setSearchScope('all');
+                  }}
+                  hitSlop={8}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 }}
+                >
+                  <MaterialCommunityIcons name="close-circle-outline" size={13} color={theme.colors.error} />
+                  <Text style={{ fontSize: 11, color: theme.colors.error, fontWeight: '600', marginLeft: 3 }}>
+                    Limpiar
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+
+          {/* Banner de Feedback de Búsqueda Inteligente */}
+          {searchQuery.trim().length > 0 && (
+            <View
+              style={{
+                marginTop: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                borderRadius: 8,
+                backgroundColor: theme.colors.primaryContainer + '20',
+                borderWidth: 1,
+                borderColor: theme.colors.primary + '35',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                {isSearchingHistory ? (
+                  <ActivityIndicator size={12} color={theme.colors.primary} />
+                ) : (
+                  <MaterialCommunityIcons name="magnify" size={14} color={theme.colors.primary} />
+                )}
+                <Text style={{ fontSize: 11, color: theme.colors.onSurface, fontWeight: '600', flex: 1 }} numberOfLines={1}>
+                  {filteredTransactions.length} {filteredTransactions.length === 1 ? 'movimiento' : 'movimientos'} en {searchScope === 'all' ? 'todo el historial' : 'este mes'}
+                  {searchScope === 'all' && searchStats && searchStats.matchedMonthsCount > 1 ? ` • ${searchStats.matchedMonthsCount} meses` : ''}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 10, color: theme.colors.primary, fontWeight: '700' }}>
+                {searchScope === 'all' ? 'HISTORIAL' : 'MES'}
+              </Text>
+            </View>
+          )}
 
           {/* Barra rápida de etiquetas (Quick Tags Bar) */}
           {tags && tags.length > 0 && (
@@ -770,6 +948,7 @@ export default function TransactionsScreen() {
           renderItem={({ item }) => {
             const catInfo = getCategoryDisplayInfo(item.categoryId);
             const accName = getAccountName(item.accountId);
+            const isDifferentMonth = !item.transactionDate.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`);
             
             return (
               <TransactionCard
@@ -782,6 +961,8 @@ export default function TransactionsScreen() {
                 authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
                 isSelected={selectedTransactionIds.has(item.id)}
                 selectionMode={isSelectionMode}
+                showYear={searchScope === 'all' || searchQuery.trim().length > 0}
+                onJumpToMonth={isDifferentMonth ? () => handleJumpToMonth(item.transactionDate) : undefined}
                 onLongPress={() => handleLongPress(item.id)}
                 onPress={() => isSelectionMode ? toggleSelection(item.id) : router.push(`/transaction/new?id=${item.id}`)}
                 onPressTag={(tag) => setSelectedTagId(tag.id)}
@@ -794,12 +975,18 @@ export default function TransactionsScreen() {
           }
           ListEmptyComponent={
             <EmptyState
-              icon="cash-register"
-              title="Sin resultados"
-              description="No encontramos ningún movimiento que coincida con tus filtros."
-              actionLabel="Limpiar Filtros"
+              icon={searchQuery.trim().length > 0 ? "magnify-close" : "cash-register"}
+              title={searchQuery.trim().length > 0 ? "Sin coincidencias" : "Sin resultados"}
+              description={
+                searchQuery.trim().length > 0
+                  ? `No encontramos ningún movimiento que coincida con "${searchQuery}" en ${searchScope === 'all' ? 'todo el historial' : 'este mes'}. Puedes probar buscando por monto ($50k), categoría o comercio.`
+                  : "No encontramos ningún movimiento que coincida con tus filtros."
+              }
+              actionLabel={searchQuery.trim().length > 0 ? "Limpiar Búsqueda" : "Limpiar Filtros"}
               onAction={() => {
                 setSearchQuery('');
+                hasUserManuallyToggledScopeRef.current = false;
+                setSearchScope('all');
                 setSelectedAccountId(null);
                 setSelectedTagId(null);
               }}
@@ -830,6 +1017,7 @@ export default function TransactionsScreen() {
           renderItem={({ item }) => {
             const catInfo = getCategoryDisplayInfo(item.categoryId);
             const accName = getAccountName(item.accountId);
+            const isDifferentMonth = !item.transactionDate.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`);
             
             return (
               <TransactionCard
@@ -842,6 +1030,8 @@ export default function TransactionsScreen() {
                 authorInitials={item.createdByUserId !== currentUserId ? familyMembers[item.createdByUserId] : null}
                 isSelected={selectedTransactionIds.has(item.id)}
                 selectionMode={isSelectionMode}
+                showYear={searchScope === 'all' || searchQuery.trim().length > 0}
+                onJumpToMonth={isDifferentMonth ? () => handleJumpToMonth(item.transactionDate) : undefined}
                 onLongPress={() => handleLongPress(item.id)}
                 onPress={() => isSelectionMode ? toggleSelection(item.id) : router.push(`/transaction/new?id=${item.id}`)}
                 onPressTag={(tag) => setSelectedTagId(tag.id)}
@@ -854,12 +1044,18 @@ export default function TransactionsScreen() {
           }
           ListEmptyComponent={
             <EmptyState
-              icon="cash-register"
-              title="Sin resultados"
-              description="No encontramos ningún movimiento que coincida con tus filtros."
-              actionLabel="Limpiar Filtros"
+              icon={searchQuery.trim().length > 0 ? "magnify-close" : "cash-register"}
+              title={searchQuery.trim().length > 0 ? "Sin coincidencias" : "Sin resultados"}
+              description={
+                searchQuery.trim().length > 0
+                  ? `No encontramos ningún movimiento que coincida con "${searchQuery}" en ${searchScope === 'all' ? 'todo el historial' : 'este mes'}. Puedes probar buscando por monto ($50k), categoría o comercio.`
+                  : "No encontramos ningún movimiento que coincida con tus filtros."
+              }
+              actionLabel={searchQuery.trim().length > 0 ? "Limpiar Búsqueda" : "Limpiar Filtros"}
               onAction={() => {
                 setSearchQuery('');
+                hasUserManuallyToggledScopeRef.current = false;
+                setSearchScope('all');
                 setSelectedAccountId(null);
                 setSelectedTagId(null);
               }}

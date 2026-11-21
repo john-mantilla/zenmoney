@@ -26,6 +26,8 @@ interface TransactionCardProps {
   onPressTag?: (tag: any) => void;
   isSelected?: boolean;
   selectionMode?: boolean;
+  showYear?: boolean;
+  onJumpToMonth?: () => void;
 }
 
 export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
@@ -41,6 +43,8 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   onPressTag,
   isSelected = false,
   selectionMode = false,
+  showYear = false,
+  onJumpToMonth,
 }) => {
   const theme = useAppTheme();
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -86,6 +90,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
   const formattedDate = dateObj.toLocaleDateString('es-CO', {
     day: 'numeric',
     month: 'short',
+    ...(showYear ? { year: 'numeric' } : {}),
   });
 
   return (
@@ -132,6 +137,30 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
               </Text>
               
               {/* Etiquetas (Tags) asignadas al gasto */}
+              {onJumpToMonth && (
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onJumpToMonth();
+                  }}
+                  hitSlop={6}
+                  style={({ pressed }) => [
+                    styles.badge,
+                    {
+                      backgroundColor: theme.colors.primaryContainer + '40',
+                      borderColor: theme.colors.primary + '60',
+                      borderWidth: 1,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <MaterialCommunityIcons name="calendar-arrow-right" size={10} color={theme.colors.primary} style={{ marginRight: 2 }} />
+                  <Text style={{ fontSize: 9, fontWeight: '700', color: theme.colors.primary }}>Ver mes</Text>
+                </Pressable>
+              )}
+
               {transaction.tags && transaction.tags.map(tag => (
                 <Pressable
                   key={tag.id}

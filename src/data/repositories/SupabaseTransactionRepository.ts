@@ -57,6 +57,10 @@ export class SupabaseTransactionRepository implements TransactionRepository {
       if (filters.updatedAfter) {
         query = query.gt('updated_at', filters.updatedAfter);
       }
+      if (filters.search && filters.search.trim()) {
+        const term = `%${filters.search.trim()}%`;
+        query = query.or(`description.ilike.${term},merchant_name.ilike.${term}`);
+      }
       if (filters.tagIds && filters.tagIds.length > 0) {
         // PostgREST filtering on joined tables can be complex, but for many-to-many 
         // it's easier to filter if the tag is contained in the joined tags array,

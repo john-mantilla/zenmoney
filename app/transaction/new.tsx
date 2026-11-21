@@ -940,7 +940,7 @@ export default function NewTransactionScreen() {
       categoryId: splits.length > 0 ? (finalCategoryId || splits[0].categoryId) : finalCategoryId,
       type: finalType,
       amount: finalAmountValue,
-      currency: (isEditing && originalTx?.currency) || 'COP',
+      currency: selectedAccount?.currency || (isEditing && originalTx?.currency) || 'COP',
       description: finalDescription,
       merchantName: type === 'expense' ? merchantName : null,
       transactionDate,

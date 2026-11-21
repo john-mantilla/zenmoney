@@ -89,6 +89,11 @@ export class SqliteTransactionRepository implements TransactionRepository {
         conditions.push('updated_at > ?');
         params.push(filters.updatedAfter);
       }
+      if (filters.search && filters.search.trim()) {
+        const term = `%${filters.search.trim()}%`;
+        conditions.push('(description LIKE ? OR merchant_name LIKE ?)');
+        params.push(term, term);
+      }
     }
 
     if (conditions.length > 0) {

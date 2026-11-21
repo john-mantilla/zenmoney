@@ -49,9 +49,11 @@ export const AmountDisplay: React.FC<AmountDisplayProps> = ({
   }
 
   // Formatear número (Estilo colombiano: miles con punto)
+  const isCOP = currency === 'COP';
+  const hasDecimals = amount % 1 !== 0;
   const formattedAmount = Math.abs(amount).toLocaleString('es-CO', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: isCOP ? 0 : (hasDecimals ? 2 : 0),
+    maximumFractionDigits: isCOP ? 0 : 2,
   });
 
   // Prefijo (+ para ingresos, - para gastos, - para saldos de cuenta en negativo)
@@ -65,7 +67,14 @@ export const AmountDisplay: React.FC<AmountDisplayProps> = ({
   }
 
   // Mostrar el símbolo de la moneda
-  const symbol = currency === 'COP' ? '$' : `${currency} `;
+  let symbol = '$';
+  if (currency === 'USD') {
+    symbol = 'US$ ';
+  } else if (currency === 'EUR') {
+    symbol = '€ ';
+  } else if (!isCOP) {
+    symbol = `${currency} `;
+  }
 
   return (
     <Text 

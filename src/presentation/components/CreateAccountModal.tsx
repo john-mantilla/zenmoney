@@ -23,6 +23,7 @@ export interface CreateAccountData {
   name: string;
   type: AccountType;
   initialBalance: number;
+  currency?: string;
   color?: string;
   icon?: string;
   closingDay?: number;
@@ -42,6 +43,12 @@ interface CreateAccountModalProps {
   editingAccount?: Account | null;
   accounts?: Account[];
 }
+
+export const SUPPORTED_CURRENCIES = [
+  { code: 'COP', label: 'Pesos', symbol: '$' },
+  { code: 'USD', label: 'Dólares', symbol: 'US$' },
+  { code: 'EUR', label: 'Euros', symbol: '€' },
+];
 
 const ACCOUNT_TYPES: { type: AccountType; label: string; icon: string }[] = [
   { type: 'bank', label: 'Ahorro / Corriente', icon: 'bank' },
@@ -75,6 +82,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const insets = useSafeAreaInsets();
 
   const [accountName, setAccountName] = useState('');
+  const [currency, setCurrency] = useState('COP');
   const [accountType, setAccountType] = useState<AccountType>('bank');
   const [accountColor, setAccountColor] = useState<string>('');
   const [accountIcon, setAccountIcon] = useState<string>('');
@@ -96,6 +104,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
     if (editingAccount) {
       const brand = getAccountBrandInfo(editingAccount);
       setAccountName(editingAccount.name);
+      setCurrency(editingAccount.currency || 'COP');
       setAccountType(editingAccount.type);
       setAccountColor(editingAccount.color || brand.color || '');
       setAccountIcon(editingAccount.icon || brand.icon || '');
@@ -107,6 +116,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setIsDefault(editingAccount.id === currentDefaultId);
     } else {
       setAccountName('');
+      setCurrency('COP');
       setAccountType('bank');
       setAccountColor('');
       setAccountIcon('bank');
@@ -123,6 +133,39 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
     }
     setErrorMsg(null);
   }, [editingAccount, visible]);
+
+  const handleCurrencyChange = (newCurrency: string) => {
+    triggerHaptic();
+    setCurrency(newCurrency);
+    setErrorMsg(null);
+    if (newCurrency !== 'COP') {
+      // Regla de Negocio: En moneda diferente a COP solo puede ser inversión
+      setAccountType('investment');
+      if (!isManualIcon) {
+        setAccountIcon('chart-line');
+        if (!accountColor) {
+          setAccountColor('#059669');
+        }
+      }
+    }
+  };
+
+  const handleAccountTypeChange = (newType: AccountType) => {
+    if (currency !== 'COP' && newType !== 'investment') {
+      setErrorMsg('Las cuentas en moneda extranjera (USD/EUR) solo pueden catalogarse como Inversión / Activo.');
+      return;
+    }
+    setErrorMsg(null);
+    triggerHaptic();
+    setAccountType(newType);
+    if (!isManualIcon) {
+      const inferred = inferAccountBrand(accountName, newType);
+      setAccountIcon(inferred.icon);
+      if (!accountColor) {
+        setAccountColor(inferred.color);
+      }
+    }
+  };
 
   const handleNameChange = (text: string) => {
     setAccountName(text);
@@ -151,6 +194,11 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       return;
     }
 
+    if (currency !== 'COP' && accountType !== 'investment') {
+      setErrorMsg('Las cuentas en moneda diferente a COP solo pueden catalogarse como Inversión / Activo.');
+      return;
+    }
+
     setIsSaving(true);
     setErrorMsg(null);
 
@@ -160,6 +208,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
         name: accountName.trim(),
         type: accountType,
         initialBalance: balance,
+        currency,
         color: accountColor || undefined,
         icon: accountIcon || undefined,
         closingDay: closingDay ? parseInt(closingDay, 10) : undefined,
@@ -234,13 +283,64 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
 
                 {/* Nombre de la Cuenta */}
                 <TextInput
-                  label="Nombre de la cuenta (ej: Bancolombia, Nequi, Nu)"
+                  label="Nombre de la cuenta (ej: Bancolombia, Nequi, Nu, Wells Fargo)"
                   value={accountName}
                   onChangeText={handleNameChange}
                   mode="outlined"
                   style={styles.input}
                   disabled={isSaving}
                 />
+
+                {/* Moneda de la Cuenta */}
+                <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>
+                  MONEDA DE LA CUENTA
+                </Text>
+                <View style={styles.currencyRow}>
+                  {SUPPORTED_CURRENCIES.map((c) => {
+                    const isSelected = currency === c.code;
+                    return (
+                      <Pressable
+                        key={c.code}
+                        onPress={() => handleCurrencyChange(c.code)}
+                        style={[
+                          styles.currencyPill,
+                          {
+                            borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '30',
+                            backgroundColor: isSelected ? theme.colors.primary + '15' : theme.colors.surface,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            fontWeight: isSelected ? '700' : '600',
+                            color: isSelected ? theme.colors.primary : theme.colors.onSurface,
+                          }}
+                        >
+                          {c.symbol} {c.code}
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: isSelected ? theme.colors.primary : theme.customColors.textSecondary,
+                            marginLeft: 6,
+                          }}
+                        >
+                          {c.code === 'COP' ? 'Predeterminada' : 'Exterior'}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {currency !== 'COP' && (
+                  <View style={[styles.infoBanner, { backgroundColor: theme.colors.surfaceVariant, borderColor: theme.colors.outline + '40' }]}>
+                    <MaterialCommunityIcons name="information-outline" size={16} color={theme.colors.primary} style={{ marginRight: 8, marginTop: 2 }} />
+                    <Text style={{ fontSize: 12, color: theme.colors.onSurface, flex: 1, lineHeight: 17 }}>
+                      Las cuentas en <Text style={{ fontWeight: '700' }}>{currency}</Text> se catalogan como <Text style={{ fontWeight: '700' }}>Inversión / Activo</Text> y sus saldos se mantienen independientes para no distorsionar tu saldo líquido en COP.
+                    </Text>
+                  </View>
+                )}
 
                 {/* Tipo de Cuenta (Pills) */}
                 <Text style={[styles.sectionTitle, theme.typography.label, { color: theme.customColors.textSecondary }]}>
@@ -249,25 +349,18 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
                   {ACCOUNT_TYPES.map((t) => {
                     const isSelected = accountType === t.type;
+                    const isDisabled = currency !== 'COP' && t.type !== 'investment';
                     return (
                       <Pressable
                         key={t.type}
-                        onPress={() => {
-                          triggerHaptic();
-                          setAccountType(t.type);
-                          if (!isManualIcon) {
-                            const inferred = inferAccountBrand(accountName, t.type);
-                            setAccountIcon(inferred.icon);
-                            if (!accountColor) {
-                              setAccountColor(inferred.color);
-                            }
-                          }
-                        }}
+                        disabled={isDisabled}
+                        onPress={() => handleAccountTypeChange(t.type)}
                         style={[
                           styles.typePill,
                           {
                             borderColor: isSelected ? theme.colors.primary : theme.colors.outline + '30',
                             backgroundColor: isSelected ? theme.colors.primary + '15' : theme.colors.surface,
+                            opacity: isDisabled ? 0.35 : 1,
                           },
                         ]}
                       >
@@ -336,7 +429,7 @@ export const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
                 {/* Saldo Inicial */}
                 {!editingAccount && (
                   <TextInput
-                    label="Saldo Inicial ($ COP)"
+                    label={`Saldo Inicial (${currency === 'COP' ? '$ COP' : `${currency} (${currency === 'USD' ? 'US$' : currency === 'EUR' ? '€' : currency})`})`}
                     value={initialBalanceInput}
                     onChangeText={(txt) => setInitialBalanceInput(txt.replace(/[^0-9.-]/g, ''))}
                     mode="outlined"
@@ -487,6 +580,28 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
+    marginBottom: 14,
+  },
+  currencyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  currencyPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  infoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
     marginBottom: 14,
   },
   typePill: {
