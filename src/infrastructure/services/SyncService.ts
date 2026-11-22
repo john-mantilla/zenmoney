@@ -392,12 +392,63 @@ export class SyncService {
       }
 
       console.log('[SyncService] Cloud to local sync completed successfully.');
+      try {
+        const db = LocalDatabase.getDb();
+        const nowIso = new Date().toISOString();
+        await db.runAsync(
+          "INSERT OR REPLACE INTO sync_metadata (key, value, updated_at) VALUES ('last_successful_sync_at', ?, ?);",
+          [nowIso, nowIso]
+        );
+      } catch (metaErr) {
+        console.warn('[SyncService] Error saving last_successful_sync_at metadata:', metaErr);
+      }
     } catch (err) {
       console.warn('[SyncService] syncCloudToLocal warning:', err);
     } finally {
       this.isCloudSyncing = false;
     }
     })();
+  }
+
+  /**
+   * Obtiene el estado real de sincronización, la fecha/hora de la última réplica exitosa
+   * y el número de acciones pendientes en la cola local.
+   */
+  static async getSyncStatus(): Promise<{
+    lastSyncedAt: Date | null;
+    pendingQueueCount: number;
+    isOnline: boolean;
+  }> {
+    const isOnline = await isOnlineFast();
+    if (Platform.OS === 'web') {
+      return {
+        lastSyncedAt: new Date(),
+        pendingQueueCount: 0,
+        isOnline,
+      };
+    }
+
+    try {
+      const db = LocalDatabase.getDb();
+      const metaRow = await db.getFirstAsync<{ value: string }>(
+        "SELECT value FROM sync_metadata WHERE key = 'last_successful_sync_at';"
+      );
+      const queueRow = await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) as count FROM sync_actions_queue;"
+      );
+
+      return {
+        lastSyncedAt: metaRow?.value ? new Date(metaRow.value) : null,
+        pendingQueueCount: queueRow?.count || 0,
+        isOnline,
+      };
+    } catch {
+      return {
+        lastSyncedAt: null,
+        pendingQueueCount: 0,
+        isOnline,
+      };
+    }
   }
 
   /**

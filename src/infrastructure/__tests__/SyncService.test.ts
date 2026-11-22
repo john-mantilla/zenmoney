@@ -122,4 +122,53 @@ describe('SyncService Concurrency & Deduplication', () => {
 
     expect((SyncService as any).remoteAccountRepo.getAll).toHaveBeenCalledTimes(1);
   });
+
+  describe('getSyncStatus', () => {
+    it('retorna la fecha real de sincronización y conteo de cola pendiente', async () => {
+      const mockDateIso = '2026-11-22T10:30:00.000Z';
+      const mockDb = {
+        getFirstAsync: vi.fn()
+          .mockResolvedValueOnce({ value: mockDateIso }) // sync_metadata
+          .mockResolvedValueOnce({ count: 3 }), // sync_actions_queue
+      };
+      const { LocalDatabase } = await import('../../data/local/LocalDatabase');
+      vi.mocked(LocalDatabase.getDb).mockReturnValueOnce(mockDb as any);
+
+      const status = await SyncService.getSyncStatus();
+
+      expect(status.lastSyncedAt).toEqual(new Date(mockDateIso));
+      expect(status.pendingQueueCount).toBe(3);
+      expect(status.isOnline).toBe(true);
+    });
+
+    it('maneja el caso de no haber sincronizado previamente (metadata null)', async () => {
+      const mockDb = {
+        getFirstAsync: vi.fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ count: 0 }),
+      };
+      const { LocalDatabase } = await import('../../data/local/LocalDatabase');
+      vi.mocked(LocalDatabase.getDb).mockReturnValueOnce(mockDb as any);
+
+      const status = await SyncService.getSyncStatus();
+
+      expect(status.lastSyncedAt).toBeNull();
+      expect(status.pendingQueueCount).toBe(0);
+      expect(status.isOnline).toBe(true);
+    });
+
+    it('maneja errores en base de datos retornando estado por defecto seguro', async () => {
+      const mockDb = {
+        getFirstAsync: vi.fn().mockRejectedValue(new Error('SQLite error')),
+      };
+      const { LocalDatabase } = await import('../../data/local/LocalDatabase');
+      vi.mocked(LocalDatabase.getDb).mockReturnValueOnce(mockDb as any);
+
+      const status = await SyncService.getSyncStatus();
+
+      expect(status.lastSyncedAt).toBeNull();
+      expect(status.pendingQueueCount).toBe(0);
+      expect(status.isOnline).toBe(true);
+    });
+  });
 });

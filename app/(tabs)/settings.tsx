@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Platform, Linking, Image } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform, Linking, Image, TouchableOpacity } from 'react-native';
 import { Button, Text, Avatar, List, Divider, Surface, ActivityIndicator } from 'react-native-paper';
 import { useAuthStore } from '@/src/infrastructure/auth/authStore';
 import { useAppTheme } from '@/src/presentation/theme';
@@ -18,7 +18,29 @@ import { HybridTagRepository } from '@/src/data/repositories/HybridTagRepository
 import { HabitSettingsSection } from '@/src/presentation/components';
 import { Category } from '@/src/domain/entities/Category';
 import { BUILD_CONFIG } from '@/src/config/buildInfo';
+import { SyncService } from '@/src/infrastructure/services/SyncService';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+
+const formatSyncTime = (date: Date | null): string => {
+  if (!date || isNaN(date.getTime())) return 'Sin sincronizar aún';
+  
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  
+  if (isToday) {
+    return `Hoy a las ${timeStr}`;
+  }
+  
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) {
+    return `Ayer a las ${timeStr}`;
+  }
+  
+  const dateStr = date.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  return `${dateStr} a las ${timeStr}`;
+};
 
 export default function SettingsScreen() {
   const theme = useAppTheme();
@@ -31,7 +53,16 @@ export default function SettingsScreen() {
   const [categoriesList, setCategoriesList] = useState<Category[]>([]);
   const [recurrencesCount, setRecurrencesCount] = useState<number | null>(null);
   const [tagsCount, setTagsCount] = useState<number | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState<string>('Hace un momento');
+  const [syncStatus, setSyncStatus] = useState<{
+    lastSyncedAt: Date | null;
+    pendingQueueCount: number;
+    isOnline: boolean;
+  }>({
+    lastSyncedAt: null,
+    pendingQueueCount: 0,
+    isOnline: true,
+  });
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
 
   const accountRepo = new HybridAccountRepository();
   const categoryRepo = new HybridCategoryRepository();
@@ -40,24 +71,36 @@ export default function SettingsScreen() {
 
   const loadCounts = useCallback(async () => {
     try {
-      const [accs, cats, recs, tgs] = await Promise.all([
+      const [accs, cats, recs, tgs, status] = await Promise.all([
         accountRepo.getAll(),
         categoryRepo.getAll(true),
         recurrenceRepo.getAllActive(),
         tagRepo.getAll(true).catch(() => []),
+        SyncService.getSyncStatus(),
       ]);
       setAccountsCount(accs.filter((a: any) => a.isActive).length);
       setCategoriesCount(cats.length);
       setCategoriesList(cats as Category[]);
       setRecurrencesCount(recs.length);
       setTagsCount(tgs.length);
-      
-      const now = new Date();
-      setLastSyncTime(`${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`);
+      setSyncStatus(status);
     } catch (err) {
       console.error('[Settings loadCounts Error]:', err);
     }
   }, []);
+
+  const handleManualSync = async () => {
+    if (isManualSyncing) return;
+    setIsManualSyncing(true);
+    try {
+      await SyncService.fullSync();
+      await loadCounts();
+    } catch (err) {
+      console.error('[Settings Manual Sync Error]:', err);
+    } finally {
+      setIsManualSyncing(false);
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -320,15 +363,58 @@ export default function SettingsScreen() {
 
         {/* ─── TARJETA DE ESTADO DE SINCRONIZACIÓN SUPABASE ──────────────── */}
         <Surface style={[styles.syncCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline + '20' }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#059669', marginRight: 8 }} />
-            <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
-              Sincronizado con Supabase
-            </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: !syncStatus.isOnline
+                      ? '#F59E0B'
+                      : syncStatus.pendingQueueCount > 0
+                      ? '#3B82F6'
+                      : '#059669',
+                    marginRight: 8,
+                  }}
+                />
+                <Text style={[theme.typography.caption, { fontWeight: '700', color: theme.colors.onSurface }]}>
+                  {!syncStatus.isOnline
+                    ? 'Modo sin conexión'
+                    : syncStatus.pendingQueueCount > 0
+                    ? `${syncStatus.pendingQueueCount} cambio(s) pendiente(s)`
+                    : 'Sincronizado con Supabase'}
+                </Text>
+              </View>
+              <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11, marginTop: 4 }]}>
+                Última actualización: {formatSyncTime(syncStatus.lastSyncedAt)}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handleManualSync}
+              disabled={isManualSyncing}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: theme.colors.primaryContainer + '35',
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 10,
+              }}
+            >
+              {isManualSyncing ? (
+                <ActivityIndicator size={13} color={theme.colors.primary} style={{ marginRight: 6 }} />
+              ) : (
+                <MaterialCommunityIcons name="sync" size={15} color={theme.colors.primary} style={{ marginRight: 4 }} />
+              )}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.primary }}>
+                {isManualSyncing ? 'Sincronizando' : 'Sincronizar'}
+              </Text>
+            </TouchableOpacity>
           </View>
-          <Text style={[theme.typography.caption, { color: theme.customColors.textSecondary, fontSize: 11, marginTop: 2 }]}>
-            Última actualización: {lastSyncTime}
-          </Text>
         </Surface>
 
         {/* Botón de Salida */}
