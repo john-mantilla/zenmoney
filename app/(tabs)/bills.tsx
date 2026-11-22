@@ -125,6 +125,7 @@ export default function BillsScreen() {
   const lastLoadRef = useRef<number>(0);
   const lastLoadedMonthRef = useRef<number | null>(null);
   const lastLoadedYearRef = useRef<number | null>(null);
+  const isRevalidatingRef = useRef<boolean>(false);
 
   const loadData = async (force = false) => {
     const isNewTimeframe = currentMonth !== lastLoadedMonthRef.current || currentYear !== lastLoadedYearRef.current;
@@ -159,8 +160,8 @@ export default function BillsScreen() {
       
       const txs = await transactionRepo.getAll({ startDate, endDate }, preferCache);
       
-      // Obtener todas las transacciones históricas para consolidar diferidos de tarjetas de crédito
-      const allHistoricTxs = await transactionRepo.getAll({}, preferCache);
+      // Obtener todas las transacciones históricas locales para consolidar diferidos de tarjetas de crédito
+      const allHistoricTxs = await transactionRepo.getAll({}, true);
       
       const statementBills: Transaction[] = [];
       const ccAccounts = loadedAccounts.filter(a => a.type === 'credit_card' && a.closingDay && a.paymentDay);
@@ -335,22 +336,28 @@ export default function BillsScreen() {
     }
 
     // 2. REVALIDACIÓN SILENCIOSA EN SEGUNDO PLANO (Stale-While-Revalidate)
-    isOnlineFast().then((isOnline) => {
-      if (isOnline) {
-        executeFetch(false).catch((err) => {
-          console.error('[Bills Revalidation Error]:', err);
-        }).finally(() => {
+    if (!isRevalidatingRef.current) {
+      isRevalidatingRef.current = true;
+      isOnlineFast().then((isOnline) => {
+        if (isOnline) {
+          executeFetch(false).catch((err) => {
+            console.error('[Bills Revalidation Error]:', err);
+          }).finally(() => {
+            isRevalidatingRef.current = false;
+            setIsLoading(false);
+            setRefreshing(false);
+          });
+        } else {
+          isRevalidatingRef.current = false;
           setIsLoading(false);
           setRefreshing(false);
-        });
-      } else {
+        }
+      }).catch(() => {
+        isRevalidatingRef.current = false;
         setIsLoading(false);
         setRefreshing(false);
-      }
-    }).catch(() => {
-      setIsLoading(false);
-      setRefreshing(false);
-    });
+      });
+    }
   };
 
   useFocusEffect(

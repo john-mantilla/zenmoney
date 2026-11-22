@@ -178,6 +178,7 @@ export default function DashboardScreen() {
   const lastLoadRef = useRef<number>(0);
   const lastLoadedMonthRef = useRef<number | null>(null);
   const lastLoadedYearRef = useRef<number | null>(null);
+  const isBackgroundSyncingRef = useRef<boolean>(false);
 
   const loadData = async (force = false) => {
     const isNewTimeframe = selectedMonth !== lastLoadedMonthRef.current || selectedYear !== lastLoadedYearRef.current;
@@ -377,17 +378,27 @@ export default function DashboardScreen() {
 
     // 2. SINCRONIZACIÓN EN SEGUNDO PLANO (Non-Blocking)
     // Si el dispositivo está online, sincroniza en background sin perturbar la interfaz ni alterar saldos bruscamente
-    isOnlineFast().then((isOnline) => {
-      if (isOnline) {
-        SyncService.fullSync()
-          .then(() => {
-            loadData(true).catch(() => {});
-          })
-          .catch((err) => {
-            console.warn('[Dashboard Background Sync Warning]:', err);
-          });
-      }
-    }).catch(() => {});
+    if (!isBackgroundSyncingRef.current) {
+      isBackgroundSyncingRef.current = true;
+      isOnlineFast().then((isOnline) => {
+        if (isOnline) {
+          SyncService.fullSync()
+            .then(() => {
+              executeFetch(true).catch(() => {});
+            })
+            .catch((err) => {
+              console.warn('[Dashboard Background Sync Warning]:', err);
+            })
+            .finally(() => {
+              isBackgroundSyncingRef.current = false;
+            });
+        } else {
+          isBackgroundSyncingRef.current = false;
+        }
+      }).catch(() => {
+        isBackgroundSyncingRef.current = false;
+      });
+    }
   };
 
   // Programar alertas y descartar recordatorios pasados una sola vez al montar la pantalla
@@ -410,6 +421,7 @@ export default function DashboardScreen() {
       .catch(() => {})
       .finally(async () => {
         await loadData(true);
+        setRefreshing(false);
       });
   };
 

@@ -261,7 +261,15 @@ export class SqliteAccountRepository implements AccountRepository {
     };
 
     if (typeof (db as any).withTransactionAsync === 'function') {
-      await (db as any).withTransactionAsync(runInserts);
+      try {
+        await (db as any).withTransactionAsync(runInserts);
+      } catch (txErr: any) {
+        if (txErr?.message?.includes('cannot start a transaction within a transaction')) {
+          await runInserts();
+        } else {
+          throw txErr;
+        }
+      }
     } else {
       await runInserts();
     }

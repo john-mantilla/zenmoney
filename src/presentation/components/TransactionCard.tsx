@@ -139,11 +139,10 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
               {/* Etiquetas (Tags) asignadas al gasto */}
               {onJumpToMonth && (
                 <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
+                  onPress={() => {
                     onJumpToMonth();
                   }}
-                  hitSlop={6}
+                  hitSlop={8}
                   style={({ pressed }) => [
                     styles.badge,
                     {
@@ -164,8 +163,7 @@ export const TransactionCard: React.FC<TransactionCardProps> = React.memo(({
               {transaction.tags && transaction.tags.map(tag => (
                 <Pressable
                   key={tag.id}
-                  onPress={(e) => {
-                    e.stopPropagation();
+                  onPress={() => {
                     onPressTag?.(tag);
                   }}
                   hitSlop={4}

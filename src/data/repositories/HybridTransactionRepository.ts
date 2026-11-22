@@ -27,7 +27,7 @@ export class HybridTransactionRepository implements TransactionRepository {
     // y hay conectividad, descargar de la nube y persistir en SQLite
     if ((local.length === 0 || !preferCache) && (await isOnlineFast())) {
       try {
-        const remote = await withTimeout(this.remoteRepo.getAll(filters), 3500, []);
+        const remote = await withTimeout(this.remoteRepo.getAll(filters), 8000, null as any);
         if (remote && remote.length > 0) {
           await this.localRepo!.bulkSave(remote);
           return this.localRepo!.getAll(filters);

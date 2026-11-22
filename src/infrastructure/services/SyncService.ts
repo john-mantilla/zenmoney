@@ -21,6 +21,8 @@ import { Platform } from 'react-native';
 
 export class SyncService {
   private static isSyncing = false;
+  private static isCloudSyncing = false;
+  private static inFlightFullSync: Promise<void> | null = null;
   private static remoteTransactionRepo = new SupabaseTransactionRepository();
   private static remoteAccountRepo = new SupabaseAccountRepository();
   private static remoteCategoryRepo = new SupabaseCategoryRepository();
@@ -183,27 +185,34 @@ export class SyncService {
    * 5. Movimientos pendientes (DIAN, bancos, etc.)
    * 6. Presupuestos y Etiquetas
    */
-  static async syncCloudToLocal(): Promise<void> {
-    if (Platform.OS === 'web') return;
-    if (!(await isOnlineFast())) return;
+  static syncCloudToLocal(): Promise<void> {
+    if (Platform.OS === 'web') return Promise.resolve();
+    if (this.isCloudSyncing) {
+      console.log('[SyncService] syncCloudToLocal already in progress, skipping');
+      return Promise.resolve();
+    }
 
-    try {
-      const localAccountRepo = new SqliteAccountRepository();
-      const localTxRepo = new SqliteTransactionRepository();
-      const localCatRepo = new SqliteCategoryRepository();
-      const localTagRepo = new SqliteTagRepository();
-      const localBudgetRepo = new SqliteBudgetRepository();
-      const localRecurringRepo = new SqliteRecurringRuleRepository();
-      const localCategorizationRepo = new SqliteCategorizationRuleRepository();
-      const balanceUseCase = new CalculateAccountBalance(this.remoteTransactionRepo);
+    this.isCloudSyncing = true;
+    return (async () => {
+      try {
+        if (!(await isOnlineFast())) return;
+
+        const localAccountRepo = new SqliteAccountRepository();
+        const localTxRepo = new SqliteTransactionRepository();
+        const localCatRepo = new SqliteCategoryRepository();
+        const localTagRepo = new SqliteTagRepository();
+        const localBudgetRepo = new SqliteBudgetRepository();
+        const localRecurringRepo = new SqliteRecurringRuleRepository();
+        const localCategorizationRepo = new SqliteCategorizationRuleRepository();
+        const balanceUseCase = new CalculateAccountBalance(this.remoteTransactionRepo);
 
       // 1. Descargar y sincronizar cuentas
-      const remoteAccounts = await withTimeout(this.remoteAccountRepo.getAll(), 3500, []);
+      const remoteAccounts = await withTimeout(this.remoteAccountRepo.getAll(), 6000, []);
       if (remoteAccounts && remoteAccounts.length > 0) {
         const accountsWithRealBalances = await Promise.all(
           remoteAccounts.map(async (acc) => {
             try {
-              const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 3500, acc.initialBalance);
+              const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 5000, acc.initialBalance);
               return {
                 ...acc,
                 currentBalance: realBalance,
@@ -282,25 +291,23 @@ export class SyncService {
           lastSyncedAt = undefined;
         }
 
-        const filters: any = {
-          status: 'confirmed',
-        };
+        const filters: any = {};
         if (lastSyncedAt) {
           filters.updatedAfter = lastSyncedAt;
           filters.limit = 500;
         }
 
-        const remoteTransactions = await withTimeout(
+        const remoteTransactions: Transaction[] | null = await withTimeout(
           this.remoteTransactionRepo.getAll(filters),
           15000,
-          []
+          null as any
         );
 
         if (remoteTransactions && remoteTransactions.length > 0) {
           await localTxRepo.bulkSave(remoteTransactions);
 
           // Registrar cursor únicamente con el timestamp más reciente de las transacciones realmente guardadas
-          const maxUpdatedAt = remoteTransactions.reduce((max: string | undefined, tx) => {
+          const maxUpdatedAt = remoteTransactions.reduce((max: string | undefined, tx: Transaction) => {
             const u = tx.updatedAt || tx.createdAt;
             return (!max || (u && u > max)) ? u : max;
           }, lastSyncedAt);
@@ -326,14 +333,14 @@ export class SyncService {
           this.remoteTransactionRepo.getAll({
             status: 'pending',
           }),
-          10000,
-          []
+          12000,
+          null as any
         );
 
         if (remotePending && remotePending.length > 0) {
           await localTxRepo.bulkSave(remotePending);
         }
-        if (remotePending && typeof (localTxRepo as any).reconcilePendingTransactions === 'function') {
+        if (remotePending !== null && Array.isArray(remotePending) && typeof (localTxRepo as any).reconcilePendingTransactions === 'function') {
           await (localTxRepo as any).reconcilePendingTransactions(remotePending);
         }
       } catch (pendingErr) {
@@ -387,7 +394,10 @@ export class SyncService {
       console.log('[SyncService] Cloud to local sync completed successfully.');
     } catch (err) {
       console.warn('[SyncService] syncCloudToLocal warning:', err);
+    } finally {
+      this.isCloudSyncing = false;
     }
+    })();
   }
 
   /**
@@ -395,17 +405,27 @@ export class SyncService {
    * 1. Sube cambios locales pendientes hacia Supabase (local -> nube).
    * 2. Descarga la réplica limpia y actualizada desde Supabase hacia SQLite (nube -> local).
    */
-  static async fullSync(): Promise<void> {
-    if (Platform.OS === 'web') return;
-    if (!(await isOnlineFast())) return;
-
-    try {
-      console.log('[SyncService] Starting full bidirectional sync...');
-      await this.syncPendingActions();
-      await this.syncCloudToLocal();
-    } catch (err) {
-      console.error('[SyncService] Full sync error:', err);
+  static fullSync(): Promise<void> {
+    if (Platform.OS === 'web') return Promise.resolve();
+    if (this.inFlightFullSync) {
+      console.log('[SyncService] fullSync already in progress, returning active promise');
+      return this.inFlightFullSync;
     }
+
+    this.inFlightFullSync = (async () => {
+      try {
+        if (!(await isOnlineFast())) return;
+        console.log('[SyncService] Starting full bidirectional sync...');
+        await this.syncPendingActions();
+        await this.syncCloudToLocal();
+      } catch (err) {
+        console.error('[SyncService] Full sync error:', err);
+      } finally {
+        this.inFlightFullSync = null;
+      }
+    })();
+
+    return this.inFlightFullSync;
   }
 
   /**

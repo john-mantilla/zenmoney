@@ -48,7 +48,7 @@ export default function TransactionsScreen() {
   const [isSearchingHistory, setIsSearchingHistory] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchScope, setSearchScope] = useState<'all' | 'month'>('all');
+  const [searchScope, setSearchScope] = useState<'all' | 'month'>('month');
   const [searchStats, setSearchStats] = useState<SmartSearchResult | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
@@ -615,15 +615,12 @@ export default function TransactionsScreen() {
               placeholder="Buscar concepto, comercio, $50k..."
               onChangeText={(text) => {
                 setSearchQuery(text);
-                if (text.trim().length > 0 && !hasUserManuallyToggledScopeRef.current) {
-                  setSearchScope('all');
-                }
               }}
               value={searchQuery}
               onClearIconPress={() => {
                 setSearchQuery('');
                 hasUserManuallyToggledScopeRef.current = false;
-                setSearchScope('all');
+                setSearchScope('month');
               }}
               style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.surfaceVariant, height: 42, borderRadius: 12 }]}
               inputStyle={[theme.typography.body, { fontSize: 13, minHeight: 0 }]}
@@ -926,6 +923,7 @@ export default function TransactionsScreen() {
       {/* Listado de movimientos */}
       {viewMode === 'date' ? (
         <SectionList
+          keyboardShouldPersistTaps="handled"
           sections={getGroupedTransactionsByDate()}
           keyExtractor={item => item.id}
           extraData={selectedTransactionIds}
@@ -986,7 +984,7 @@ export default function TransactionsScreen() {
               onAction={() => {
                 setSearchQuery('');
                 hasUserManuallyToggledScopeRef.current = false;
-                setSearchScope('all');
+                setSearchScope('month');
                 setSelectedAccountId(null);
                 setSelectedTagId(null);
               }}
@@ -995,6 +993,7 @@ export default function TransactionsScreen() {
         />
       ) : (
         <SectionList
+          keyboardShouldPersistTaps="handled"
           sections={getGroupedTransactions()}
           keyExtractor={item => item.id}
           extraData={selectedTransactionIds}
@@ -1055,7 +1054,7 @@ export default function TransactionsScreen() {
               onAction={() => {
                 setSearchQuery('');
                 hasUserManuallyToggledScopeRef.current = false;
-                setSearchScope('all');
+                setSearchScope('month');
                 setSelectedAccountId(null);
                 setSelectedTagId(null);
               }}
