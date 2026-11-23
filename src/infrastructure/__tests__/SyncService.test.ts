@@ -47,6 +47,9 @@ vi.mock('../../data/repositories/SupabaseCategoryRepository', () => ({
 vi.mock('../../data/repositories/SupabaseTagRepository', () => ({
   SupabaseTagRepository: class {
     getAll = vi.fn().mockResolvedValue([]);
+    create = vi.fn().mockResolvedValue({});
+    update = vi.fn().mockResolvedValue({});
+    delete = vi.fn().mockResolvedValue(true);
   },
 }));
 
@@ -169,6 +172,40 @@ describe('SyncService Concurrency & Deduplication', () => {
       expect(status.lastSyncedAt).toBeNull();
       expect(status.pendingQueueCount).toBe(0);
       expect(status.isOnline).toBe(true);
+    });
+  });
+
+  describe('Tag Synchronization & Reconciliation', () => {
+    it('procesa correctamente acciones pendientes de tags (INSERT, UPDATE, DELETE)', async () => {
+      const mockDb = {
+        getAllAsync: vi.fn().mockResolvedValueOnce([
+          {
+            id: 'act-1',
+            action_type: 'UPDATE',
+            table_name: 'tags',
+            record_id: 'tag-1',
+            payload: JSON.stringify({ name: 'Trabajo Modificado', color: '#123456' }),
+          },
+        ]),
+        runAsync: vi.fn().mockResolvedValue({ changes: 1 }),
+      };
+      const { LocalDatabase } = await import('../../data/local/LocalDatabase');
+      vi.mocked(LocalDatabase.getDb).mockReturnValue(mockDb as any);
+
+      const updateSpy = vi.spyOn((SyncService as any).remoteTagRepo, 'update').mockResolvedValue({});
+
+      await SyncService.syncPendingActions();
+
+      expect(updateSpy).toHaveBeenCalledWith('tag-1', {
+        name: 'Trabajo Modificado',
+        color: '#123456',
+      });
+      expect(mockDb.runAsync).toHaveBeenCalledWith(
+        'DELETE FROM sync_actions_queue WHERE id = ?;',
+        ['act-1']
+      );
+
+      updateSpy.mockRestore();
     });
   });
 });

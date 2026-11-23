@@ -107,7 +107,23 @@ export class SyncService {
           } else if (table === 'tags') {
             if (type === 'INSERT') {
               const { familyGroupId, createdAt, ...cleanPayload } = payload;
-              await this.remoteTagRepo.create(cleanPayload);
+              const remoteTag = await this.remoteTagRepo.create(cleanPayload);
+              if (remoteTag && remoteTag.id && remoteTag.id !== recordId) {
+                try {
+                  await db.runAsync(
+                    `INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+                     SELECT transaction_id, ? FROM transaction_tags WHERE tag_id = ?;`,
+                    [remoteTag.id, recordId]
+                  );
+                  await db.runAsync('DELETE FROM transaction_tags WHERE tag_id = ?;', [recordId]);
+                  await db.runAsync('UPDATE tags SET id = ? WHERE id = ?;', [remoteTag.id, recordId]);
+                } catch (remapErr) {
+                  console.warn('[SyncService] Error remapping local tag id to remote tag id:', remapErr);
+                }
+              }
+            } else if (type === 'UPDATE') {
+              const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
+              await this.remoteTagRepo.update(recordId, cleanPayload);
             } else if (type === 'DELETE') {
               await this.remoteTagRepo.delete(recordId);
             }
@@ -128,6 +144,8 @@ export class SyncService {
             } else if (type === 'UPDATE') {
               const { id, familyGroupId, createdAt, ...cleanPayload } = payload;
               await this.remoteCategorizationRepo.update(recordId, cleanPayload);
+            } else if (type === 'DELETE') {
+              await this.remoteCategorizationRepo.delete(recordId);
             }
           }
 
@@ -238,11 +256,46 @@ export class SyncService {
         console.warn('[SyncService] Error syncing categories to local:', catErr);
       }
 
-      // 3. Descargar y sincronizar etiquetas
+      // 3. Descargar, sincronizar y reconciliar etiquetas bidireccionalmente
       try {
         const remoteTags = await withTimeout(this.remoteTagRepo.getAll(), 3500, []);
-        if (remoteTags && remoteTags.length > 0) {
-          await localTagRepo.bulkSave(remoteTags);
+        if (remoteTags) {
+          if (remoteTags.length > 0) {
+            await localTagRepo.bulkSave(remoteTags);
+          }
+
+          // Reconciliación bidireccional: detectar etiquetas locales que no existen en Supabase
+          // (ej. "Trabajo" creada localmente y omitida o limpiada de la cola) y subirlas a Supabase
+          const localTags = await localTagRepo.getAll();
+          const remoteNamesLower = new Set(remoteTags.map(rt => (rt.name || '').trim().toLowerCase()));
+
+          for (const localTag of localTags) {
+            const cleanName = (localTag.name || '').trim().toLowerCase();
+            if (cleanName && !remoteNamesLower.has(cleanName)) {
+              try {
+                console.log(`[SyncService] Reconciling orphan local tag to Supabase: ${localTag.name} (${localTag.id})`);
+                const uploaded = await this.remoteTagRepo.create({
+                  id: localTag.id,
+                  name: localTag.name,
+                  color: localTag.color,
+                } as any);
+
+                if (uploaded && uploaded.id && uploaded.id !== localTag.id) {
+                  const db = LocalDatabase.getDb();
+                  await db.runAsync(
+                    `INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id)
+                     SELECT transaction_id, ? FROM transaction_tags WHERE tag_id = ?;`,
+                    [uploaded.id, localTag.id]
+                  );
+                  await db.runAsync('DELETE FROM transaction_tags WHERE tag_id = ?;', [localTag.id]);
+                  await db.runAsync('UPDATE tags SET id = ? WHERE id = ?;', [uploaded.id, localTag.id]);
+                }
+                remoteNamesLower.add(cleanName);
+              } catch (orphanErr) {
+                console.warn(`[SyncService] Warning uploading orphan tag ${localTag.name}:`, orphanErr);
+              }
+            }
+          }
         }
       } catch (tagErr) {
         console.warn('[SyncService] Error syncing tags to local:', tagErr);

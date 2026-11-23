@@ -56,13 +56,18 @@ export class SupabaseTagRepository implements TagRepository {
       return Mapper.toDomainTag(existing);
     }
 
+    const insertPayload: any = {
+      family_group_id: profile.family_group_id,
+      name: cleanName,
+      color: input.color || '#808080'
+    };
+    if ((input as any).id) {
+      insertPayload.id = (input as any).id;
+    }
+
     const { data, error } = await supabase
       .from('tags')
-      .insert({
-        family_group_id: profile.family_group_id,
-        name: cleanName,
-        color: input.color || '#808080'
-      })
+      .insert(insertPayload)
       .select('*')
       .single();
 

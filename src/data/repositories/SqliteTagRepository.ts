@@ -126,16 +126,6 @@ export class SqliteTagRepository implements TagRepository {
 
           // Eliminar el tag duplicado
           await db.runAsync('DELETE FROM tags WHERE id = ?;', [dup.id]);
-
-          // Encolar borrado para sincronización
-          try {
-            const actionId = 'act_' + Math.random().toString(36).substring(2, 15);
-            await db.runAsync(
-              `INSERT INTO sync_actions_queue (id, action_type, table_name, record_id, payload, created_at)
-               VALUES (?, ?, ?, ?, ?, ?);`,
-              [actionId, 'DELETE', 'tags', dup.id, JSON.stringify({ id: dup.id }), new Date().toISOString()]
-            );
-          } catch {}
         }
       }
     }

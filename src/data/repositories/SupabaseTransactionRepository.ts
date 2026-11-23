@@ -132,8 +132,15 @@ export class SupabaseTransactionRepository implements TransactionRepository {
     }
 
     if (input.tags && input.tags.length > 0) {
-      const tagInserts = input.tags.map(tagId => ({ transaction_id: data.id, tag_id: tagId }));
-      await supabase.from('transaction_tags').insert(tagInserts);
+      try {
+        const tagInserts = input.tags.map(tagId => ({ transaction_id: data.id, tag_id: tagId }));
+        const { error: tagError } = await supabase.from('transaction_tags').insert(tagInserts);
+        if (tagError) {
+          console.warn('[SupabaseTransactionRepository] Warning inserting transaction_tags:', tagError.message);
+        }
+      } catch (tagErr) {
+        console.warn('[SupabaseTransactionRepository] Exception inserting transaction_tags:', tagErr);
+      }
     }
 
     return this.getById(data.id) as Promise<Transaction>;
@@ -156,11 +163,18 @@ export class SupabaseTransactionRepository implements TransactionRepository {
     }
 
     if (data.tags !== undefined) {
-      // Borrar tags existentes y crear nuevos
-      await supabase.from('transaction_tags').delete().eq('transaction_id', id);
-      if (data.tags.length > 0) {
-        const tagInserts = data.tags.map(tagId => ({ transaction_id: id, tag_id: tagId }));
-        await supabase.from('transaction_tags').insert(tagInserts);
+      try {
+        // Borrar tags existentes y crear nuevos
+        await supabase.from('transaction_tags').delete().eq('transaction_id', id);
+        if (data.tags.length > 0) {
+          const tagInserts = data.tags.map(tagId => ({ transaction_id: id, tag_id: tagId }));
+          const { error: tagError } = await supabase.from('transaction_tags').insert(tagInserts);
+          if (tagError) {
+            console.warn('[SupabaseTransactionRepository] Warning updating transaction_tags:', tagError.message);
+          }
+        }
+      } catch (tagErr) {
+        console.warn('[SupabaseTransactionRepository] Exception updating transaction_tags:', tagErr);
       }
     }
 

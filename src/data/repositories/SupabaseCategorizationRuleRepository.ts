@@ -77,4 +77,15 @@ export class SupabaseCategorizationRuleRepository implements CategorizationRuleR
 
     return Mapper.toDomainCategorizationRule(updated);
   }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('auto_categorization_rules')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      throw new Error(`Error al eliminar la regla de categorización: ${error.message}`);
+    }
+  }
 }
