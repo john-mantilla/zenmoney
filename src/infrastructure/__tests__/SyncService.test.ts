@@ -178,15 +178,17 @@ describe('SyncService Concurrency & Deduplication', () => {
   describe('Tag Synchronization & Reconciliation', () => {
     it('procesa correctamente acciones pendientes de tags (INSERT, UPDATE, DELETE)', async () => {
       const mockDb = {
-        getAllAsync: vi.fn().mockResolvedValueOnce([
-          {
-            id: 'act-1',
-            action_type: 'UPDATE',
-            table_name: 'tags',
-            record_id: 'tag-1',
-            payload: JSON.stringify({ name: 'Trabajo Modificado', color: '#123456' }),
-          },
-        ]),
+        getAllAsync: vi.fn()
+          .mockResolvedValueOnce([]) // orphan unsynced txs
+          .mockResolvedValueOnce([
+            {
+              id: 'act-1',
+              action_type: 'UPDATE',
+              table_name: 'tags',
+              record_id: 'tag-1',
+              payload: JSON.stringify({ name: 'Trabajo Modificado', color: '#123456' }),
+            },
+          ]),
         runAsync: vi.fn().mockResolvedValue({ changes: 1 }),
       };
       const { LocalDatabase } = await import('../../data/local/LocalDatabase');

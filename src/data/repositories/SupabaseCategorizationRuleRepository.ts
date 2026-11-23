@@ -41,6 +41,7 @@ export class SupabaseCategorizationRuleRepository implements CategorizationRuleR
     }
 
     const dbRule = {
+      ...((input as any).id && { id: (input as any).id }),
       family_group_id: profile.family_group_id,
       match_pattern: input.matchPattern,
       category_id: input.categoryId,

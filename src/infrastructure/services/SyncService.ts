@@ -46,12 +46,33 @@ export class SyncService {
 
     try {
       const db = LocalDatabase.getDb();
-      // Obtener todas las acciones en la cola ordenadas cronológicamente
-      const actions = await db.getAllAsync<any>(
-        'SELECT * FROM sync_actions_queue ORDER BY created_at ASC;'
-      );
 
-      if (actions.length === 0) {
+      // 0. Auto-sanación: Re-encolar transacciones locales con synced = 0 que hayan quedado fuera de la cola
+      try {
+        const orphanUnsyncedTxs = (await db.getAllAsync<any>(
+          `SELECT * FROM transactions 
+           WHERE synced = 0 
+             AND id NOT IN (SELECT record_id FROM sync_actions_queue WHERE table_name = 'transactions')
+           LIMIT 50;`
+        )) || [];
+        for (const ot of orphanUnsyncedTxs) {
+          const actionId = 'act_' + Math.random().toString(36).substring(2, 15);
+          await db.runAsync(
+            `INSERT INTO sync_actions_queue (id, action_type, table_name, record_id, payload, created_at)
+             VALUES (?, 'INSERT', 'transactions', ?, ?, ?);`,
+            [actionId, ot.id, JSON.stringify(ot), ot.created_at || new Date().toISOString()]
+          );
+        }
+      } catch (selfHealErr) {
+        console.warn('[SyncService] Self-heal unsynced transactions warning:', selfHealErr);
+      }
+
+      // Obtener todas las acciones en la cola ordenadas cronológicamente
+      const actions = (await db.getAllAsync<any>(
+        'SELECT * FROM sync_actions_queue ORDER BY created_at ASC;'
+      )) || [];
+
+      if (!Array.isArray(actions) || actions.length === 0) {
         console.log('[SyncService] No pending actions to sync.');
         this.isSyncing = false;
         return;
@@ -165,24 +186,45 @@ export class SyncService {
           console.log(`[SyncService] Successfully synced action ${action.id} (${type} on ${table})`);
         } catch (actionErr: any) {
           console.error(`[SyncService] Failed to sync action ${action.id}:`, actionErr);
-          const isNetworkError = 
-            actionErr?.message?.includes('Network request failed') ||
-            actionErr?.message?.includes('Failed to fetch') ||
-            actionErr?.message?.includes('timeout') ||
-            actionErr?.name === 'AbortError';
+          const msg = (actionErr?.message || '').toLowerCase();
+          const isRetryableError = 
+            msg.includes('network request failed') ||
+            msg.includes('failed to fetch') ||
+            msg.includes('timeout') ||
+            msg.includes('abort') ||
+            msg.includes('no autenticado') ||
+            msg.includes('not authenticated') ||
+            msg.includes('no se encontró el perfil') ||
+            msg.includes('jwt') ||
+            msg.includes('auth session') ||
+            msg.includes('rate limit') ||
+            msg.includes('too many requests') ||
+            msg.includes('500') ||
+            msg.includes('502') ||
+            msg.includes('503') ||
+            msg.includes('504') ||
+            msg.includes('socket') ||
+            msg.includes('connection') ||
+            actionErr?.name === 'AbortError' ||
+            actionErr?.status === 429 ||
+            (actionErr?.status >= 500 && actionErr?.status < 600);
 
-          if (!isNetworkError) {
-            // Error no transitorio (ej. RLS, duplicate key, record not found).
+          if (!isRetryableError) {
+            // Error no transitorio (ej. validación fatal de datos).
             // Se remueve de la cola para evitar que una sola acción bloquee permanentemente la sincronización.
             console.warn(`[SyncService] Removing non-transient action ${action.id} from queue:`, actionErr?.message);
             await db.runAsync('DELETE FROM sync_actions_queue WHERE id = ?;', [action.id]);
-            try {
-              await db.runAsync(`UPDATE ${action.table_name} SET synced = 1 WHERE id = ?;`, [action.record_id]);
-            } catch {
-              // ignore
+            // Solo marcar como synced si fue un duplicado (ya existía en el servidor)
+            const isDuplicate = msg.includes('duplicate') || msg.includes('already exists') || msg.includes('23505');
+            if (isDuplicate) {
+              try {
+                await db.runAsync(`UPDATE ${action.table_name} SET synced = 1 WHERE id = ?;`, [action.record_id]);
+              } catch {
+                // ignore
+              }
             }
           } else {
-            console.warn(`[SyncService] Transient network error encountered. Action ${action.id} remains in queue.`);
+            console.warn(`[SyncService] Transient/auth error encountered (${actionErr?.message}). Action ${action.id} remains in queue.`);
             break;
           }
         }
@@ -226,31 +268,67 @@ export class SyncService {
 
       // 1. Descargar y sincronizar cuentas
       const remoteAccounts = await withTimeout(this.remoteAccountRepo.getAll(), 6000, []);
-      if (remoteAccounts && remoteAccounts.length > 0) {
-        const accountsWithRealBalances = await Promise.all(
-          remoteAccounts.map(async (acc) => {
-            try {
-              const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 5000, acc.initialBalance);
-              return {
-                ...acc,
-                currentBalance: realBalance,
-              };
-            } catch {
-              return {
-                ...acc,
-                currentBalance: acc.initialBalance,
-              };
+      if (remoteAccounts) {
+        if (remoteAccounts.length > 0) {
+          const accountsWithRealBalances = await Promise.all(
+            remoteAccounts.map(async (acc) => {
+              try {
+                const realBalance = await withTimeout(balanceUseCase.execute(acc, false), 5000, acc.initialBalance);
+                return {
+                  ...acc,
+                  currentBalance: realBalance,
+                };
+              } catch {
+                return {
+                  ...acc,
+                  currentBalance: acc.initialBalance,
+                };
+              }
+            })
+          );
+          await localAccountRepo.bulkSave(accountsWithRealBalances);
+        }
+
+        // Reconciliación de cuentas locales huérfanas que no existan en Supabase
+        try {
+          const localAccounts = await localAccountRepo.getAll();
+          const remoteAccNames = new Set(remoteAccounts.map(ra => (ra.name || '').trim().toLowerCase()));
+          for (const la of localAccounts) {
+            const cleanAccName = (la.name || '').trim().toLowerCase();
+            if (cleanAccName && !remoteAccNames.has(cleanAccName)) {
+              console.log(`[SyncService] Reconciling orphan local account to Supabase: ${la.name} (${la.id})`);
+              await this.remoteAccountRepo.create(la);
+              remoteAccNames.add(cleanAccName);
             }
-          })
-        );
-        await localAccountRepo.bulkSave(accountsWithRealBalances);
+          }
+        } catch (accReconcileErr) {
+          console.warn('[SyncService] Warning reconciling orphan accounts:', accReconcileErr);
+        }
       }
 
       // 2. Descargar y sincronizar categorías
       try {
         const remoteCats = await withTimeout(this.remoteCategoryRepo.getAll(true), 3500, []);
-        if (remoteCats && remoteCats.length > 0) {
-          await localCatRepo.bulkSave(remoteCats);
+        if (remoteCats) {
+          if (remoteCats.length > 0) {
+            await localCatRepo.bulkSave(remoteCats);
+          }
+
+          // Reconciliación de categorías personalizadas locales huérfanas
+          try {
+            const localCats = await localCatRepo.getAll(true);
+            const remoteCatNames = new Set(remoteCats.map(rc => (rc.name || '').trim().toLowerCase()));
+            for (const lc of localCats) {
+              const cleanCatName = (lc.name || '').trim().toLowerCase();
+              if (!lc.isSystem && cleanCatName && !remoteCatNames.has(cleanCatName)) {
+                console.log(`[SyncService] Reconciling orphan local category to Supabase: ${lc.name} (${lc.id})`);
+                await this.remoteCategoryRepo.create(lc);
+                remoteCatNames.add(cleanCatName);
+              }
+            }
+          } catch (catReconcileErr) {
+            console.warn('[SyncService] Warning reconciling orphan categories:', catReconcileErr);
+          }
         }
       } catch (catErr) {
         console.warn('[SyncService] Error syncing categories to local:', catErr);
@@ -347,7 +425,7 @@ export class SyncService {
         const filters: any = {};
         if (lastSyncedAt) {
           filters.updatedAfter = lastSyncedAt;
-          filters.limit = 500;
+          filters.limit = 1000;
         }
 
         const remoteTransactions: Transaction[] | null = await withTimeout(
